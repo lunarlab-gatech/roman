@@ -17,7 +17,7 @@ setup(
     license='MIT',
     packages=find_packages(),
     install_requires=[
-        'numpy<2',
+        'numpy<1.24',
         'scipy',
         'matplotlib', 
         'gtsam',
