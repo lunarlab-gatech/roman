@@ -1,0 +1,30 @@
+dt: 0.285714285714 # 3.5Hz on Camera topics, 14.5Hz on GT /tf tree
+runs: ["Husky1", "Drone1"]
+run_env: "ROBOT"
+
+img_data:
+  path: "/home/${USER}/data/hercules_test_datasets_V1.1/ausenv_test1_checkpoints_CSLAM_2UAVUGV_roman_downsampled"
+  topic: /hercules_node/${ROBOT}/front_center_Scene/image
+  camera_info_topic: /hercules_node/${ROBOT}/front_center_Scene/camera_info
+  compressed: False
+  compressed_encoding: 'bgr8' # For some reason, this determines how the image is loaded; so although not compressed, this is necessary to load image properly
+  
+depth_data:
+  path: "/home/${USER}/data/hercules_test_datasets_V1.1/ausenv_test1_checkpoints_CSLAM_2UAVUGV_roman_downsampled"
+  topic: /hercules_node/${ROBOT}/front_center_DepthPerspective/image
+  camera_info_topic: /hercules_node/${ROBOT}/front_center_DepthPerspective/camera_info
+  compressed: False
+  compressed_encoding: '32FC1'
+
+pose_data:
+  type: bag_tf
+  path: "/home/${USER}/data/hercules_test_datasets_V1.1/ausenv_test1_checkpoints_CSLAM_2UAVUGV_roman_downsampled"
+  parent_frame: world
+  child_frame: ${ROBOT}/front_center_body
+  time_tol: 0.2 # Slightly lower than GT /tf tree rate
+  T_odombase_camera:
+    input_type: "string"
+    string: "T_FLURDF" # Pose of Camera in FLU frame, or transformation from Camera to FLU frame
+  T_camera_flu:
+    input_type: "string"
+    string: "T_RDFFLU" # Pose of FLU in Camera frame, or transformation from FLU to Camera frame
