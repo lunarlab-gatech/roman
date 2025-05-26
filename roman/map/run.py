@@ -54,17 +54,24 @@ class ROMANMapRunner:
         if verbose: 
             print("Loading image data...")
             print(f"Time range: {self.time_range}")
+
+        start_time = time.time()
         self.img_data = self.data_params.load_img_data()
+        print(f"Image Data Loading Time: {time.time() - start_time} seconds")
         if verbose:
             self.t0 = self.img_data.t0
             self.tf = self.img_data.tf
 
         if verbose: print("Loading depth data for time range {}...".format(self.time_range))
+        start_time = time.time()
         self.depth_data = self.data_params.load_depth_data()
+        print(f"Depth Data Loading Time: {time.time() - start_time} seconds")
 
         if verbose: print("Loading pose data...")
+        start_time = time.time()
         self.camera_pose_data = self.data_params.load_pose_data()
-        
+        print(f"Pose Data Loading Time: {time.time() - start_time} seconds")
+
         if verbose: print("Setting up FastSAM...")
         self.fastsam = FastSAMWrapper.from_params(self.fastsam_params, self.depth_data.camera_params)
 
@@ -89,7 +96,7 @@ class ROMANMapRunner:
         t0 = self.img_data.t0
         tf = self.img_data.tf
 
-        if self.verbose: print(f"t: {t - t0:.2f} = {t}")
+        #if self.verbose: print(f"t: {t - t0:.2f} = {t}")
         img_output = None
         update_t0 = time.time()
 
@@ -109,12 +116,28 @@ class ROMANMapRunner:
 
         try:
             img_t = self.img_data.nearest_time(t)
-            img = self.img_data.img(img_t)
-            img_depth = self.depth_data.img(img_t)
-            pose_odom_camera = self.camera_pose_data.T_WB(img_t)
-        except NoDataNearTimeException:
+        except NoDataNearTimeException as e:
+            print("img_t Error: ", e)
             return None, None, None, None
         
+        try:
+            img = self.img_data.img(img_t)
+        except NoDataNearTimeException as e:
+            print("img Error: ", e)
+            return None, None, None, None
+        
+        try:
+            img_depth = self.depth_data.img(img_t)
+        except NoDataNearTimeException as e:
+            print("img_depth Error: ", e)
+            return None, None, None, None
+        
+        try:
+            pose_odom_camera = self.camera_pose_data.T_WB(img_t)
+        except NoDataNearTimeException as e:
+            print("pose_odom_camera Error: ", e)
+            return None, None, None, None
+           
         observations = self.fastsam.run(img_t, pose_odom_camera, img, img_depth=img_depth)
         return img_t, observations, pose_odom_camera, img
 

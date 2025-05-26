@@ -20,6 +20,8 @@ import cv2 as cv
 import open3d as o3d
 import logging
 import os
+import tqdm
+import io
 from os.path import expandvars
 from threading import Thread
 from dataclasses import dataclass
@@ -77,7 +79,7 @@ def run(
     # Setup logging
     # TODO: add support for logfile
     logging.basicConfig(
-        level=logging.INFO, 
+        level=logging.ERROR, 
         format='%(asctime)s %(message)s', 
         datefmt='%m-%d %H:%M:%S', 
         # handlers=logging.StreamHandler()
@@ -107,10 +109,12 @@ def run(
         video = cv.VideoWriter(video_file, fc, fps, 
                                (width*num_panes, height))
 
+    bar = tqdm.tqdm(total=len(runner.times()), desc="Frame Processing")
     for t in runner.times():
         img_t = runner.update(t)
         if vid and img_t is not None:
             video.write(img_t)
+        bar.update()
             
     if vid:
         video.release()

@@ -463,6 +463,7 @@ class FastSAMWrapper():
         # OpenCV uses BGR images, but FastSAM and Matplotlib require an RGB image, so convert.
         image = cv.cvtColor(image_bgr, cv.COLOR_BGR2RGB)
 
+
         # Run FastSAM
         everything_results = self.model(image, 
                                         retina_masks=True, 

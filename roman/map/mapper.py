@@ -133,6 +133,8 @@ class Mapper():
 
         self.merge()
             
+        print("Total # of segments: ", str(len(self.segments) + len(self.segment_nursery) \
+                                + len(self.inactive_segments) + len(self.segment_graveyard)))
         return
     
     def voxel_grid_similarity(self, segment: Segment, observation: Observation):

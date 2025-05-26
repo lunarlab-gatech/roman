@@ -1,60 +1,42 @@
 # ROMAN
 
-<img src="./media/opposite_view_loop_closure.jpg" alt="Opposite view loop closure" width="500"/>
-
-
-Welcome to ROMAN(<ins>R</ins>obust <ins>O</ins>bject <ins>M</ins>ap <ins>A</ins>lignment A<ins>n</ins>ywhere).
-ROMAN is a view-invariant global localization method that maps open-set objects and uses the geometry, shape, and semantics of objects to find the transformation between a current pose and previously created object map.
-This enables loop closure between robots even when a scene is observed from *opposite views.*
-
-Included in this repository is code for open-set object mapping and object map registration using our robust data association algorithm.
-For ROS1/2 integration, please see the [roman_ros](https://github.com/mit-acl/roman_ros) repo. 
-Further information, including demo videos can be found [here](https://acl.mit.edu/ROMAN).
-
-## Citation
-
-If you find ROMAN useful in your work, please cite our paper:
-
-M.B. Peterson, Y.X. Jia, Y. Tian and J.P. How, "ROMAN: Open-Set Object Map Alignment for Robust View-Invariant Global Localization,"
-*arXiv preprint arXiv:2410.08262*, 2024.
-
-```
-@article{peterson2024roman,
-  title={ROMAN: Open-Set Object Map Alignment for Robust View-Invariant Global Localization},
-  author={Peterson, Mason B and Jia, Yi Xuan and Tian, Yulun and Thomas, Annika and How, Jonathan P},
-  journal={arXiv preprint arXiv:2410.08262},
-  year={2024}
-}
-```
-
-## System Overview
-
-<img src="./media/system_diagram.png" alt="System diagram" width="500"/>
-
-ROMAN has three modules: mapping, data association, and
-pose graph optimization. The front-end mapping pipeline tracks
-segments across RGB-D images to generate segment maps. The data
-association module incorporates semantics and shape geometry attributes from submaps along with gravity as a prior into the ROMAN
-alignment module to align maps and detect loop closures. These loop
-closures and VIO are then used for pose graph optimization.
-
-The `roman` package has a Python submodule corresponding to each pipeline module. Code for creating open-set object maps can be found in `roman.map`. Code for finding loop closures via data association of object maps can be found in `roman.align`. Finally, code for interfacing ROMAN with Kimera-RPGO for pose graph optimization can be found in `roman.offline_rpgo`.
-
-## Dependencies
-
-Direct dependencies, [CLIPPER](https://github.com/mit-acl/CLIPPER) and [Kimera-RPGO](https://github.com/MIT-SPARK/Kimera-RPGO) are installed with the install script. 
-If you would like to use Kimera-RPGO with ROMAN (required for full demo), please also follow the [Kimera-RPGO dependency instructions](https://github.com/MIT-SPARK/Kimera-RPGO#Dependencies).
-To get this working, you may need to edit the LD_LIBRARY_PATH with the following: `export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib`.
+Our fork of the [ROMAN](https://github.com/mit-acl/roman) repository for evaluation as a baseline running on the HERCULES dataset.
 
 ## Install
 
-First, **activate any virtual environment you would like to use with ROMAN**.
+### Docker Setup
 
-Then, clone and install with:
+Make sure to install:
+- [Docker](https://docs.docker.com/engine/install/ubuntu/)
 
+Then, clone this repository into a desired location on your computer.
+
+After that, navigate to the `docker` directory. Log in to the user that you want the docker file to create in the container. Then, edit the `DOCKERFILE` to update these lines:
+- `ARG USERNAME=`: Your username
+- `ARG USER_UID=`: Output of `echo $UID`
+- `ARG USER_GID=`: Output of `id -g`
+
+Edit the `enter_container.sh` script with the following paths:
+- `DATA_DIR=`: The directory where the HERCULES dataset is located
+- `ROS_WS_DIR=`: The directory of this repository
+
+Now, run the following commands:
 ```
-git clone git@github.com:mit-acl/roman.git roman
-./roman/install.sh
+build_container.sh
+run_container.sh
+```
+
+The rest of this README **assumes that you are inside the Docker container**. For easier debugging and use, its highly recommended to install the [VSCode Docker extension](https://code.visualstudio.com/docs/containers/overview), which allows you to start/stop the container and additionally attach VSCode to the container by right-clicking on the container and selecting `Attach Visual Studio Code`. If that isn't possible, you can re-enter the container running the following command:
+```
+enter_container.sh
+```
+
+### ROMAN Install
+
+Next install ROMAN by running the following command from the root folder of this repository:
+```
+./install.sh
+pip uninstall matplotlib
 ```
 
 ## Demo
@@ -80,9 +62,9 @@ Note that by default, FastSAM and CLIP are run on GPU, but if you would like to 
 
 ```
 mkdir demo_output
-python3 demo/demo.py \
-    -p demo/params/demo \
-    -o demo_output
+python3 demo/demo.py -p demo/params/hercules -o demo_output --viz-observations --viz-map --viz-3d --skip-align --skip-rpgo
+
+    
 ```
 
 Here, the `-p` argument specifies the parameter directory and the `-o` argument specifies the output directory.
@@ -98,10 +80,3 @@ The output includes map visualization, loop closure accuracy results, and pose g
 
 ROMAN requires RGB-D images and odometry information. ROMAN should be runnable on any data with this information, using [robotdatapy](https://github.com/mbpeterson70/robotdatapy) to interface [pose data](https://github.com/mbpeterson70/robotdatapy/blob/main/robotdatapy/data/pose_data.py) and [image data](https://github.com/mbpeterson70/robotdatapy/blob/main/robotdatapy/data/img_data.py). Currently supported data types include ROS1/2 bags, zip files of images, and csv files for poses, with additional data sources in development. 
 Click [here](./demo/README.md/#custom-data) for more information on running on custom data.
-
-## Acknowledgements
-
-This research is supported by Ford Motor Company, DSTA, ONR, and
-ARL DCIST under Cooperative Agreement Number W911NF-17-2-0181.
-
-Additional thanks to Yun Chang for his help in interfacing with Kimera-RPGO.

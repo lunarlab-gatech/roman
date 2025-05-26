@@ -77,6 +77,8 @@ def visualize_observations_on_img(t, img, mapper, observations, reprojected_bbox
         cv.rectangle(img_fastsam, np.array([bbox[0][0], bbox[0][1]]).astype(np.int32), 
                     np.array([bbox[1][0], bbox[1][1]]).astype(np.int32), color=rand_color.tolist(), thickness=2)
     
+    return img_fastsam
+    
 # TODO: rename, this is confusing. This is visualizing the 3D world (does not write on top of another image)
 def visualize_3d_on_img(t: float, pose_flu: np.ndarray, mapper: Mapper) -> np.ndarray:
     """
@@ -127,7 +129,9 @@ def visualize_3d(
     show_poses=True,
     min_pose_dist=0.5
 ):
-        
+    # Disable non-critical messages
+    o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Error)
+
     # poses_list = [o3d.geometry.TriangleMesh.create_coordinate_frame(size=1.0)]
     poses_list = []
     pcd_list = []
@@ -166,7 +170,7 @@ def visualize_3d(
     # print(f"Displaying {len(pcd_list)} objects.")
 
     displayed_positions = []
-    print(f"Len of roman_map.trajectory: {len(roman_map.trajectory)}")
+    #print(f"Len of roman_map.trajectory: {len(roman_map.trajectory)}")
     for i, Twb in enumerate(roman_map.trajectory):
         if np.any(Twb[:3,3] < points_bounds[:,0]) or np.any(Twb[:3,3] > points_bounds[:,1]):
             continue
@@ -198,6 +202,8 @@ def visualize_3d(
                       show_poses=show_poses, show_origin=show_origin)
     else:
         return pcd_list, label_list, poses_list
+
+
 
 def render3d_onscreen(pcd_list, label_list, poses_list, displayed_positions, 
                       show_poses=True, show_origin=True):

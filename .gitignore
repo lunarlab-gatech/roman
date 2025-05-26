@@ -168,3 +168,6 @@ cython_debug/
 *.pt
 output/
 output_old/
+
+# Ignore datasets
+datasets/
