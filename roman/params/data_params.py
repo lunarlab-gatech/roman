@@ -111,6 +111,9 @@ class PoseDataParams:
                 return np.linalg.inv(T)
             else:
                 return T
+        elif param_dict['input_type'][0:6] == 'matrix':
+            T = np.array(param_dict[expandvars_recursive(param_dict['input_type'])], dtype=np.float64).reshape((4,4))
+            return T
         else:
             raise ValueError("Invalid input type.")
     

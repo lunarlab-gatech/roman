@@ -12,8 +12,10 @@ import argparse
 # Config
 CAMERA_HZ = 35
 TF_HZ = 400
-CAMERA_DOWNSAMPLE_RATIO = int(CAMERA_HZ / 3.5)
-TF_DOWNSAMPLE_RATIO = int(TF_HZ / 40)
+CAMERA_DOWNSAMPLE_RATIO = 1 #int(CAMERA_HZ / 3.5)
+TF_DOWNSAMPLE_RATIO = 1 #int(TF_HZ / 40)
+START_TS = 1747048365868941009 # nanoseconds
+MAX_DURATION = 60 # seconds
 
 CAMERA_TOPIC_SUFFIXES = [
     'front_center_Scene',
@@ -100,6 +102,12 @@ def main(input_bag_path, output_bag_path):
 
             for conn, timestamp, rawdata in reader.messages():
                 topic = conn.topic
+
+                # Only include first 60 seconds
+                if ((timestamp - START_TS) / 1e9) > 60:
+                    if topic == '/hercules_node/Husky1/front_center_Scene/image':
+                        pbar.update()
+                    continue
 
                 if topic in conn_map and 'image' in topic:
                     count = image_counters[topic]

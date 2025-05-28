@@ -62,9 +62,8 @@ Note that by default, FastSAM and CLIP are run on GPU, but if you would like to 
 
 ```
 mkdir demo_output
-python3 demo/demo.py -p demo/params/hercules -o demo_output --viz-observations --viz-map --viz-3d --skip-align --skip-rpgo
-
-    
+export YOLO_VERBOSE=False
+python3 demo/demo.py -p demo/params/hercules -o demo_output --viz-observations --viz-map --viz-3d --skip-align --skip-rpgo    
 ```
 
 Here, the `-p` argument specifies the parameter directory and the `-o` argument specifies the output directory.
@@ -73,8 +72,6 @@ Optionally, the mapping process can be visualized with the `-m` argument to show
 However, these will cause the demo to run slower. 
 
 The output includes map visualization, loop closure accuracy results, and pose graph optimization results including root mean squared absolute trajectory error. 
-
-<!-- ![demo](./media/demo.mp4) -->
 
 ## Running on Custom Data
 

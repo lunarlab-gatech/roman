@@ -22,6 +22,7 @@ def visualize_map_on_img(t, pose, img, mapper):
     return img
 
 def visualize_segment_on_img(segment: Segment, pose: np.ndarray, img: np.ndarray):
+
     outline = segment.outline_2d(pose)
     if outline is None:
         return img
@@ -57,7 +58,7 @@ def visualize_observations_on_img(t, img, mapper, observations, reprojected_bbox
             img_fastsam = cv.addWeighted(img_fastsam, 1.0, colored_mask, 0.5, 0)
             mass_x, mass_y = np.where(segment.last_mask >= 1)
             img_fastsam = cv.putText(img_fastsam, str(segment.id), (int(np.mean(mass_y)), int(np.mean(mass_x))), 
-                    cv.FONT_HERSHEY_SIMPLEX, 0.5, rand_color.tolist(), 2)
+                    cv.FONT_HERSHEY_SIMPLEX, 0.5, rand_color, 2)
     
     for obs in observations:
         alread_shown = False
