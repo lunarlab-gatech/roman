@@ -39,7 +39,9 @@ Next install ROMAN by running the following command from the root folder of this
 pip uninstall matplotlib
 ```
 
-## Demo
+## Demos
+
+### Kimera Multi Data
 
 A short demo is available to run ROMAN on small subset of the [Kimera Multi Data](https://github.com/MIT-SPARK/Kimera-Multi-Data).
 The subset includes two robots (`sparkal1` and `sparkal2`) traveling along a path in opposite directions. 
@@ -49,21 +51,14 @@ Instructions for running the demo:
 
 1. Download a small portion of the [Kimera Multi Data](https://github.com/MIT-SPARK/Kimera-Multi-Data) that is used for the ROMAN SLAM demo. The data subset is available for download [here](https://drive.google.com/drive/folders/1ANdi4IyroWzJmd85ap1V-IMF8-I9haUB?usp=sharing).
 
-2. In your `.bashrc` or in the terminal where you will run the ROMAN demo export the following environment variables: 
-
-```
-export ROMAN_DEMO_DATA=<path to the demo data>
-export ROMAN_WEIGHTS=<path to this repo>/weights
-```
-
-Note that by default, FastSAM and CLIP are run on GPU, but if you would like to run on CPU, change the `device` field in [this parameter file](./demo/params/demo/fastsam.yaml) to `cpu`. Note that this will cause the demo to run much slower than real-time.
-
-3. `cd` into this repo and run the following to start the demo
+2. Run the following commands, updating paths if needed:
 
 ```
 mkdir demo_output
 export YOLO_VERBOSE=False
-python3 demo/demo.py -p demo/params/hercules -o demo_output --viz-observations --viz-map --viz-3d --skip-align --skip-rpgo    
+export ROMAN_DEMO_DATA=/home/dbutterfield3/roman/datasets/roman_kimera_multi_data-20250415T143326Z-003/roman_kimera_multi_data
+export ROMAN_WEIGHTS=/home/dbutterfield3/roman/weights
+python3 demo/demo.py -p demo/params/demo -o demo_output --viz-observations --viz-map --viz-3d --skip-align --skip-rpgo    
 ```
 
 Here, the `-p` argument specifies the parameter directory and the `-o` argument specifies the output directory.
@@ -73,7 +68,12 @@ However, these will cause the demo to run slower.
 
 The output includes map visualization, loop closure accuracy results, and pose graph optimization results including root mean squared absolute trajectory error. 
 
-## Running on Custom Data
+## HERCULES
 
-ROMAN requires RGB-D images and odometry information. ROMAN should be runnable on any data with this information, using [robotdatapy](https://github.com/mbpeterson70/robotdatapy) to interface [pose data](https://github.com/mbpeterson70/robotdatapy/blob/main/robotdatapy/data/pose_data.py) and [image data](https://github.com/mbpeterson70/robotdatapy/blob/main/robotdatapy/data/img_data.py). Currently supported data types include ROS1/2 bags, zip files of images, and csv files for poses, with additional data sources in development. 
-Click [here](./demo/README.md/#custom-data) for more information on running on custom data.
+Run the following command to run this demo:
+
+```
+mkdir demo_output
+export YOLO_VERBOSE=False
+python3 demo/demo.py -p demo/params/hercules -o demo_output --viz-observations --viz-map --viz-3d --skip-align --skip-rpgo    
+```

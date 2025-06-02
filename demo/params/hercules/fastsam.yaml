@@ -7,12 +7,12 @@ min_mask_len_div: 30
 max_mask_len_div: 3
 ignore_people: ERROR # -> I believe this to be unused
 erosion_size: 3
-voxel_size: 0.05
+voxel_size: 0.25 # Increased from 0.05 to 0.25 as our max depth is 10x larger
 ignore_labels: ['person']
 use_keep_labels: False
 keep_labels: []
 plane_filter_params: [3.0, 1.0, 0.2]
 clip: True
 yolo_imgsz: [256, 256]
-depth_scale: 1 # For Hercules Dataset, image has raw depth values in meters. #1000 previous value
-max_depth: 300 # For Hercules Dataset, max detph is 16360, but leads to too big of arrays 
+depth_scale: 1 # For Hercules Dataset, image has raw depth values in meters.
+max_depth: 75 # For Hercules Dataset, max detph is 16360, but leads to too big of arrays 

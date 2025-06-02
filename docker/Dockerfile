@@ -44,7 +44,7 @@ RUN sudo apt install tmux && pip install --upgrade tmuxp && \
 
 # Install additional libraries
 RUN sudo apt install -y wmctrl wget lsb-release
-RUN pip install numpy==1.23 scipy scikit-image matplotlib wmctrl robotdatapy
+RUN pip install numpy==1.23 scipy scikit-image matplotlib wmctrl python3-opencv
 
 # Install tmuxp
 RUN sudo apt install tmux && pip install --upgrade tmuxp && \
@@ -65,13 +65,6 @@ RUN sudo apt update && sudo apt install locales -y && \
     sudo apt install -y ros-humble-desktop ros-dev-tools python3-vcstool && \
     sudo apt install -y ros-humble-tf-transformations ros-humble-diagnostic-common-diagnostics ros-humble-rqt-runtime-monitor && \
     echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
-
-# Install ros1 Noetic
-# RUN sudo sh -c 'echo "deb http://packages.ros.org/ros/ubuntu $(lsb_release -sc) main" > /etc/apt/sources.list.d/ros-latest.list' && \
-#     curl -s https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc | sudo apt-key add - && \
-#     sudo apt update && sudo apt install ros-noetic-desktop-full && \
-#     sudo apt install python3-rosdep python3-rosinstall python3-rosinstall-generator python3-wstool && \
-#     sudo rosdep init && rosdep update
 
 # Default shell
 SHELL ["/bin/bash", "-c"]

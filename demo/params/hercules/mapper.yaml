@@ -1,6 +1,6 @@
 min_iou: 0.25
 min_sightings: 2
-max_t_no_sightings: 1.25 # Increased as dt is >0.25, thus we have about 4 frames to see it again
+max_t_no_sightings: 0.5 # Increased as dt is 0.2
 merge_objects_iou_3d: 0.25
 merge_objects_iou_2d: 0.8
 mask_downsample_factor: 8
@@ -8,5 +8,5 @@ min_max_extent: 0.25
 plane_prune_params: [3.0, 3.0, 0.5]
 segment_graveyard_time: 15.0
 segment_graveyard_dist: 10.0
-iou_voxel_size: 0.2
-segment_voxel_size: 0.05
+iou_voxel_size: 1.0 # Increased by 5x as our max depth is 10x larger
+segment_voxel_size: 0.25 # Changed to 0.25 to match the voxel size in fastsam.yaml
