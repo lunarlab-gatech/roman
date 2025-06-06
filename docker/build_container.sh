@@ -1,1 +1,1 @@
-docker build -t roman_docker .
+docker build -t roman_baseline .

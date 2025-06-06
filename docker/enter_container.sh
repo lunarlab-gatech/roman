@@ -1,1 +1,1 @@
-docker start roman_docker && docker exec -it roman_docker /bin/bash
+docker start roman_baseline && docker exec -it roman_baseline /bin/bash

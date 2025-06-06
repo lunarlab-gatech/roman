@@ -1,34 +1,44 @@
 dt: 0.2 # 5Hz on Camera topics (for downsampled bag)
-runs: ["Husky1", "Drone2"]
+runs: ["Husky1", "Husky2"]
 run_env: "ROBOT"
 
 img_data:
-  path: "/home/${USER}/data/hercules_test_datasets_V1.1/ausenv_test1_checkpoints_CSLAM_2UAVUGV_topicsPruned"
+  path: "/home/${USER}/data/hercules_datasets/V1.2/ausenv_test1_checkpoints_CSLAM_2UAVUGV_pruned"
   topic: /hercules_node/${ROBOT}/front_center_Scene/image
   camera_info_topic: /hercules_node/${ROBOT}/front_center_Scene/camera_info
   compressed: False
   compressed_encoding: 'bgr8' # For some reason, this determines how the image is loaded; so although not compressed, this is necessary to load image properly
   
 depth_data:
-  path: "/home/${USER}/data/hercules_test_datasets_V1.1/ausenv_test1_checkpoints_CSLAM_2UAVUGV_topicsPruned"
-  topic: /hercules_node/${ROBOT}/front_center_DepthPerspective/image
-  camera_info_topic: /hercules_node/${ROBOT}/front_center_DepthPerspective/camera_info
+  path: "/home/${USER}/data/hercules_datasets/V1.2/ausenv_test1_checkpoints_CSLAM_2UAVUGV_pruned"
+  topic: /hercules_node/${ROBOT}/front_center_DepthPlanar/image
+  camera_info_topic: /hercules_node/${ROBOT}/front_center_DepthPlanar/camera_info
   compressed: False
   compressed_encoding: '32FC1' # This might also be necessary to load the image properly
 
 pose_data:
   type: bag
-  path: "/home/${USER}/data/hercules_test_datasets_V1.1/ausenv_test1_checkpoints_CSLAM_2UAVUGV_topicsPruned"
-  topic: /hercules_node/${ROBOT}/odom_local
+  path: "/home/${USER}/data/hercules_datasets/V1.2/ausenv_test1_checkpoints_CSLAM_2UAVUGV_pruned"
+  topic: /hercules_node/${ROBOT}/ground_truth/odom_local
   time_tol: 0.0026 # Slightly more than max expected time difference (0.0025, or around 400Hz)
   T_camera_flu:
     input_type: "string"
     string: "T_RDFFLU"  # Pose of FLU (or base frame in same location as camera) w.r.t camera frame
   T_odombase_camera:    # Should be pose of the camera frame with respect to the odometry base frame
     input_type: matrix_${ROBOT}
-
-    # NOTE: Below transforms are very rough approximations, needs to be updated SOON
-    matrix_Husky1: "T_FLURDF"
-    matrix_Husky2: "T_FLURDF"
-    matrix_Drone1: "T_FLURDF" 
-    matrix_Drone2: "T_FLURDF"
+    matrix_Husky1: [ 0, 0, 1, 0,
+                    -1, 0, 0, 0,
+                     0,-1, 0, 0.35,
+                     0, 0, 0, 1]
+    matrix_Husky2: [ 0, 0, 1, 0,
+                    -1, 0, 0, 0,
+                     0,-1, 0, 0.35,
+                     0, 0, 0, 1]
+    matrix_Drone1: [ 0, 0, 1, 0.1,
+                    -1, 0, 0, 0,
+                     0,-1, 0, -0.35,
+                     0, 0, 0, 1]
+    matrix_Drone2: [ 0, 0, 1, 0.1,
+                    -1, 0, 0, 0,
+                     0,-1, 0, -0.35,
+                     0, 0, 0, 1]

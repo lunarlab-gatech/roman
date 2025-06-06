@@ -75,5 +75,7 @@ Run the following command to run this demo:
 ```
 mkdir demo_output
 export YOLO_VERBOSE=False
-python3 demo/demo.py -p demo/params/hercules -o demo_output --viz-observations --viz-map --viz-3d --skip-align --skip-rpgo    
+python3 demo/demo.py -p demo/params/herculesGA -o demo_output --viz-observations --viz-map --viz-3d --skip-align --skip-rpgo --max-time 120.0
+python3 demo/demo.py -p demo/params/hercules -o demo_output --skip-map --skip-rpgo    
+python3 demo/demo.py -p demo/params/hercules -o demo_output --skip-map --skip-align
 ```

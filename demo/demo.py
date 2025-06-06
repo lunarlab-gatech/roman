@@ -132,6 +132,8 @@ if __name__ == '__main__':
                 os.makedirs(output_dir, exist_ok=True)
                 input_files = [os.path.join(args.output_dir, "map", f"{data_params.runs[i]}.pkl"),
                             os.path.join(args.output_dir, "map", f"{data_params.runs[j]}.pkl")]
+
+                # Create the Input/Output parameters
                 sm_io = SubmapAlignInputOutput(
                     inputs=input_files,
                     output_dir=output_dir,
@@ -141,7 +143,12 @@ if __name__ == '__main__':
                     robot_names=[data_params.runs[i], data_params.runs[j]],
                     robot_env=data_params.run_env,
                 )
+
+                # If the same robot is being aligned to itself, enable single_robot_lc.
+                # This avoids doing loop closures nearby in time with itself.
                 submap_align_params.single_robot_lc = (i == j)
+
+                # Run the alignment process
                 submap_align(sm_params=submap_align_params, sm_io=sm_io)
                        
     if not args.skip_rpgo:

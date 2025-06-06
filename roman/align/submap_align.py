@@ -57,12 +57,14 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
             else:
                 raise ValueError("Invalid pose data type")
     
+    # Load ROMAN maps
     if sm_io.input_type_pkl:
         submap_params = SubmapParams.from_submap_align_params(sm_params)
         submap_params.use_minimal_data = True
         roman_maps = [load_roman_map(sm_io.inputs[i]) for i in range(2)]
         submaps = [submaps_from_roman_map(
             roman_maps[i], submap_params, gt_pose_data[i]) for i in range(2)]
+        print("Total Number of Submaps-  ROBOT1: ", len(submaps[0]), " ROBOT2: ", len(submaps[1]))
     elif sm_io.input_type_json: # TODO: re-implement support for json files
         assert False, "Not currently supported"
         # submap_centers, submaps = load_segment_slam_submaps(sm_io.inputs, sm_params, sm_io.debug_show_maps)
@@ -85,7 +87,6 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
 
     # Registration method
     registration = sm_params.get_object_registration()
-
 
     # iterate over pairs of submaps and create registration results
     for i in tqdm(range(len(submaps[0]))):
@@ -164,6 +165,8 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
                 clipper_dist_mat[i, j] = np.nan
 
             clipper_num_associations[i, j] = len(associations)
+            if clipper_num_associations[i, j] > 0:
+                print("# of associations: ", len(associations))
             clipper_percent_associations[i, j] = len(associations) / np.mean([len(submap_i), len(submap_j)])
             
             T_ij_mat[i, j] = T_ij

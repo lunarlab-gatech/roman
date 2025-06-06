@@ -43,8 +43,8 @@ RUN sudo apt install tmux && pip install --upgrade tmuxp && \
     echo 'setw -g mouse on' > ~/.tmux.conf 
 
 # Install additional libraries
-RUN sudo apt install -y wmctrl wget lsb-release
-RUN pip install numpy==1.23 scipy scikit-image matplotlib wmctrl python3-opencv
+RUN sudo apt install -y wmctrl wget lsb-release python3-opencv
+RUN pip install numpy==1.23 scipy scikit-image matplotlib wmctrl
 
 # Install tmuxp
 RUN sudo apt install tmux && pip install --upgrade tmuxp && \
@@ -65,6 +65,11 @@ RUN sudo apt update && sudo apt install locales -y && \
     sudo apt install -y ros-humble-desktop ros-dev-tools python3-vcstool && \
     sudo apt install -y ros-humble-tf-transformations ros-humble-diagnostic-common-diagnostics ros-humble-rqt-runtime-monitor && \
     echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
+
+# Install g2o for access to g2o_viewer
+RUN sudo apt install cmake libeigen3-dev libspdlog-dev libsuitesparse-dev qtdeclarative5-dev qt5-qmake libqglviewer-dev-qt5 -y &&
+    git clone https://github.com/RainerKuemmerle/g2o.git && \
+    cd g2o && mkdir build && cd build && cmake ../ && make && export PATH="$HOME/g2o/build/bin:$PATH"
 
 # Default shell
 SHELL ["/bin/bash", "-c"]

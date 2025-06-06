@@ -2,7 +2,7 @@ DATA_DIR='/media/dbutterfield3/T73'
 REPO_DIR='/home/dbutterfield3/Research/ROMAN'
 
 docker run -it \
-    --name="roman_docker" \
+    --name="roman_baseline" \
     --net="host" \
     --privileged \
     --gpus="all" \
@@ -18,5 +18,5 @@ docker run -it \
     --volume="/home/$USER/.ssh:/home/$USER/.ssh:ro" \
     --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
     --volume="$XAUTHORITY:/tmp/.Xauthority:ro" \
-    roman_docker \
+    roman_baseline \
     /bin/bash
