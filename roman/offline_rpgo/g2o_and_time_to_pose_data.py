@@ -4,6 +4,7 @@ from typing import List, Tuple, Dict
 import os
 import yaml
 
+from roman.utils import expandvars_recursive
 from robotdatapy.data.pose_data import PoseData
 
 def time_vertex_mapping(time_file: int, robot_id: int = None, use_gtsam_idx: bool = False) -> Dict[int, float]:
@@ -102,6 +103,11 @@ def load_gt_pose_data(gt_file):
     with open(os.path.expanduser(gt_file), 'r') as f:
         gt_pose_args = yaml.safe_load(f)
     if gt_pose_args['type'] == 'bag':
+         # expand variables
+        for k, v in gt_pose_args.items():
+            if type(gt_pose_args[k]) == str:
+                gt_pose_args[k] = expandvars_recursive(gt_pose_args[k])
+        print("Called from g2o_and_time_to_pose_data.py: ", gt_pose_args)
         return PoseData.from_bag(**{k: v for k, v in gt_pose_args.items() if k != 'type'})
     elif gt_pose_args['type'] == 'csv':
         return PoseData.from_csv(**{k: v for k, v in gt_pose_args.items() if k != 'type'})

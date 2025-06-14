@@ -1,9 +1,12 @@
+import clip
 import numpy as np
 import cv2 as cv
 import open3d as o3d
 from scipy.spatial.transform import Rotation as Rot
 
+import torch
 from typing import List
+import tqdm
 
 from robotdatapy.camera import CameraParams
 from robotdatapy.transform import T_FLURDF
@@ -128,8 +131,45 @@ def visualize_3d(
     show_labels=False, 
     show_origin=True,
     show_poses=True,
-    min_pose_dist=0.5
+    min_pose_dist=0.5,
+    use_clip_to_find_text=False,
+    word_list_for_clip="short"
 ):
+    if use_clip_to_find_text:
+        # Setup the clip model
+        device = 'cuda'
+        clip_model, clip_preprocess = clip.load('ViT-L/14', device=device)
+        
+        # Get a large dataset of words
+        if word_list_for_clip == "short":
+            word_list = ['tree', 'ground', 'branch', 'road', 'drone', 'robot', 'post', 'rock', 'leaves']
+        elif word_list_for_clip == "wordnet":
+            import nltk
+            nltk.download('wordnet')
+            from nltk.corpus import wordnet as wn
+            word_list = set(lemma.name() for syn in wn.all_synsets() for lemma in syn.lemmas())
+            word_list = [item.replace("_", " ") for item in word_list]
+        else:
+            raise ValueError(f"Current 'word_list_for_clip' by name of {word_list_for_clip} not supported.")
+
+        # Tokenize the text
+        BATCH_SIZE = 10
+        text_features = None
+        bar = tqdm.tqdm(total=np.ceil(len(word_list)/BATCH_SIZE), desc="Encoding Text...", unit="frames")
+        with torch.no_grad():
+            print(len(word_list))
+            text = clip.tokenize(word_list).to(device)
+            print(text.shape)
+            for i in range(0, len(word_list), BATCH_SIZE):
+                text_subset = text[i:i+BATCH_SIZE]
+                if text_features is None:
+                    text_features = clip_model.encode_text(text_subset).cpu() 
+                else:
+                    text_features = torch.cat((text_features, clip_model.encode_text(text_subset).cpu()), 0)
+                torch.cuda.empty_cache()
+                bar.update(1)
+            print(text_features.shape)
+
     # Disable non-critical messages
     o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Error)
 
@@ -164,7 +204,18 @@ def visualize_3d(
             if show_labels:
                 # label = [f"id: {seg.id}", f"volume: {seg.volume():.2f}", 
                 #         f"extent: [{seg.extent[0]:.2f}, {seg.extent[1]:.2f}, {seg.extent[2]:.2f}]"]
-                label = [f"id: {seg.id}"]
+
+                # Calculate Text closes to semantic embedding
+            
+                label = None
+                if use_clip_to_find_text:
+                    with torch.no_grad():
+                        text_features /= text_features.norm(dim=-1, keepdim=True)
+                        similarity = (100.0 * torch.from_numpy(seg.semantic_descriptor) @ text_features.T).softmax(dim=-1)
+                        values, indices = similarity.topk(1)
+                        label = [word_list[indices[0]]]
+                else:
+                    label = [f"id: {seg.id}"]
                 for i in range(len(label)):
                     label_list.append((np.median(pcd.points, axis=0) + np.array([0, 0, -0.15*i]), label[i]))
                     

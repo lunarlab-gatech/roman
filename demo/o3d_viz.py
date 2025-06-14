@@ -14,15 +14,21 @@ from roman.map.map import ROMANMap
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('pickle_file', type=str, help='Path to pickle file')
+    parser.add_argument('pickle_file', type=str, help='Path to pickle file(s)')
     parser.add_argument('--no-text', action='store_true', help='Do not display text labels')
     parser.add_argument('--no-orig', action='store_true', help='Do not display origin')
     parser.add_argument('-t', '--time-range', type=float, nargs=2, help='Time range to display')
     args = parser.parse_args()
-    
+
+    pickle_files = args.pickle_file.split(',')
+    maps = [ROMANMap.from_pickle(x) for x in pickle_files]
+    merged_map = ROMANMap.concatenate(maps)
+
     visualize_3d(
-        roman_map=ROMANMap.from_pickle(args.pickle_file),
+        roman_map=merged_map,
         time_range=args.time_range,
         show_labels=not args.no_text,
         show_origin=not args.no_orig,
+        use_clip_to_find_text=True,
+        word_list_for_clip="wordnet"
     )

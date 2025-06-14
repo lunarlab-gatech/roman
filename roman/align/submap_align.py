@@ -21,7 +21,7 @@ from robotdatapy.transform import transform_to_xytheta, transform_to_xyz_quat, \
 from roman.map.map import Submap, SubmapParams, submaps_from_roman_map, load_roman_map
 from roman.align.object_registration import InsufficientAssociationsException
 from roman.align.dist_reg_with_pruning import GravityConstraintError
-from roman.utils import object_list_bounds, transform_rm_roll_pitch
+from roman.utils import object_list_bounds, transform_rm_roll_pitch, expandvars_recursive
 from roman.params.submap_align_params import SubmapAlignParams, SubmapAlignInputOutput
 from roman.align.results import save_submap_align_results, SubmapAlignResults
 
@@ -49,6 +49,11 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
             with open(os.path.expanduser(yaml_file), 'r') as f:
                 gt_pose_args = yaml.safe_load(f)
             if gt_pose_args['type'] == 'bag':
+                # expand variables
+                for k, v in gt_pose_args.items():
+                    if type(gt_pose_args[k]) == str:
+                        gt_pose_args[k] = expandvars_recursive(gt_pose_args[k])
+                print("Called from Submap_align.py: ", gt_pose_args)
                 gt_pose_data[i] = PoseData.from_bag(**{k: v for k, v in gt_pose_args.items() if k != 'type'})
             elif gt_pose_args['type'] == 'csv':
                 gt_pose_data[i] = PoseData.from_csv(**{k: v for k, v in gt_pose_args.items() if k != 'type'})

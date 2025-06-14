@@ -128,6 +128,7 @@ if __name__ == '__main__':
             for j in range(i, len(data_params.runs)):
                 if args.skip_indices and j in args.skip_indices:
                     continue
+                
                 output_dir = os.path.join(args.output_dir, "align", f"{data_params.runs[i]}_{data_params.runs[j]}")
                 os.makedirs(output_dir, exist_ok=True)
                 input_files = [os.path.join(args.output_dir, "map", f"{data_params.runs[i]}.pkl"),

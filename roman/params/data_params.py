@@ -78,6 +78,7 @@ class PoseDataParams:
         for k, v in params_dict.items():
             if type(params_dict[k]) == str:
                 params_dict[k] = expandvars_recursive(params_dict[k])
+        print("Called from data_params.py: ", params_dict)
         pose_data = PoseData.from_dict(params_dict)
         return pose_data
     

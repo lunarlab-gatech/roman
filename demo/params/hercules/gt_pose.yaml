@@ -1,0 +1,5 @@
+type: bag
+path: "/home/${USER}/data/hercules_datasets/V1.2/ausenv_test1_checkpoints_CSLAM_2UAVUGV_pruned"
+topic: /hercules_node/${ROBOT}/ground_truth/odom_local
+time_tol: 0.0026 # Slightly more than max expected time difference (0.0025, or around 400Hz)
+odom_messages_in_bag: 194200

@@ -18,7 +18,7 @@ After that, navigate to the `docker` directory. Log in to the user that you want
 
 Edit the `enter_container.sh` script with the following paths:
 - `DATA_DIR=`: The directory where the HERCULES dataset is located
-- `ROS_WS_DIR=`: The directory of this repository
+- `REPO_DIR=`: The directory of this repository
 
 Now, run the following commands:
 ```
@@ -43,11 +43,7 @@ pip uninstall matplotlib
 
 ### Kimera Multi Data
 
-A short demo is available to run ROMAN on small subset of the [Kimera Multi Data](https://github.com/MIT-SPARK/Kimera-Multi-Data).
-The subset includes two robots (`sparkal1` and `sparkal2`) traveling along a path in opposite directions. 
-We demonstrate ROMAN's open-set object mapping and object-based loop closure to estimate the two robots' cumulative 200 m long trajectories with 1.2 m RMSE absolute trajectory error using our vision-only pipeline.
-
-Instructions for running the demo:
+A short demo is available to run ROMAN on small subset of the [Kimera Multi Data](https://github.com/MIT-SPARK/Kimera-Multi-Data) Instructions for running the demo:
 
 1. Download a small portion of the [Kimera Multi Data](https://github.com/MIT-SPARK/Kimera-Multi-Data) that is used for the ROMAN SLAM demo. The data subset is available for download [here](https://drive.google.com/drive/folders/1ANdi4IyroWzJmd85ap1V-IMF8-I9haUB?usp=sharing).
 
@@ -61,8 +57,6 @@ export ROMAN_WEIGHTS=/home/dbutterfield3/roman/weights
 python3 demo/demo.py -p demo/params/demo -o demo_output --viz-observations --viz-map --viz-3d --skip-align --skip-rpgo    
 ```
 
-Here, the `-p` argument specifies the parameter directory and the `-o` argument specifies the output directory.
-
 Optionally, the mapping process can be visualized with the `-m` argument to show the map projected on the camera image as it is created or `-3` command to show a 3D visualization of the map.
 However, these will cause the demo to run slower. 
 
@@ -75,7 +69,15 @@ Run the following command to run this demo:
 ```
 mkdir demo_output
 export YOLO_VERBOSE=False
-python3 demo/demo.py -p demo/params/herculesGA -o demo_output --viz-observations --viz-map --viz-3d --skip-align --skip-rpgo --max-time 120.0
+python3 demo/demo.py -p demo/params/hercules -o demo_output --viz-observations --viz-map --viz-3d --skip-align --skip-rpgo --max-time 120.0
 python3 demo/demo.py -p demo/params/hercules -o demo_output --skip-map --skip-rpgo    
 python3 demo/demo.py -p demo/params/hercules -o demo_output --skip-map --skip-align
 ```
+
+In the output directory, the 'map' folder will contain .mp4 files with visualizations, and .pkl files with the stored ROMAN maps. To visualize a map, run the command below:
+
+```
+python3 demo/o3d_viz.py demo_output/map/<robot_name>.pkl
+```
+
+In the 'align' folder, the file 'align.png' will contain a plot titled "Number of CLIPPER associations". If this plot is a single color, there's a high likelihood that no associations were found, and thus no loop closures. Each detected loop closure can be found in `align.json`.
