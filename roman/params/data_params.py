@@ -13,7 +13,7 @@
 import numpy as np
 from dataclasses import dataclass
 import yaml
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from functools import cached_property
 
 from robotdatapy.data import ImgData, PoseData
@@ -24,12 +24,18 @@ from roman.utils import expandvars_recursive
 @dataclass
 class ImgDataParams:
     
+    type: str
     path: str
-    topic: str
-    camera_info_topic: str
+    path_times: str
+    topic: Optional[str] = None
+    camera_info_topic: Optional[str] = None
     compressed: bool = True
     compressed_rvl: bool = False
     compressed_encoding: str = 'passthrough'
+    K: Optional[list] = None
+    D: Optional[list] = None
+    width: int = None
+    height: int = None
     
     @classmethod
     def from_dict(cls, params_dict: dict):
@@ -216,14 +222,31 @@ class DataParams:
         Returns:
             ImgData: Image data object.
         """
+
+        # Extract relevant perams depending on if RGB or Depth
+        if color:
+            img_data_params = self.img_data_params
+        else:
+            img_data_params = self.depth_data_params
+
+        # Depending on data type
         if self.kitti:
             img_data = ImgData.from_kitti(self.img_data_params.path, 'rgb' if color else 'depth')
             img_data.extract_params()
+        elif img_data_params.type == "npy":
+            img_file_path = expandvars_recursive(img_data_params.path)
+            print(img_data_params.path_times)
+            times_file_path = expandvars_recursive(img_data_params.path_times)
+            img_data = ImgData.from_npy(
+                path=img_file_path,
+                path_times=times_file_path,
+                K=img_data_params.K,
+                D=img_data_params.D,
+                width=img_data_params.width,
+                height=img_data_params.height, 
+                time_tol=self.dt / 2.0
+            )
         else:
-            if color:
-                img_data_params = self.img_data_params
-            else:
-                img_data_params = self.depth_data_params
             img_file_path = expandvars_recursive(img_data_params.path)
             img_data = ImgData.from_bag(
                 path=img_file_path,

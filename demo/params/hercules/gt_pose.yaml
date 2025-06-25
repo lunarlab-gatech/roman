@@ -1,5 +1,14 @@
-type: bag
-path: "/home/${USER}/data/hercules_datasets/V1.2/ausenv_test1_checkpoints_CSLAM_2UAVUGV_pruned"
-topic: /hercules_node/${ROBOT}/ground_truth/odom_local
+type: "csv"
+path: "/home/${USER}/data/hercules_datasets/V1.2/ausenv_test1_checkpoints_CSLAM_2UAVUGV_prunedExtract/_hercules_node_${ROBOT}_ground_truth_odom_local.csv"
+csv_options:
+  cols:
+    time: ["timestamp"]
+    position: ["x", "y", "z"]
+    orientation: ["qx", "qy", "qz", "qw"]
+  col_nums:
+    time: [0]
+    position: [1, 2, 3]
+    orientation: [5, 6, 7, 4]
+  timescale: 1.0 # Time is in seconds
+interp: True
 time_tol: 0.0026 # Slightly more than max expected time difference (0.0025, or around 400Hz)
-odom_messages_in_bag: 194200

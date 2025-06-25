@@ -69,9 +69,14 @@ Run the following command to run this demo:
 ```
 mkdir demo_output
 export YOLO_VERBOSE=False
-python3 demo/demo.py -p demo/params/hercules -o demo_output --viz-observations --viz-map --viz-3d --skip-align --skip-rpgo --max-time 120.0
+python3 demo/demo.py -p demo/params/hercules -o demo_output --skip-align --skip-rpgo
 python3 demo/demo.py -p demo/params/hercules -o demo_output --skip-map --skip-rpgo    
 python3 demo/demo.py -p demo/params/hercules -o demo_output --skip-map --skip-align
+```
+
+If you want to enable visualizations of the mapping step:
+```
+python3 demo/demo.py -p demo/params/hercules -o demo_output --viz-observations --viz-map --viz-3d --skip-align --skip-rpgo
 ```
 
 In the output directory, the 'map' folder will contain .mp4 files with visualizations, and .pkl files with the stored ROMAN maps. To visualize a map, run the command below:

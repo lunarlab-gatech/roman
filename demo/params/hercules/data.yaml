@@ -1,26 +1,44 @@
-dt: 0.2 # 5Hz on Camera topics (for downsampled bag)
-runs: ["Husky1", "Drone1"]
+dt: 0.2
+runs: ["Husky1", "Husky2"]
 run_env: "ROBOT"
 
 img_data:
-  path: "/home/${USER}/data/hercules_datasets/V1.2/ausenv_test1_checkpoints_CSLAM_2UAVUGV_pruned"
-  topic: /hercules_node/${ROBOT}/front_center_Scene/image
-  camera_info_topic: /hercules_node/${ROBOT}/front_center_Scene/camera_info
-  compressed: False
-  compressed_encoding: 'bgr8' # For some reason, this determines how the image is loaded; so although not compressed, this is necessary to load image properly
-  
+  type: "npy"
+  path: "/home/${USER}/data/hercules_datasets/V1.2/ausenv_test1_checkpoints_CSLAM_2UAVUGV_prunedExtract/images/_hercules_node_${ROBOT}_front_center_Scene_image_imgs.npy"
+  path_times: "/home/${USER}/data/hercules_datasets/V1.2/ausenv_test1_checkpoints_CSLAM_2UAVUGV_prunedExtract/images/_hercules_node_${ROBOT}_front_center_Scene_image_times.npy"
+  K: [640, 0,   640,
+        0, 640, 360,
+        0,   0,   0]
+  D: [ 0, 0, 0, 0]
+  width: 1280
+  height: 720
+
 depth_data:
-  path: "/home/${USER}/data/hercules_datasets/V1.2/ausenv_test1_checkpoints_CSLAM_2UAVUGV_pruned"
-  topic: /hercules_node/${ROBOT}/front_center_DepthPlanar/image
-  camera_info_topic: /hercules_node/${ROBOT}/front_center_DepthPlanar/camera_info
-  compressed: False
-  compressed_encoding: '32FC1' # This might also be necessary to load the image properly
+  type: "npy"
+  path: "/home/${USER}/data/hercules_datasets/V1.2/ausenv_test1_checkpoints_CSLAM_2UAVUGV_prunedExtract/images/_hercules_node_${ROBOT}_front_center_DepthPlanar_image_imgs.npy"
+  path_times: "/home/${USER}/data/hercules_datasets/V1.2/ausenv_test1_checkpoints_CSLAM_2UAVUGV_prunedExtract/images/_hercules_node_${ROBOT}_front_center_DepthPlanar_image_times.npy"
+  K: [640,   0, 640,
+        0, 640, 360,
+        0,   0,   0]
+  D: [ 0, 0, 0, 0]
+  width: 1280
+  height: 720
 
 pose_data:
-  type: bag
-  path: "/home/${USER}/data/hercules_datasets/V1.2/ausenv_test1_checkpoints_CSLAM_2UAVUGV_pruned"
-  topic: /hercules_node/${ROBOT}/ground_truth/odom_local
+  type: "csv"
+  path: "/home/${USER}/data/hercules_datasets/V1.2/ausenv_test1_checkpoints_CSLAM_2UAVUGV_prunedExtract/_hercules_node_${ROBOT}_ground_truth_odom_localNOISE.csv"
   time_tol: 0.0026 # Slightly more than max expected time difference (0.0025, or around 400Hz)
+  interp: True
+  csv_options:
+    cols:
+      time: ["timestamp"]
+      position: ["x", "y", "z"]
+      orientation: ["qx", "qy", "qz", "qw"]
+    col_nums:
+      time: [0]
+      position: [1, 2, 3]
+      orientation: [5, 6, 7, 4]
+    timescale: 1.0 # Time is in seconds
   T_camera_flu:
     input_type: "string"
     string: "T_RDFFLU"  # Pose of FLU (or base frame in same location as camera) w.r.t camera frame

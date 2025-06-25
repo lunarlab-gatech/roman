@@ -30,5 +30,5 @@ if __name__ == "__main__":
         show_labels=not args.no_text,
         show_origin=not args.no_orig,
         use_clip_to_find_text=True,
-        word_list_for_clip="wordnet"
+        word_list_for_clip="short"
     )

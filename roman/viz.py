@@ -34,6 +34,7 @@ def visualize_segment_on_img(segment: Segment, pose: np.ndarray, img: np.ndarray
     for i in range(len(outline) - 1):
         start_point = tuple(outline[i].astype(np.int32))
         end_point = tuple(outline[i+1].astype(np.int32))
+        img = img.copy() # Copy just in case this is a read-only memmap
         img = cv.line(img, start_point, end_point, color, thickness=2)
 
     img = cv.putText(img, str(segment.id), (np.array(outline[0]) + np.array([10., 10.])).astype(np.int32), 
@@ -205,13 +206,13 @@ def visualize_3d(
                 # label = [f"id: {seg.id}", f"volume: {seg.volume():.2f}", 
                 #         f"extent: [{seg.extent[0]:.2f}, {seg.extent[1]:.2f}, {seg.extent[2]:.2f}]"]
 
-                # Calculate Text closes to semantic embedding
+                # Calculate Text closest to semantic embedding
             
                 label = None
                 if use_clip_to_find_text:
                     with torch.no_grad():
                         text_features /= text_features.norm(dim=-1, keepdim=True)
-                        similarity = (100.0 * torch.from_numpy(seg.semantic_descriptor) @ text_features.T).softmax(dim=-1)
+                        similarity = (100.0 * torch.from_numpy(seg.semantic_descriptor.astype(np.float32)) @ text_features.float().T).softmax(dim=-1)
                         values, indices = similarity.topk(1)
                         label = [word_list[indices[0]]]
                 else:
