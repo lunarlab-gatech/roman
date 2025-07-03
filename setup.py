@@ -19,6 +19,7 @@ setup(
     install_requires=[
         'numpy<2',
         'scipy',
+        'seaborn'
         'matplotlib', 
         'gtsam',
         'scikit-image',

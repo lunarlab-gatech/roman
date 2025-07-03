@@ -39,50 +39,64 @@ Next install ROMAN by running the following command from the root folder of this
 pip uninstall matplotlib
 ```
 
-## Demos
-
-### Kimera Multi Data
-
-A short demo is available to run ROMAN on small subset of the [Kimera Multi Data](https://github.com/MIT-SPARK/Kimera-Multi-Data) Instructions for running the demo:
-
-1. Download a small portion of the [Kimera Multi Data](https://github.com/MIT-SPARK/Kimera-Multi-Data) that is used for the ROMAN SLAM demo. The data subset is available for download [here](https://drive.google.com/drive/folders/1ANdi4IyroWzJmd85ap1V-IMF8-I9haUB?usp=sharing).
-
-2. Run the following commands, updating paths if needed:
-
-```
-mkdir demo_output
-export YOLO_VERBOSE=False
-export ROMAN_DEMO_DATA=/home/dbutterfield3/roman/datasets/roman_kimera_multi_data-20250415T143326Z-003/roman_kimera_multi_data
-export ROMAN_WEIGHTS=/home/dbutterfield3/roman/weights
-python3 demo/demo.py -p demo/params/demo -o demo_output --viz-observations --viz-map --viz-3d --skip-align --skip-rpgo    
-```
-
-Optionally, the mapping process can be visualized with the `-m` argument to show the map projected on the camera image as it is created or `-3` command to show a 3D visualization of the map.
-However, these will cause the demo to run slower. 
-
-The output includes map visualization, loop closure accuracy results, and pose graph optimization results including root mean squared absolute trajectory error. 
-
-## HERCULES
+## Run algorithm
+### HERCULES (Australia Environment)
 
 Run the following command to run this demo:
 
 ```
 mkdir demo_output
 export YOLO_VERBOSE=False
-python3 demo/demo.py -p demo/params/hercules -o demo_output --skip-align --skip-rpgo
-python3 demo/demo.py -p demo/params/hercules -o demo_output --skip-map --skip-rpgo    
-python3 demo/demo.py -p demo/params/hercules -o demo_output --skip-map --skip-align
+python3 demo/demo.py -p demo/params/hercules_AustraliaEnv -o demo_output --skip-align --skip-rpgo
+python3 demo/demo.py -p demo/params/hercules_AustraliaEnv -o demo_output --skip-map --skip-rpgo    
+python3 demo/demo.py -p demo/params/hercules_AustraliaEnv -o demo_output --skip-map --skip-align
 ```
 
 If you want to enable visualizations of the mapping step:
 ```
-python3 demo/demo.py -p demo/params/hercules -o demo_output --viz-observations --viz-map --viz-3d --skip-align --skip-rpgo
+python3 demo/demo.py -p demo/params/hercules_AustraliaEnv -o demo_output --viz-observations --viz-map --viz-3d --skip-align --skip-rpgo
 ```
 
-In the output directory, the 'map' folder will contain .mp4 files with visualizations, and .pkl files with the stored ROMAN maps. To visualize a map, run the command below:
+In the output directory, the 'map' folder will contain .mp4 files with visualizations, and .pkl files with the stored ROMAN maps. 
+
+To visualize a map, run the command below:
 
 ```
 python3 demo/o3d_viz.py demo_output/map/<robot_name>.pkl
 ```
 
 In the 'align' folder, the file 'align.png' will contain a plot titled "Number of CLIPPER associations". If this plot is a single color, there's a high likelihood that no associations were found, and thus no loop closures. Each detected loop closure can be found in `align.json`.
+
+To visualize the .g2o files in the output, you can use the g2o_viewer binary from (g2o)[https://github.com/RainerKuemmerle/g2o]. If not on the path, you can find it in the `build/bin` directory of the repository after building:
+
+```
+g2o_viewer <g2o file>
+```
+
+#### Note on Parameters
+
+In order to adapt ROMAN to work successfully on HERCULES, two types of parameters were changed:
+- 1. Robot parameters, or those that would always have to change due to differences in the robots we are using. 
+- 2. Tunable parameters, or those that don't fall in the category above.
+
+For a fair comparison with ROMAN, ideally we only change parameters in category 1. However, due to the wildly different "Australian Environment", we found that it was necessary to change some parameters in 2 to successfully find a map alignment. Thus, below we document all parameters that were changed in both categories 1 & 2; 1 so that its easy to see for the future what we would need to change to apply other experiments, and 2 so that the reasons for these changes can be well documented:
+
+Category 1:
+```
+data.yaml: runs, run_env, img_data, depth_data, pose_data
+fastsam.yaml: depth_scale
+gt_pose.yaml: path, csv_options
+offline_rpgo.yaml: odom_t_std, odom_r_std
+submap_align.yaml: force_rm_lc_roll_pitch
+```
+
+Category 2:
+```
+data.yaml: time_tol
+fastsam.yaml: max_depth, voxel_size
+gt_pose.yaml: time_tol
+mapper.yaml: iou_voxel_size, segment_voxel_size
+submap_align.yaml: submap_radius, submap_center_dist
+```
+
+For reasons for changes in category 2, see the corresponding .yaml files.

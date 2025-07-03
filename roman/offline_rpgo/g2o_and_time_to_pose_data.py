@@ -118,7 +118,7 @@ def load_gt_pose_data(gt_file):
 
 def gt_csv_est_g2o_to_pose_data(est_g2o_file: str, est_time_file: str, 
         gt_csv_files: Dict[int, str], run_names: Dict[int, str] = None, 
-        run_env: str = None) -> Tuple[PoseData, PoseData]:
+        run_env: str = None, skip_final_merge: bool = False):
     """
     Generates two comparable PoseData objects from ground truth and estimated multi-robot poses.
     Designed for Kimera-Multi dataset where ground truth is stored in a csv file and estimated poses
@@ -129,9 +129,12 @@ def gt_csv_est_g2o_to_pose_data(est_g2o_file: str, est_time_file: str,
         est_time_file (str): File path to the estimated time file.
         gt_csv_files (Dict[int, str]): Mapping from robot_id (with 0 corresponding to 'a' in gtsam g2o file)
             to the corresponding ground truth csv file.
+        skip_final_merge (bool): If true, skip combining trajectories from various robots into 
+            single GT and single Est.
 
     Returns:
-        Tuple[PoseData, PoseData]: Estimated and ground truth PoseData objects
+        
+        Tuple[PoseData, PoseData] or Tuple[List[PoseData], List[PoseData]]: Estimated and ground truth PoseData objects
     """
     
     pose_data_gt = []
@@ -142,4 +145,7 @@ def gt_csv_est_g2o_to_pose_data(est_g2o_file: str, est_time_file: str,
     pose_data_est = [g2o_and_time_to_pose_data(est_g2o_file, est_time_file, i)
                      for i in sorted(gt_csv_files.keys())]
     
-    return combine_multi_est_and_gt_pose_data(pose_data_est, pose_data_gt)
+    if skip_final_merge:
+        return (pose_data_est, pose_data_gt)
+    else:
+        return combine_multi_est_and_gt_pose_data(pose_data_est, pose_data_gt)

@@ -1,11 +1,20 @@
-dt: 0.2
+# Hertz at which the algorithm runs
+dt: 0.166666666666666667
+
+# Robots for which to include in the experiment
 runs: ["Husky1", "Husky2"]
-run_env: "ROBOT"
+
+# Environment variable to make parameters below work for each robot
+run_env: "ROBOT" 
 
 img_data:
+  # Specify that we want to load data from .npy files with memory-mapping
+  # Allows us to avoid loading all images into RAM
   type: "npy"
   path: "/home/${USER}/data/hercules_datasets/V1.2/ausenv_test1_checkpoints_CSLAM_2UAVUGV_prunedExtract/images/_hercules_node_${ROBOT}_front_center_Scene_image_imgs.npy"
   path_times: "/home/${USER}/data/hercules_datasets/V1.2/ausenv_test1_checkpoints_CSLAM_2UAVUGV_prunedExtract/images/_hercules_node_${ROBOT}_front_center_Scene_image_times.npy"
+
+  # Camera parameters
   K: [640, 0,   640,
         0, 640, 360,
         0,   0,   0]
@@ -25,10 +34,16 @@ depth_data:
   height: 720
 
 pose_data:
+  # Load from csv to avoid expensive rosbag search
   type: "csv"
   path: "/home/${USER}/data/hercules_datasets/V1.2/ausenv_test1_checkpoints_CSLAM_2UAVUGV_prunedExtract/_hercules_node_${ROBOT}_ground_truth_odom_localNOISE.csv"
-  time_tol: 0.0026 # Slightly more than max expected time difference (0.0025, or around 400Hz)
+
+  # Time tolerance used to reject available data if no pose data is within the time tolerance value
+  # Slightly more than max expected time difference (0.0025, or around 400Hz)
+  time_tol: 0.0026
   interp: True
+
+  # Options that inform the algorithm where data is saved in the CSV file
   csv_options:
     cols:
       time: ["timestamp"]
@@ -38,11 +53,17 @@ pose_data:
       time: [0]
       position: [1, 2, 3]
       orientation: [5, 6, 7, 4]
-    timescale: 1.0 # Time is in seconds
+
+    # Used to convert timestamps in csv to seconds.
+    timescale: 1.0
+  
+  # Pose of FLU frame (or base frame in same location as camera) w.r.t camera frame
   T_camera_flu:
     input_type: "string"
-    string: "T_RDFFLU"  # Pose of FLU (or base frame in same location as camera) w.r.t camera frame
-  T_odombase_camera:    # Should be pose of the camera frame with respect to the odometry base frame
+    string: "T_RDFFLU" 
+
+  # Pose of the camera frame with respect to the odometry base frame
+  T_odombase_camera:
     input_type: matrix_${ROBOT}
     matrix_Husky1: [ 0, 0, 1, 0,
                     -1, 0, 0, 0,

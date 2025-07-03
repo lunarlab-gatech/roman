@@ -1,0 +1,57 @@
+# Path to model weights
+weights_path: "/home/dbutterfield3/roman/weights/FastSAM-x.pt"
+yolo_weights_path: "/home/dbutterfield3/roman/weights/yolov7.pt"
+
+# I belive this to be the size images are resized to before feeding to FastSAM
+imgsz: [256, 256]
+
+# Device to run on, either 'cpu' or 'cuda'
+device: 'cuda'
+
+# Factor to downsample masks from FastSAM by for observations
+mask_downsample_factor: 8
+
+# Determines the minimum and maximum sizes of masks returned.
+# For example, with these settings, smallest masks can have 1/900th 
+# of the pixels of the image, and largest masks can have 1/9th of
+# the pixels of the image.
+min_mask_len_div: 30
+max_mask_len_div: 3
+
+# I belive this to be unused
+ignore_people: False
+
+# Used to erode the image mask before generating point cloud from depth imagery
+erosion_size: 3
+
+# Used to determine voxel size of observations.
+# Increased so that it matches "segment_voxel_size" in mapper.yaml.
+voxel_size: 0.25
+
+# Parts of FastSAM image to ignore, based on detected labels matching those passed
+# here from Yolov7.
+ignore_labels: ['person']
+
+# Whether to use a keep mask for FastSAM
+use_keep_labels: False
+keep_labels: []
+
+# Used to attempt to filter out planes (like the ground)
+plane_filter_params: [3.0, 1.0, 0.2]
+
+# Whether to use CLIP embeddings
+clip: True
+
+# I belive this to be the size images are resized to before feeding to YoloV7
+yolo_imgsz: [256, 256]
+
+# Used to convert depth in passed depth imagery to metric depth.
+# For Hercules Dataset, image has raw depth values in meters.
+depth_scale: 1 
+
+# If 25% of point cloud of detected observation is not within max_depth, 
+# then observation is rejected.
+# For Hercules Dataset, depth is perfect & max depth is 16360, but leads to too big of arrays.
+# But, leaving at 7.5 causes issues with the very large Australian Environment.
+# Thus, increasing by 10x to 75.
+max_depth: 75 
