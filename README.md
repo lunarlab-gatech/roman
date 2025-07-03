@@ -32,6 +32,9 @@ enter_container.sh
 ```
 
 ### ROMAN Install
+Note that by default, FastSAM and CLIP are run on GPU. 
+If your computer does not have a GPU, you can use `-p params/demo_no_gpu` which specifies that CPU should be used for running FastSAM and additionally does not use CLIP semantic embeddings since these are extrememly slow to compute on CPU. 
+Even without CLIP semantic embeddings, the demo may run slower than real-time without using GPU.
 
 Next install ROMAN by running the following command from the root folder of this repository:
 ```
@@ -64,6 +67,27 @@ To visualize a map, run the command below:
 ```
 python3 demo/o3d_viz.py demo_output/map/<robot_name>.pkl
 ```
+### Association Visualization
+
+After running the demo, you can create a post-processed visualizations of object matches that have been found (see example [here](https://www.youtube.com/watch?v=y51NDoPpBy8&t=3s)).
+
+To create this visualization, run
+
+```
+python3 ./demo/association_vid.py ./demo_output ./demo_output/association_vid.mp4 --runs sparkal1 sparkal2
+```
+
+You will be shown the results of aligning object submaps which includes the ground truth distance between submaps,
+and the error in the estimated submap alignment poses.
+You will then be prompted to enter a submap index to visualize (in order robot 1, along y-axis then robot2, along x-axis).
+For, example, try 
+
+```
+4 7
+```
+
+Then, a video will be created showing the associations that were found between the submaps you entered.
+One thing you may notice is that the cars that are parked along the sidewalk in this example have changed (the two sessions were not taken at the same time), but ROMAN is still able to use the geometry of the newly parked cars to successfully align submaps.
 
 In the 'align' folder, the file 'align.png' will contain a plot titled "Number of CLIPPER associations". If this plot is a single color, there's a high likelihood that no associations were found, and thus no loop closures. Each detected loop closure can be found in `align.json`.
 

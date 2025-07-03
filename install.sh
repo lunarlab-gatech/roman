@@ -19,7 +19,7 @@ pip install .
 
 # pip install
 cd $ROMAN_DIR
-pip install .
+pip install --retries=3 --default-timeout=1000 .
 
 # download weights
 mkdir -p $ROMAN_DIR/weights

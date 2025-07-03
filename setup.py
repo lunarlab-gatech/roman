@@ -1,15 +1,15 @@
 from setuptools import setup, find_packages
 
 project_description = """
-ROMAN is a view-invariant global localization method that maps open-set objects and uses the 
-geometry, shape, and semantics of objects to find the transformation between a current pose and 
-previously created object map. This enables loop closure between robots even when a scene is 
+ROMAN is a view-invariant global localization method that maps open-set objects and uses the
+geometry, shape, and semantics of objects to find the transformation between a current pose and
+previously created object map. This enables loop closure between robots even when a scene is
 observed from opposite views.
 """
 
 setup(
     name='roman',
-    version='0.1.2',    
+    version='0.1.3',
     description=project_description,
     url='url',
     author='Mason Peterson, Lucas Jia, and Yulun Tian',
@@ -30,9 +30,9 @@ setup(
         'pyyaml',
         'torch==2.4.0',
         'torchvision==0.19.0',
-        'fastsam @ git+ssh://git@github.com/CASIA-IVA-Lab/FastSAM@4d153e9',
-        'robotdatapy>=1.0.1',
-        'gdown',
+        'fastsam @ git+https://github.com/CASIA-IVA-Lab/FastSAM.git@4d153e9',
+        'robotdatapy>=1.1.0',
+        'gdown', 
         'nltk'
     ],
 )
