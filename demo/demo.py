@@ -5,7 +5,7 @@
 # Demo code for running full ROMAN SLAM pipeline including 
 # mapping, loop closure, and pose-graph optimization
 #
-# Authors: Mason Peterson, Yulun Tian, Lucas Jia
+# Authors: Mason Peterson, Yulun Tian, Lucas Jia, Qingyuan Li
 #
 # Dec. 21, 2024
 #
@@ -88,6 +88,14 @@ if __name__ == '__main__':
     os.makedirs(os.path.join(args.output_dir, "offline_rpgo"), exist_ok=True)
     os.makedirs(os.path.join(args.output_dir, "offline_rpgo/sparse"), exist_ok=True)
     os.makedirs(os.path.join(args.output_dir, "offline_rpgo/dense"), exist_ok=True)
+    os.makedirs(os.path.join(args.output_dir, "params"), exist_ok=True)
+
+    # copy params to output directory
+    for param_file in os.listdir(params_dir):
+        if param_file.endswith(".yaml"):
+            src = os.path.join(params_dir, param_file)
+            dst = os.path.join(args.output_dir, "params", param_file)
+            os.system(f"cp {src} {dst}")
     
     if not args.skip_map:
         
@@ -102,7 +110,7 @@ if __name__ == '__main__':
             if data_params.run_env is not None:
                 os.environ[data_params.run_env] = run
             
-            print(f"Mapping: {run}")
+            print(f"\n\n----------\nMapping: {run}\n----------\n\n")
             mapping_viz_params = \
                 mapping.VisualizationParams(
                     viz_map=args.viz_map,
@@ -116,7 +124,8 @@ if __name__ == '__main__':
                 output_path=args.output,
                 run_name=run,
                 max_time=args.max_time,
-                viz_params=mapping_viz_params
+                viz_params=mapping_viz_params,
+                verbose=True
             )
         
     if not args.skip_align:
