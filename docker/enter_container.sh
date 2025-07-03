@@ -1,1 +1,1 @@
-docker start roman_baseline && docker exec -it roman_baseline /bin/bash
+docker start echelon && docker exec -it echelon /bin/bash
