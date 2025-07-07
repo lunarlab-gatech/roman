@@ -46,11 +46,6 @@ RUN sudo apt install tmux && pip install --upgrade tmuxp && \
 RUN sudo apt install -y wmctrl wget lsb-release python3-opencv
 RUN pip install numpy==1.23 scipy scikit-image matplotlib wmctrl
 
-# Install tmuxp
-RUN sudo apt install tmux && pip install --upgrade tmuxp && \
-    echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && \
-    echo 'setw -g mouse on' > ~/.tmux.conf 
-
 # Install ros2 Humble
 RUN sudo apt update && sudo apt install locales -y && \
     sudo locale-gen en_US en_US.UTF-8 && \
@@ -76,3 +71,6 @@ SHELL ["/bin/bash", "-c"]
 
 # Set the User environment variables
 RUN echo "export USER=${USERNAME}" >> ~/.bashrc
+
+# Install gdown
+RUN pip install gdown

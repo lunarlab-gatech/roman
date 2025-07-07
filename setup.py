@@ -19,7 +19,7 @@ setup(
     install_requires=[
         'numpy<2',
         'scipy',
-        'seaborn'
+        'seaborn',
         'matplotlib', 
         'gtsam',
         'scikit-image',
@@ -33,7 +33,11 @@ setup(
         'fastsam @ git+https://github.com/CASIA-IVA-Lab/FastSAM.git@4d153e9',
         'robotdatapy>=1.1.0',
         'gdown', 
-        'nltk'
+        'nltk',
+        'typeguard',
+        'trimesh[easy]',
+        'manifold3d',
+        'pyglet<2',
     ],
 )
 

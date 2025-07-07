@@ -1,6 +1,6 @@
 # Specify that GT pose infomation is stored in a csv file
 type: "csv"
-path: "/home/${USER}/data/hercules_datasets/V1.2/ausenv_test1_checkpoints_CSLAM_2UAVUGV_prunedExtract/_hercules_node_${ROBOT}_ground_truth_odom_local.csv"
+path: "/home/${USER}/data/Hercules_datasets/V1.2/extract/${ROBOT}_odomGT.csv"
 
 # Options that inform the algorithm where data is saved in the CSV file
 csv_options:

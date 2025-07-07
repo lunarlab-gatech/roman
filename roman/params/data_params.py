@@ -45,7 +45,7 @@ def find_transformation(bag_path, param_dict) -> np.array:
         if 'inv' in param_dict.keys() and param_dict['inv']:
             T = np.linalg.inv(T)
         return T
-    elif param_dict['input_type'] == 'matrix':
+    elif param_dict['input_type'][0:6] == 'matrix':
         return np.array(param_dict[expandvars_recursive(param_dict['input_type'])], dtype=np.float64).reshape((4,4))
     else:
         raise ValueError("Invalid input type.")

@@ -5,8 +5,9 @@ from typing import List, Dict
 import open3d as o3d
 
 from robotdatapy.transform import transform
-
 from roman.map.voxel_grid import VoxelGrid
+from scipy.spatial import ConvexHull
+import trimesh
 
 
 @dataclass
@@ -42,6 +43,15 @@ class Observation():
         if voxel_size not in self.voxel_grid:
             self.voxel_grid[voxel_size] = VoxelGrid.from_points(self.transformed_points, voxel_size)
         return self.voxel_grid[voxel_size]
+    
+    def get_convex_hull(self) -> trimesh.Trimesh:
+        # Extract Convex Hull
+        hull = ConvexHull(self.point_cloud)
+
+        # Wrap in a Trimesh and fix normals/winding direction so they are volumes
+        mesh = trimesh.Trimesh(vertices=self.point_cloud, faces=hull.simplices, process=True)
+        mesh.fix_normals()
+        return mesh
     
     @property
     def transformed_points(self):

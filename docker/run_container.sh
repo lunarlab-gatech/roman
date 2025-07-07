@@ -1,5 +1,5 @@
-DATA_DIR='/media/dbutterfield3/T73'
-REPO_DIR='/home/dbutterfield3/Research/ROMAN_DEVEL'
+DATA_DIR='/media/dbutterfield3/T71'
+REPO_DIR='/home/dbutterfield3/Research'
 
 docker run -it \
     --name="echelon" \

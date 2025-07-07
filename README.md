@@ -50,14 +50,14 @@ Run the following command to run this demo:
 ```
 mkdir demo_output
 export YOLO_VERBOSE=False
-python3 demo/demo.py -p demo/params/hercules_AustraliaEnv -o demo_output --skip-align --skip-rpgo
-python3 demo/demo.py -p demo/params/hercules_AustraliaEnv -o demo_output --skip-map --skip-rpgo    
-python3 demo/demo.py -p demo/params/hercules_AustraliaEnv -o demo_output --skip-map --skip-align
+python3 demo/demo.py -p params/hercules_AustraliaEnv -o demo_output --skip-align --skip-rpgo
+python3 demo/demo.py -p params/hercules_AustraliaEnv -o demo_output --skip-map --skip-rpgo    
+python3 demo/demo.py -p params/hercules_AustraliaEnv -o demo_output --skip-map --skip-align
 ```
 
 If you want to enable visualizations of the mapping step:
 ```
-python3 demo/demo.py -p demo/params/hercules_AustraliaEnv -o demo_output --viz-observations --viz-map --viz-3d --skip-align --skip-rpgo
+python3 demo/demo.py -p params/hercules_AustraliaEnv -o demo_output --viz-observations --viz-map --viz-3d --skip-align --skip-rpgo
 ```
 
 In the output directory, the 'map' folder will contain .mp4 files with visualizations, and .pkl files with the stored ROMAN maps. 
@@ -74,7 +74,7 @@ After running the demo, you can create a post-processed visualizations of object
 To create this visualization, run
 
 ```
-python3 ./demo/association_vid.py ./demo_output ./demo_output/association_vid.mp4 --runs sparkal1 sparkal2
+python3 ./demo/association_vid.py ./demo_output ./demo_output/association_vid.mp4 --runs Husky1 Drone1
 ```
 
 You will be shown the results of aligning object submaps which includes the ground truth distance between submaps,

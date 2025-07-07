@@ -1,5 +1,6 @@
 import numpy as np
 from numpy.linalg import norm
+from numpy.typing import NDArray
 import cv2 as cv
 from typing import List, Tuple
 import shapely
@@ -8,11 +9,13 @@ from dataclasses import dataclass
 from robotdatapy.data.img_data import CameraParams
 from robotdatapy.transform import transform, aruns
 from robotdatapy.camera import xyz_2_pixel, pixel_depth_2_xyz
-
+from scipy.spatial import ConvexHull
 import open3d as o3d
 from roman.map.observation import Observation 
 from roman.map.voxel_grid import VoxelGrid
 from roman.object.object import Object
+import trimesh
+from typeguard import typechecked
 
 
 class SegmentMinimalData(Object):
@@ -77,7 +80,7 @@ class Segment(Object):
         self.last_propagated_mask = None
         self.last_propagated_time = None
         self.semantic_descriptor = None
-        self.semantic_descriptor_cnt = 0
+        self.semantic_descriptors: list[tuple[np.ndarray, float]] = []
         self._center_ref = "mean" # TODO: make enum. For now: mean or bottom-middle
 
         # memoized attributes
@@ -100,7 +103,6 @@ class Segment(Object):
 
         Args:
             observation (Observation): Input observation object
-            force (bool, optional): If true, do not attempt 3D reconstruction. Defaults to False.
             integrate_points (bool, optional): If true, integrate point cloud contained in observation. Defaults to True.
         """
             
@@ -108,7 +110,7 @@ class Segment(Object):
         if integrate_points:
             self._integrate_points_from_observation(observation)
             if observation.clip_embedding is not None:
-                self._add_semantic_descriptor(observation.clip_embedding)
+                self._add_semantic_descriptor([(observation.clip_embedding, ConvexHull(observation.point_cloud).volume)])
 
         self.num_sightings += 1
         self.observations.append(observation.copy(include_mask=False))
@@ -126,7 +128,7 @@ class Segment(Object):
             self.update(obs, integrate_points=False)
         self._integrate_points_from_segment(segment)
         if segment.semantic_descriptor is not None:
-            self._add_semantic_descriptor(segment.semantic_descriptor, segment.semantic_descriptor_cnt)
+            self._add_semantic_descriptor(segment.semantic_descriptors)
     
     def _integrate_points_from_observation(self, observation: Observation):
         """Integrate point cloud in the input observation object
@@ -277,6 +279,15 @@ class Segment(Object):
                 self.voxel_grid[voxel_size] = VoxelGrid.from_points(self.points, voxel_size)
             return self.voxel_grid[voxel_size]
         raise ValueError("No points in segment")
+    
+    def get_convex_hull(self) -> trimesh.Trimesh:
+        # Extract Convex Hull
+        hull = ConvexHull(self.points)
+
+        # Wrap in a Trimesh and fix normals/winding direction so they are volumes
+        mesh = trimesh.Trimesh(vertices=self.points, faces=hull.simplices, process=True)
+        mesh.fix_normals()
+        return mesh
     
     @property
     def aabb(self):
@@ -465,20 +476,27 @@ class Segment(Object):
         e = self.normalized_eigenvalues
         return e[2] / e[0]
     
-    def _add_semantic_descriptor(self, descriptor: np.ndarray, cnt: int = 1):
+    @typechecked
+    def _add_semantic_descriptor(self, descriptors: list[tuple[NDArray[np.float64], float]]):
+        # Append the descriptors to our current list of descriptors
+        self.semantic_descriptors += descriptors
+
+        # Make sure we don't initialize with multiple descriptors, which shouldn't happen
         if self.semantic_descriptor is None:
-            assert cnt == 1, "Multiple Initialization of Semantic Descriptor"
-            self.semantic_descriptor = descriptor / norm(descriptor)
-            self.semantic_descriptor_cnt = cnt
-        else:
-            self.semantic_descriptor = (
-                self.semantic_descriptor * self.semantic_descriptor_cnt
-                / (self.semantic_descriptor_cnt + cnt) 
-                + descriptor * cnt / norm(descriptor)
-                / (self.semantic_descriptor_cnt + cnt)
-            )
-            self.semantic_descriptor_cnt += cnt
-        self.semantic_descriptor /= norm(self.semantic_descriptor) # renormalize
+            assert len(descriptors) == 1, "Multiple Initialization of Semantic Descriptor"
+
+        # Extract the embeddings and weights
+        embeddings, weights = zip(*self.semantic_descriptors)
+        embeddings = np.array(embeddings, dtype=np.float64) 
+        weights = np.array(weights, dtype=np.float64)     
+
+        # Make sure the input descriptors are normalized
+        for i in range(embeddings.shape[0]):
+            embeddings[i] = embeddings[i] / np.linalg.norm(embeddings[i])
+
+        # Calculate the new final semantic descriptor as weighted average
+        self.semantic_descriptor = np.average(embeddings, axis=0, weights=weights)
+        self.semantic_descriptor /= np.linalg.norm(self.semantic_descriptor)
         
     def transform(self, T):
         if self.points is not None:
