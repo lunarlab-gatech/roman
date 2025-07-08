@@ -45,11 +45,8 @@ class Observation():
         return self.voxel_grid[voxel_size]
     
     def get_convex_hull(self) -> trimesh.Trimesh:
-        # Extract Convex Hull
-        hull = ConvexHull(self.point_cloud)
-
-        # Wrap in a Trimesh and fix normals/winding direction so they are volumes
-        mesh = trimesh.Trimesh(vertices=self.point_cloud, faces=hull.simplices, process=True)
+        hull = ConvexHull(self.transformed_points)
+        mesh = trimesh.Trimesh(vertices=self.transformed_points, faces=hull.simplices, process=True)
         mesh.fix_normals()
         return mesh
     

@@ -32,27 +32,6 @@ class SceneGraph3D():
             raise RuntimeError("Top-level nodes list of SceneGraph3D should only have root nodes!")
 
     @typechecked
-    def add_dummy_nodes(self, node_list: list[GraphNode]):
-        raise NotImplementedError("NEEDS REWORKING")
-        # Iterate through each node
-        for node in node_list:
-
-            # If there is no parent, add one as a dummy node
-            if node.noParent():
-                node.setParent(GraphNode.create_dummy_node(self.id_manager.acquire(), None))
-            else: # Otherwise, add a dummy node between parent and child (to represent a missing hierarchical layer)
-                intermediate_node = GraphNode.create_dummy_node(self.id_manager.acquire(), node.parent_node)
-                node.setDummyParent(intermediate_node)
-                node.parent_node.addChild(intermediate_node)
-
-            # Add a dummy node regardless if it has children or not
-            node.addChild(GraphNode.create_dummy_node(self.id_manager.acquire(), None))
-
-            # Recursively add dummy nodes to children as well
-            if isinstance(node, ParentGraphNode):
-                self.add_dummy_nodes(node.child_nodes)
-
-    @typechecked
     def len(self) -> int:
         return self.root_node.get_number_of_nodes()
 
@@ -71,9 +50,16 @@ class SceneGraph3D():
                     if i == pair[0] and j == pair[1]:
 
                         # If so, merge it with the node
-                        node.update_with_observation(observations[i])
+                        node.update_node(observations[i].point_cloud, observations[i].pose, observations[i].clip_embedding)
         
         # Resolve any overlapping point clouds
+        self.resolve_overlapping_point_clouds()
+
+        # Add the remaining unassociated observations as nodes to the scene graph
+        associated_obs_indices = [x[0] for x in associated_pairs]
+        for i in range(len(observations)):
+            if i not in associated_obs_indices:
+                self.add_new_node_to_graph(observations[i].transformed_points, observations[i].clip_embedding)
 
     @typechecked
     def hungarian_assignment(self, obs: list[Observation]) -> list[tuple]:
@@ -95,7 +81,7 @@ class SceneGraph3D():
             for j, node in enumerate(self.root_node):
                 # Calculate IOU and Semantic Similarity
                 iou, _, _ = SceneGraph3D.convex_hull_geometric_overlap(node.get_convex_hull(), obs[i].get_convex_hull())
-                sem_con = SceneGraph3D.semantic_consistency(node, obs[i])
+                sem_con = SceneGraph3D.semantic_consistency(node.get_weighted_semantic_descriptor(), obs[i].clip_embedding)
 
                 # See if they are within thresholds
                 iou_fail: bool = node.iou < self.min_iou_for_association
@@ -124,7 +110,14 @@ class SceneGraph3D():
         return pairs
     
     @typechecked
+    @staticmethod
     def convex_hull_geometric_overlap(a: trimesh.Trimesh, b: trimesh.Trimesh) -> tuple[float, float, float]:
+        """
+        Returns:
+            iou
+            enc_a_ratio (float) -> The percentage of hull a that is enclosed by b.
+            enc_b_ratio (float) -> The percentage of hull b that is enclosed by a.
+        """
         # Calculate the intersection trimesh
         intersection = a.intersection(b, engine='manifold')
 
@@ -133,18 +126,20 @@ class SceneGraph3D():
         iou = inter_vol / (a.volume + b.volume - inter_vol)
 
         # Calculate the relative enclosure ratios
-        enc_seg_ratio = inter_vol / a.volume
-        enc_obs_ratio = inter_vol / b.volume
+        enc_a_ratio = inter_vol / a.volume
+        enc_b_ratio = inter_vol / b.volume
 
-        return iou, enc_seg_ratio, enc_obs_ratio
+        return iou, enc_a_ratio, enc_b_ratio
     
     @typechecked
-    def semantic_consistency(node: GraphNode, observation: Observation, rescaling: list = [0.7, 1.0]):
-        # Normalize observation embeddings
-        obs_emb = observation.clip_embedding / np.linalg.norm(observation.clip_embedding)
+    @staticmethod
+    def semantic_consistency(a: np.ndarray, b: np.ndarray, rescaling: list = [0.7, 1.0]):
+        # Normalize both embeddings (just in case they aren't already)
+        a = a / np.linalg.norm(a)
+        b = b / np.linalg.norm(b)
 
-        # Calculate the cosine similarity (they are assumed to be normalized)
-        cos_sim = np.dot(node.get_weighted_semantic_descriptor(), obs_emb)
+        # Calculate the cosine similarity
+        cos_sim = np.dot(a, b)
 
         # Rescale the similarity so that a similiarity <=rescaling[0] is 0 and >=rescaling[1] is 1.
         min_val, max_val = rescaling
@@ -153,43 +148,69 @@ class SceneGraph3D():
         return rescaled_clamped
     
     @typechecked
+    @staticmethod
+    def get_convex_hull_from_point_cloud(point_cloud: np.ndarray) -> trimesh.Trimesh:
+        hull = ConvexHull(point_cloud)
+        mesh = trimesh.Trimesh(vertices=point_cloud, faces=hull.simplices, process=True)
+        mesh.fix_normals()
+        return mesh
+    
+    @typechecked
     def resolve_overlapping_point_clouds(self):
-        # Iterate through each node pair in the scene graph
-        for i, node_i in enumerate(self.root_node):
-            for j, node_j  in enumerate(self.root_node):
-                if i < j:
+        # Iterate through entire graph until no overlaps with shared points are detected
+        change_occured = True
+        while change_occured:
+            change_occured =  False
 
-                    # Calculate the geometric overlap between them
-                    hull_i = node_i.get_convex_hull()
-                    hull_j = node_j.get_convex_hull()
-                    iou, _, _ = self.convex_hull_geometric_overlap(hull_i, hull_j)
+            # Iterate through each node pair in the scene graph
+            for i, node_i in enumerate(self.root_node):
+                for j, node_j  in enumerate(self.root_node):
+                    if i < j:
 
-                    # If this is above a threshold, then we've found an overlap
-                    if iou > self.iou_threshold_overlapping_obj:
-                        
-                        # Get merged point clouds from both nodes
-                        pc_i = node_i.get_point_cloud()
-                        pc_j = node_j.get_point_cloud()
-                        pc_merged = np.concatenate((pc_i, pc_j), dtype=np.float64)
+                        # Calculate the geometric overlap between them
+                        hull_i = node_i.get_convex_hull()
+                        hull_j = node_j.get_convex_hull()
+                        iou, _, _ = self.convex_hull_geometric_overlap(hull_i, hull_j)
 
-                        # Find all points in this overlap region
-                        contain_masks = self.find_point_overlap_with_hulls(pc_merged, [hull_i, hull_j])
-                        num_mask_assignments = np.sum(contain_masks, axis=0)
-                        overlaps = np.where(num_mask_assignments > 1)[0]
-                        pc_overlap = pc_merged[overlaps,:]
+                        # If this is above a threshold, then we've found an overlap
+                        if iou > self.iou_threshold_overlapping_obj:
+                            
+                            # Get merged point clouds from both nodes
+                            pc_i = node_i.get_point_cloud()
+                            pc_j = node_j.get_point_cloud()
+                            pc_merged = np.concatenate((pc_i, pc_j), dtype=np.float64)
 
-                        # If there is at least one point in this region 
-                        if len(pc_overlap) > 1:
+                            # Find all points in this overlap region
+                            contain_masks = self.find_point_overlap_with_hulls(pc_merged, [hull_i, hull_j])
+                            num_mask_assignments = np.sum(contain_masks, axis=0)
+                            overlaps = np.where(num_mask_assignments > 1)[0]
+                            pc_overlap = pc_merged[overlaps,:]
 
-                            # Then turn this overlap into a "new" observation and add to the graph.
-                            raise NotImplementedError("FINISH ME")
+                            # If there is at least one point in this region 
+                            if len(pc_overlap) > 1:
 
-                        else:
-                            # Otherwise, this is a "fake" overlap due to our approximation via Convex Hulls
-                            # Do nothing, and it shouldn't cause issues as no actual points overlap in another's hull
-                            pass
+                                # Remove these points from their parents
+                                node_i.remove_points(pc_overlap)
+                                node_j.remove_points(pc_overlap)
+                                
+                                # Add these points as a new node to the graph
+                                self.add_new_node_to_graph(pc_overlap, None)
+
+                                # TODO: Long-term want to keep track of when images/masks correspond to which points,
+                                # so we can go back and get a clip embedding specific to this region. Will allow us
+                                # to merge this in more robustly, instead of creating small "noisy" object regions like
+                                # I believe this will do.
+
+                                # Remember to reiterate
+                                change_occured = True
+
+                            else:
+                                # Otherwise, this is a "fake" overlap due to our approximation via Convex Hulls
+                                # Do nothing, and it shouldn't cause issues as no actual points overlap in another's hull
+                                pass
 
     @typechecked
+    @staticmethod
     def find_point_overlap_with_hulls(pc: np.ndarray, hulls: list[trimesh.Trimesh], fail_on_multi_assign: bool = False) -> np.ndarray:  
         # Find which points fall into which Convex hulls
         contain_masks = np.zeros((len(hulls), len(pc)), dtype=int)
@@ -204,5 +225,27 @@ class SceneGraph3D():
                 raise RuntimeError(f"Points in observation overlap wiht multiple child Convex Hulls: {overlaps.tolist()}")
             
         return contain_masks
-        
+    
+    @typechecked
+    def add_new_node_to_graph(self, new_pc: np.ndarray, new_descriptor: np.ndarray | None):
+        """
+        Args:
+            new_pc (np.ndarray): Point Cloud in shape of (N, 3) in the global frame.
+        """
 
+        # Generate dummy nodes in the graph (to be potential locations for the new node)
+        self.root_node.add_dummy_nodes()
+
+        # Calculate convex hull for this new point cloud
+        hull_new = SceneGraph3D.get_convex_hull_from_point_cloud(new_pc)
+
+        # Generate likelihood scores through each dummy by iterating through
+        # non-dummy nodes and affecting likelihood of the dummies around them
+        for i, node in enumerate(self.root_node):
+            if not node.get_is_dummy():
+                
+                # Calculate overlaps
+                iou, enc_node_ratio, enc_new_ratio = SceneGraph3D.convex_hull_geometric_overlap(node.get_convex_hull(), hull_new)
+
+                # WRITE ME NEXT
+                raise NotImplementedError
