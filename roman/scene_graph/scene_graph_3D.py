@@ -3,7 +3,6 @@ from __future__ import annotations
 import copy
 from enum import Enum
 from .graph_node import GraphNode, ParentGraphNode, RootGraphNode
-from .id_manager import IDManager
 from ..map.observation import Observation
 import numpy as np
 from ..object.segment import Segment
