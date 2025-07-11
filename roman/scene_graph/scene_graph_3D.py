@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 from enum import Enum
-from .graph_node import GraphNode, ParentGraphNode, LeafGraphNode
+from .graph_node import GraphNode, ParentGraphNode, RootGraphNode
 from .id_manager import IDManager
 from ..map.observation import Observation
 import numpy as np
@@ -13,11 +13,18 @@ from scipy.spatial.distance import pdist
 import trimesh
 from typeguard import typechecked
 
-# TODO: Make sure the root node is properly dealt with (never deleted, never associated, never merged with, etc)
-
 class SceneGraph3D():
+    # Node that connects all highest-level objects together for implementation purposes
     root_node: ParentGraphNode
-    id_manager: IDManager
+
+    # List of high-level nodes that have been inactivated
+    inactive_nodes: list[GraphNode] = []
+
+    # Keeps track of current time so we can keep track of when we are updated.
+    curr_time: float
+
+    # Keeps track of the current pose so we know where we are
+    curr_pose: np.ndarray
 
     # The two requirements for an observation to be associated with a current graph node,
     # or for two nodes to be merged.
@@ -36,14 +43,22 @@ class SceneGraph3D():
     # Minimum semantic consistency for two objects to infer a shared parent
     min_sem_con_for_higher_level_object_inference = 0.65
 
+    # If a NEW node isn't seen for this time, remove from graph
+    max_t_no_sightings_to_prune_new = 0.4 # seconds
+
+    # If a high-level node goes this long since it was first seen, inactivate
+    max_t_active_for_node = 15 # seconds
+
+    # If we travel a significant distance from the first camera pose where this object was seen, inactivate
+    max_dist_active_for_node = 10 # meters
+
     @typechecked
-    def __init__(self, root_node: ParentGraphNode):
-        self.root_node = root_node
-        self.id_manager = IDManager()
+    def __init__(self):
+        self.root_node = RootGraphNode(None, [], np.zeros((0, 3), dtype=np.float64), [], None, None, None, None, None)
         self.assert_root_node_has_no_parent()
 
     def assert_root_node_has_no_parent(self):
-        if self.root_node.noParent() is False:
+        if self.root_node.no_parent() is False:
             raise RuntimeError("Top-level nodes list of SceneGraph3D should only have root nodes!")
 
     @typechecked
@@ -51,7 +66,14 @@ class SceneGraph3D():
         return self.root_node.get_number_of_nodes()
 
     @typechecked
-    def update(self, observations: list[Observation]):
+    def update(self, observations: list[Observation], time: float, pose: np.ndarray):
+        # Update current time in all nodes and self
+        self.curr_time = time
+        self.root_node.update_curr_time(time)
+
+        # Set the current pose in all nodes and self
+        self.curr_pose = pose
+        self.root_node.update_curr_pose(pose)
         
         # Associate observations with any current object nodes
         associated_pairs = self.hungarian_assignment(observations)
@@ -79,6 +101,9 @@ class SceneGraph3D():
         # Merge nodes that can be merged, and infer higher level ones
         self.merging_and_generation()
 
+        # Run node retirement
+        self.node_retirement()
+
     @typechecked
     def hungarian_assignment(self, obs: list[Observation]) -> list[tuple]:
         """
@@ -97,18 +122,23 @@ class SceneGraph3D():
         for i in range(num_obs):
             # Calculate a similarity score for every node in the graph
             for j, node in enumerate(self.root_node):
+
+                # If this is a root node, assign a score to practically disable association and skip
+                if node.is_RootGraphNode():
+                    scores[i,j] = 1e9
+                    continue
+                
                 # Calculate IOU and Semantic Similarity
                 iou, _, _ = SceneGraph3D.convex_hull_geometric_overlap(node.get_convex_hull(), obs[i].get_convex_hull())
                 sem_con = SceneGraph3D.semantic_consistency(node.get_weighted_semantic_descriptor(), obs[i].clip_embedding)
 
-                # Calculate simularity value
-                if not self.pass_minimum_requirements_for_association(iou, sem_con):
-                    # If fail, then give a very large number to practically disable association
-                    score = 1e9
+                # Check if it passes minimum requirements for association
+                if self.pass_minimum_requirements_for_association(iou, sem_con):
+                    # If fail (or root node), then give a very large number to practically disable association
+                    scores[i,j] = 1e9
                 else:
                     # Negative as hungarian algorithm tries to minimize cost
-                    score = -iou - sem_con
-                scores[i,j] = score
+                    scores[i,j] = -iou - sem_con
 
         # augment cost to add option for no associations
         hungarian_cost = np.concatenate([ np.concatenate([scores, np.ones(scores.shape)], axis=1), np.ones((scores.shape[0], 2*scores.shape[1]))], axis=0)
@@ -210,10 +240,10 @@ class SceneGraph3D():
         while change_occured:
             change_occured =  False
 
-            # Iterate through each node pair in the scene graph
+            # Iterate through each pair of nodes that aren't an ascendent or descendent with each other
             for i, node_i in enumerate(self.root_node):
-                for j, node_j  in enumerate(self.root_node):
-                    if i < j:
+                for j, node_j in enumerate(self.root_node):
+                    if i < j and not node_i.is_descendent_or_ascendent(node_j):
 
                         # Calculate the geometric overlap between them
                         hull_i = node_i.get_convex_hull()
@@ -360,18 +390,27 @@ class SceneGraph3D():
                 # Get the convex hull comprising of all the children, and one for the parent
                 # These are different because dummy node doesn't use point cloud of parent for its hull.
                 hull_all_children = node.get_convex_hull()
-                hull_parent = node.get_parent().get_convex_hull()
+                if not node.get_parent().is_RootGraphNode(): 
+                    hull_parent = node.get_parent().get_convex_hull()
                 
                 # Add similarities for geometric overlaps with children
                 children_iou, children_enclosure, _ = SceneGraph3D.convex_hull_geometric_overlap(hull_all_children, hull_new)
 
                 # Add similarities for geometric overlaps with parents
-                parent_iou, _, parent_encompassment = SceneGraph3D.convex_hull_geometric_overlap(hull_parent, hull_new)
+                if not node.get_parent().is_RootGraphNode():
+                    parent_iou, _, parent_encompassment = SceneGraph3D.convex_hull_geometric_overlap(hull_parent, hull_new)
+                else:
+                    # A root node has an IOU with child approaching 0, and full encompassment of any object.
+                    parent_iou, _, parent_encompassment = 0.0, None, 1.0
 
                 # Calculate semantic similarity
                 if new_descriptor is not None:
                     children_sem_sim = SceneGraph3D.semantic_consistency(node.get_weighted_semantic_descriptor(), new_descriptor)
-                    parent_sem_sim = SceneGraph3D.semantic_consistency(node.get_parent().get_weighted_semantic_descriptor(), new_descriptor)
+                    if not node.get_parent().is_RootGraphNode():
+                        parent_sem_sim = SceneGraph3D.semantic_consistency(node.get_parent().get_weighted_semantic_descriptor(), new_descriptor)
+                    else:
+                        # Neutral similarity with root node, as it represents everything
+                        parent_sem_sim = 0.5
                 else:
                     # Give it a neutral similarity if there is no descriptor
                     children_sem_sim = 0.5
@@ -429,7 +468,7 @@ class SceneGraph3D():
             # Iterate through each pair of nodes that aren't an ascendent or descendent with each other
             for i, node_i in enumerate(self.root_node):
                 for j, node_j in enumerate(self.root_node):
-                    if i != j and not node_i.is_descendent_or_ascendent(node_j):
+                    if i < j and not node_i.is_descendent_or_ascendent(node_j):
 
                         # ========== Minimum Requirements for Association Merge ==========
 
@@ -488,7 +527,8 @@ class SceneGraph3D():
                             node_j.set_parent(None)
 
                             # Create a new parent node with these as children and put back in the graph
-                            inferred_parent_node = ParentGraphNode(None, [], np.zeros((0, 3), dtype=np.float64), [node_i, node_j])
+                            first_seen = min(node_i.get_time_first_seen(), node_j.get_time_first_seen())
+                            inferred_parent_node = ParentGraphNode(None, [], np.zeros((0, 3), dtype=np.float64), [node_i, node_j], first_seen, self.curr_time)
                             self.add_new_node_to_graph(inferred_parent_node)
 
                             # Break out of double-nested loop to reset iterators
@@ -502,9 +542,13 @@ class SceneGraph3D():
             # Iterate through pairs of parent-child relationships (to check if they should merge)
             for i, node_i in enumerate(self.root_node):
                 for j, node_j in enumerate(self.root_node):
-                    if i != j and node_i.is_parent_or_child(node_j):
+                    if i < j and node_i.is_parent_or_child(node_j):
                         
                         # ========== Parent-Child Semantic Merging ==========
+
+                        # If either is the root node, skip as this shouldn't really merge with any children
+                        if node_i.is_RootGraphNode() or node_j.is_RootGraphNode():
+                            continue
 
                         # Calculate Semantic Similarity
                         sem_con = SceneGraph3D.semantic_consistency(node_i.get_weighted_semantic_descriptor(), node_j.get_weighted_semantic_descriptor())
@@ -533,3 +577,16 @@ class SceneGraph3D():
                 # If we break out of inner loop, leave outer loop too
                 if merge_occured:
                     break
+
+    def node_retirement(self):
+        # Iterate only through the direct children of the root node
+        for child in self.root_node.get_children():
+
+            # If the time the child was first seen was too long ago OR
+            # we've move substancially since then, Inactivate this node and descendents
+            if self.curr_time - child.get_time_first_seen() > self.max_t_active_for_node \
+                or np.linalg.norm(self.curr_pose[:3,3] - child.get_first_pose()) > self.max_dist_active_for_node:
+
+                # Pop this child off of the root node and put in our inactive nodes
+                self.root_node.remove_child(child)
+                self.inactive_nodes.append(child)

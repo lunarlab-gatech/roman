@@ -26,6 +26,19 @@ class GraphNode():
     # Ex. points on a wall, whose children are a painting and a window.
     point_cloud: np.ndarray = np.zeros((0, 3), dtype=np.float64)
 
+    # Keeps track of time this node (not any children) was seen. Note 
+    # that last_updated just keeps track of when point cloud or semantic 
+    # descriptors was changed, nothing else.
+    first_seen: float
+    last_updated: float
+
+    # Keeps track of current time & pose
+    curr_time: float
+    curr_pose: np.ndarray
+
+    # Keeps track of the first pose associated with this node (not any descendents)
+    first_pose: np.ndarray
+
     # If true, this is a placeholder node that stores values for likelihood
     # as the position for a new node added to the graph.
     _is_dummy: bool = False
@@ -33,10 +46,16 @@ class GraphNode():
     # ================ Initialization =================
     @typechecked
     def __init__(self, parent_node: ParentGraphNode | None, semantic_descriptors: list[tuple[np.ndarray, float]],
-                       point_cloud: np.ndarray):
+                       point_cloud: np.ndarray, first_seen: float, last_updated: float, curr_time: float, 
+                       first_pose: np.ndarray, curr_pose: np.ndarray):
         self.parent_node = parent_node
         self.semantic_descriptors = semantic_descriptors
         self.point_cloud = point_cloud
+        self.first_seen = first_seen
+        self.last_updated = last_updated
+        self.curr_time = curr_time
+        self.first_pose = first_pose
+        self.curr_pose = curr_pose
 
         # Always cleanup incoming point cloud
         self.cleanup_point_cloud()
@@ -94,9 +113,29 @@ class GraphNode():
         return isinstance(self, ParentGraphNode)
     
     @typechecked
+    def is_RootGraphNode(self) -> bool:
+        return isinstance(self, RootGraphNode)
+
+    @typechecked
     def is_LeafGraphNode(self) -> bool:
         return isinstance(self, LeafGraphNode)
     
+    @typechecked
+    def get_time_first_seen(self) -> float:
+        return self.first_seen
+    
+    @typechecked
+    def get_time_last_updated(self) -> float:
+        return self.last_updated
+    
+    @typechecked
+    def get_first_pose(self) -> np.ndarray:
+        return self.first_pose
+    
+    def get_time_last_updated_recursive(self) -> float:
+        """ Gets the most recent last updated time for self and descendents. """
+        raise NotImplementedError("Use a child class, not GraphNode itself!")
+
     def get_point_cloud(self):
         raise NotImplementedError("Use a child class, not GraphNode itself!")
     
@@ -115,6 +154,10 @@ class GraphNode():
     
     # ==================== Calculations ====================
     def calculate_weighted_semantic_descriptor(descriptors: list[tuple[NDArray[np.float64], float]]):
+        # If we have no descriptors, raise an error
+        if len(descriptors) == 0:
+            raise ValueError("Cannot calculate weighted semantic descriptor when descriptors is empty!")
+
         # Extract the embeddings and weights
         embeddings, weights = zip(*descriptors)
         embeddings = np.array(embeddings, dtype=np.float64) 
@@ -142,6 +185,7 @@ class GraphNode():
     @typechecked
     def add_semantic_descriptors(self, descriptors: list[tuple[NDArray[np.float64], float]]) -> None:
         self.semantic_descriptors += descriptors
+        self.last_updated = self.curr_time
 
     @typechecked
     def update_point_cloud(self, new_points: np.ndarray) -> None:
@@ -153,6 +197,7 @@ class GraphNode():
 
         # Append them to our point cloud
         self.point_cloud = np.concatenate((self.point_cloud, new_points), axis=0)
+        self.last_updated = self.curr_time
 
         # Remove any outliers
         self.cleanup_point_cloud()
@@ -174,7 +219,8 @@ class GraphNode():
             if pcd_pruned.is_empty():
                 self.point_cloud = None
             else:
-                self.point_cloud = np.asarray(pcd_pruned.points) 
+                self.point_cloud = np.asarray(pcd_pruned.points)
+            self.last_updated = self.curr_time
     
     @typechecked
     def remove_points_from_self(self, pc_to_remove: np.ndarray):
@@ -185,7 +231,9 @@ class GraphNode():
 
         # Remove points that are in pc_to_remove
         mask = np.isin(view_pc, view_remove, invert=True)
-        self.point_cloud = self.point_cloud[mask]
+        if np.sum(mask) != mask.shape[0]:
+            self.point_cloud = self.point_cloud[mask]
+            self.last_updated = self.curr_time
 
     @typechecked
     def merge_with_node(self, other: GraphNode) -> GraphNode:
@@ -212,11 +260,21 @@ class GraphNode():
         # Make a list of children
         combined_children = (self.get_children() + other.get_children())
 
+        # Calculate the first seen time as earliest from the two nodes
+        first_seen = min(self.get_time_first_seen(), other.get_time_first_seen())
+
+        # Also calculate the first pose
+        if first_seen == self.get_time_first_seen(): first_pose = self.get_first_pose()
+        else: first_pose = other.get_first_pose()
+
         # Create a new node representing the merge
         if self.is_LeafGraphNode() and other.is_LeafGraphNode():
-            new_node = LeafGraphNode(None, combined_descriptors, combined_pc)
+            new_node = LeafGraphNode(None, combined_descriptors, combined_pc, first_seen, 
+                                     self.curr_time, self.curr_time, first_pose, self.curr_pose)
         else:
-            new_node = ParentGraphNode(None, combined_descriptors, combined_pc, combined_children)
+            new_node = ParentGraphNode(None, combined_descriptors, combined_pc, combined_children, 
+                                       first_seen, self.curr_time, self.curr_time, first_pose, 
+                                       self.curr_pose)
         return new_node
                 
     def merge_with_observation(self, new_pc: np.ndarray, new_descriptor: np.ndarray | None) -> None:
@@ -228,6 +286,12 @@ class GraphNode():
     def remove_all_children(self):
         raise NotImplementedError("Use a child class, not GraphNode itself!")
     
+    def update_curr_time(self, curr_time: float):
+        raise NotImplementedError("Use a child class, not GraphNode itself!")
+    
+    def update_curr_pose(self, curr_pose: np.ndarray):
+        raise NotImplementedError("Use a child class, not GraphNode itself!")
+
     # ==================== Dummy Nodes ====================     
     def add_dummy_nodes(self, only_leaf: bool = False):
         raise NotImplementedError("Use a child class, not GraphNode itself!")
@@ -251,16 +315,30 @@ class ParentGraphNode(GraphNode):
     # ================ Initialization =================
     @typechecked
     def __init__(self, parent_node: ParentGraphNode | None, semantic_descriptors: list[tuple[np.ndarray]], 
-                 point_cloud: np.ndarray, child_nodes: list[GraphNode]):
-        super().__init__(parent_node, semantic_descriptors, point_cloud)
+                 point_cloud: np.ndarray, child_nodes: list[GraphNode], first_seen: float, last_updated: float, 
+                 curr_time: float, first_pose: np.ndarray, curr_pose: np.ndarray):
+        super().__init__(parent_node, semantic_descriptors, point_cloud, 
+                         first_seen, last_updated, curr_time, first_pose, curr_pose)
         self.child_nodes = child_nodes
 
     @classmethod
     def from_leaf_node(cls, leaf_node: LeafGraphNode):
         return cls(leaf_node.parent_node, leaf_node.semantic_descriptors,
-                   leaf_node.get_point_cloud(), [])
+                   leaf_node.get_point_cloud(), [], leaf_node.first_seen, 
+                   leaf_node.last_updated, leaf_node.curr_time, 
+                   leaf_node.first_pose, leaf_node.curr_pose)
     
     # ==================== Getters ==================== 
+    @typechecked
+    def get_time_last_updated_recursive(self) -> float:
+        """ Gets the most recent last updated time for self and descendents. """
+        most_recent_update = self.last_updated
+        for child in self.child_nodes:
+            child_last_updated = child.get_time_last_updated_recursive()
+            if most_recent_update < child_last_updated:
+                most_recent_update = child_last_updated
+        return most_recent_update
+
     @typechecked
     def get_point_cloud(self) -> np.ndarray:
         full_pc = np.zeros((0, 3), dtype=np.float64)
@@ -345,7 +423,7 @@ class ParentGraphNode(GraphNode):
             raise ValueError("Cannot merge_child_with_self; node {other} is not a child of self!")
         
         # Add semantic descriptors specific to child (not from grandchidren) to this node
-        self.semantic_descriptors += other.semantic_descriptors 
+        self.add_semantic_descriptors(other.semantic_descriptors)
         
         # Do the same with point cloud specific to the child (not grandchildren)
         self.update_point_cloud(other.point_cloud)
@@ -382,6 +460,18 @@ class ParentGraphNode(GraphNode):
     @typechecked
     def remove_all_children(self):
         self.child_nodes = []
+
+    @typechecked
+    def update_curr_time(self, curr_time: float):
+        self.curr_time = curr_time
+        for child in self.child_nodes:
+            child.update_curr_time(curr_time)
+
+    @typechecked
+    def update_curr_pose(self, curr_pose: np.ndarray):
+        self.curr_pose = curr_pose
+        for child in self.child_nodes:
+            child.update_curr_pose(curr_pose)
     
     # ==================== Dummy Nodes ====================
     def add_dummy_nodes(self, only_leaf: bool = False):
@@ -404,10 +494,14 @@ class ParentGraphNode(GraphNode):
             # Create the node
             if len(subset) > 0:
                 dummy_child_nodes = [self.child_nodes[i] for i in list(subset)]
-                dummy_node = ParentGraphNode(self, [], np.zeros((0, 3), dtype=np.float64), dummy_child_nodes)
+                dummy_node = ParentGraphNode(self, [], np.zeros((0, 3), dtype=np.float64), dummy_child_nodes,
+                                             self.curr_time, self.curr_time, self.curr_time, 
+                                             self.curr_pose, self.curr_pose)
             else: 
                 # For empty set, we need to create Leaf instead of Parent
-                dummy_node = LeafGraphNode(self, [], np.zeros((0, 3), dtype=np.float64))
+                dummy_node = LeafGraphNode(self, [], np.zeros((0, 3), dtype=np.float64),
+                                           self.curr_time, self.curr_time, self.curr_time, 
+                                           self.curr_pose, self.curr_pose)
 
             # Label it as a dummy
             dummy_node.set_is_dummy(True)
@@ -432,24 +526,45 @@ class ParentGraphNode(GraphNode):
             # Disconnect ourselves
             self.get_parent().remove_child(self)
             self.parent_node = None
+
+class RootGraphNode(ParentGraphNode):
+    # ================ Initialization =================
+    @typechecked
+    def __init__(self, parent_node: ParentGraphNode | None, semantic_descriptors: list[tuple[np.ndarray]], 
+                 point_cloud: np.ndarray, child_nodes: list[GraphNode], first_seen: float, last_updated: float, 
+                 curr_time: float, first_pose: np.ndarray, curr_pose: np.ndarray):
+        super().__init__(parent_node, semantic_descriptors, point_cloud, child_nodes, 
+                         first_seen, last_updated, curr_time, first_pose, curr_pose)
+
+    # ==================== Setters ====================
+    def set_parent(self, node: ParentGraphNode) -> None:
+        raise RuntimeError("Calling set_parent on RootGraphNode, which should never happen!")
+
+    def set_is_dummy(self, is_dummy: bool):
+        raise RuntimeError("Calling set_is_dummy on RootGraphNode, which should never happen!")
             
 class LeafGraphNode(GraphNode):
 
     # ================ Initialization =================
     @typechecked
     def __init__(self, parent_node: ParentGraphNode | None, semantic_descriptors: list[tuple[np.ndarray, float]],
-                       point_cloud: np.ndarray):
-        super().__init__(parent_node, semantic_descriptors, point_cloud)
+                       point_cloud: np.ndarray, first_seen: float, last_updated: float, curr_time: float, 
+                       first_pose: np.ndarray, curr_pose: np.ndarray):
+        super().__init__(parent_node, semantic_descriptors, point_cloud, 
+                         first_seen, last_updated, curr_time, first_pose, curr_pose)
 
     # ==================== Getters ==================== 
-    def get_number_of_nodes(self) -> int:
-        return 1
+    def get_time_last_updated_recursive(self) -> float:
+        return self.last_updated
+    
+    def get_point_cloud(self) -> np.ndarray:
+        return self.point_cloud
     
     def get_semantic_descriptors(self):
         return self.semantic_descriptors
     
-    def get_point_cloud(self) -> np.ndarray:
-        return self.point_cloud
+    def get_number_of_nodes(self) -> int:
+        return 1
     
     def is_ascendent(self, other: GraphNode) -> bool:
         """ Returns True if self is an ascendent of other."""
@@ -461,6 +576,7 @@ class LeafGraphNode(GraphNode):
     # ==================== Manipulators ====================
     @typechecked
     def merge_with_observation(self, new_pc: np.ndarray, new_descriptor: np.ndarray | None):
+
         # Update the point cloud
         self.update_point_cloud(new_pc)
 
@@ -474,6 +590,14 @@ class LeafGraphNode(GraphNode):
 
     def remove_all_children(self):
         pass
+
+    @typechecked
+    def update_curr_time(self, curr_time: float):
+        self.curr_time = curr_time
+
+    @typechecked
+    def update_curr_pose(self, curr_pose: np.ndarray):
+        self.curr_pose = curr_pose
 
     # ==================== Dummy Nodes ====================
     def add_dummy_nodes(self, only_leaf: bool = False):
@@ -500,6 +624,15 @@ class LeafGraphNode(GraphNode):
 
         # Label ourselves as the dummy
         self.set_is_dummy(True)
+
+        # Set the rest of our data as if we were just initialized.
+        self.semantic_descriptors = []
+        self.point_cloud = np.zeros((0, 3), dtype=np.float64)
+        self.first_seen = self.curr_time
+        self.last_updated = self.curr_time
+        self.curr_time = self.curr_time
+        self.first_pose = self.curr_pose
+        self.curr_pose = self.curr_pose
 
     def prune_dummy_nodes(self):
         if self.is_dummy():
