@@ -2,10 +2,12 @@ from dataclasses import dataclass, field
 import numpy as np
 import cv2 as cv
 from typing import List, Dict
+import open3d as o3d
 
 from robotdatapy.transform import transform
-
 from roman.map.voxel_grid import VoxelGrid
+from scipy.spatial import ConvexHull
+import trimesh
 
 
 @dataclass
@@ -21,6 +23,8 @@ class Observation():
     point_cloud: np.ndarray = None  # n-by-3 matrix. Each row is a 3D point.
     clip_embedding: np.ndarray = None
     voxel_grid: Dict[float, VoxelGrid] = field(default_factory=dict)
+    _transformed_points: np.ndarray = None
+    _pcd: o3d.geometry.PointCloud = None
 
     def copy(self, include_mask: bool = True, include_ptcld = False):
         ptcld_copy = None
@@ -37,6 +41,24 @@ class Observation():
         Get the voxel bounding box for the point cloud
         """
         if voxel_size not in self.voxel_grid:
-            transformed_points = transform(self.pose, self.point_cloud, axis=0)
-            self.voxel_grid[voxel_size] = VoxelGrid.from_points(transformed_points, voxel_size)
+            self.voxel_grid[voxel_size] = VoxelGrid.from_points(self.transformed_points, voxel_size)
         return self.voxel_grid[voxel_size]
+    
+    def get_convex_hull(self) -> trimesh.Trimesh:
+        hull = ConvexHull(self.transformed_points)
+        mesh = trimesh.Trimesh(vertices=self.transformed_points, faces=hull.simplices, process=True)
+        mesh.fix_normals()
+        return mesh
+    
+    @property
+    def transformed_points(self):
+        if self._transformed_points is None:
+            self._transformed_points = transform(self.pose, self.point_cloud, axis=0)
+        return self._transformed_points
+    
+    @property
+    def pcd(self):
+        if self._pcd is None:
+            self._pcd = o3d.geometry.PointCloud()
+            self._pcd.points = o3d.utility.Vector3dVector(self.transformed_points)
+        return self._pcd
