@@ -87,7 +87,6 @@ data.yaml: runs, run_env, img_data, depth_data, pose_data
 fastsam.yaml: depth_scale
 gt_pose.yaml: path, csv_options
 offline_rpgo.yaml: odom_t_std, odom_r_std
-submap_align.yaml: force_rm_lc_roll_pitch
 ```
 
 Category 2:

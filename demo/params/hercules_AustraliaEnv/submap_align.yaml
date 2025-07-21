@@ -26,7 +26,6 @@ single_robot_lc: False
 single_robot_lc_time_thresh: 50.0
 
 # If true, remove parts of rotation about x or y axes.
-# Changed to False, as Drones will have roll and pitch.
 force_rm_lc_roll_pitch: False
 
 # Assumes upsidedown submap rotations are incorrect

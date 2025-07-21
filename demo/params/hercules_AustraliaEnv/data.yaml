@@ -11,24 +11,24 @@ img_data:
   # Specify that we want to load data from .npy files with memory-mapping
   # Allows us to avoid loading all images into RAM
   type: "npy"
-  path: "/home/${USER}/data/hercules_datasets/V1.2/ausenv_test1_checkpoints_CSLAM_2UAVUGV_prunedExtract/images/_hercules_node_${ROBOT}_front_center_Scene_image_imgs.npy"
-  path_times: "/home/${USER}/data/hercules_datasets/V1.2/ausenv_test1_checkpoints_CSLAM_2UAVUGV_prunedExtract/images/_hercules_node_${ROBOT}_front_center_Scene_image_times.npy"
+  path: "/home/${USER}/data/Hercules_datasets/V1.2/extract/${ROBOT}_RGB/imgs.npy"
+  path_times: "/home/${USER}/data/Hercules_datasets/V1.2/extract/${ROBOT}_RGB/times.npy"
 
   # Camera parameters
   K: [640, 0,   640,
         0, 640, 360,
-        0,   0,   0]
+        0,   0,   1]
   D: [ 0, 0, 0, 0]
   width: 1280
   height: 720
 
 depth_data:
   type: "npy"
-  path: "/home/${USER}/data/hercules_datasets/V1.2/ausenv_test1_checkpoints_CSLAM_2UAVUGV_prunedExtract/images/_hercules_node_${ROBOT}_front_center_DepthPlanar_image_imgs.npy"
-  path_times: "/home/${USER}/data/hercules_datasets/V1.2/ausenv_test1_checkpoints_CSLAM_2UAVUGV_prunedExtract/images/_hercules_node_${ROBOT}_front_center_DepthPlanar_image_times.npy"
+  path: "/home/${USER}/data/Hercules_datasets/V1.2/extract/${ROBOT}_Depth/imgs.npy"
+  path_times: "/home/${USER}/data/Hercules_datasets/V1.2/extract/${ROBOT}_Depth/times.npy"
   K: [640,   0, 640,
         0, 640, 360,
-        0,   0,   0]
+        0,   0,   1]
   D: [ 0, 0, 0, 0]
   width: 1280
   height: 720
@@ -36,7 +36,7 @@ depth_data:
 pose_data:
   # Load from csv to avoid expensive rosbag search
   type: "csv"
-  path: "/home/${USER}/data/hercules_datasets/V1.2/ausenv_test1_checkpoints_CSLAM_2UAVUGV_prunedExtract/_hercules_node_${ROBOT}_ground_truth_odom_localNOISE.csv"
+  path: "/home/${USER}/data/Hercules_datasets/V1.2/extract/${ROBOT}_odomGTNoisy.csv"
 
   # Time tolerance used to reject available data if no pose data is within the time tolerance value
   # Slightly more than max expected time difference (0.0025, or around 400Hz)
