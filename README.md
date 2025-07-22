@@ -99,3 +99,7 @@ submap_align.yaml: submap_radius, submap_center_dist
 ```
 
 For reasons for changes in category 2, see the corresponding .yaml files.
+
+### GRaCo (Ground-04)
+
+This demo is run in a similar manner to the `HERCULES` demo from above, but using the parameter directory `demo/params/graco_ground04`.
