@@ -36,7 +36,7 @@ depth_data:
 pose_data:
   # Load from csv to avoid expensive rosbag search
   type: "csv"
-  path: "/home/${USER}/data/Hercules_datasets/V1.2/extract/${ROBOT}_odomGTNoisy.csv"
+  path: "/home/${USER}/data/Hercules_datasets/V1.2/extract/${ROBOT}_odomGT.csv"
 
   # Time tolerance used to reject available data if no pose data is within the time tolerance value
   # Slightly more than max expected time difference (0.0025, or around 400Hz)
