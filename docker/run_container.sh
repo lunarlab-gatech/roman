@@ -1,4 +1,4 @@
-DATA_DIR='/media/dbutterfield3/T73'
+DATA_DIR='/media/dbutterfield3/T75'
 REPO_DIR='/home/dbutterfield3/Research/ROMAN'
 
 docker run -it \

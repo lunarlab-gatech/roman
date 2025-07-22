@@ -62,7 +62,7 @@ RUN sudo apt update && sudo apt install locales -y && \
     echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
 
 # Install g2o for access to g2o_viewer
-RUN sudo apt install cmake libeigen3-dev libspdlog-dev libsuitesparse-dev qtdeclarative5-dev qt5-qmake libqglviewer-dev-qt5 -y &&
+RUN sudo apt install cmake libeigen3-dev libspdlog-dev libsuitesparse-dev qtdeclarative5-dev qt5-qmake libqglviewer-dev-qt5 -y && \
     git clone https://github.com/RainerKuemmerle/g2o.git && \
     cd g2o && mkdir build && cd build && cmake ../ && make && export PATH="$HOME/g2o/build/bin:$PATH"
 

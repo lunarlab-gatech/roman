@@ -39,6 +39,11 @@ Next install ROMAN by running the following command from the root folder of this
 pip uninstall matplotlib
 ```
 
+Finally, run the following to fix `Could not load the Qt platform plug "xcb"` bug:
+```
+mv ~/.local/lib/python3.10/site-packages/cv2/qt ~/.local/lib/python3.10/site-packages/cv2/qt.bak
+```
+
 ## Run algorithm
 ### HERCULES (Australia Environment)
 
@@ -83,20 +88,21 @@ For a fair comparison with ROMAN, ideally we only change parameters in category 
 
 Category 1:
 ```
-data.yaml: runs, run_env, img_data, depth_data, pose_data
+data.yaml: runs, run_env, img_data, depth_data, pose_data, time_tol
 fastsam.yaml: depth_scale
-gt_pose.yaml: path, csv_options
+gt_pose.yaml: path, csv_options, time_tol
 offline_rpgo.yaml: odom_t_std, odom_r_std
-submap_align.yaml: force_rm_lc_roll_pitch
 ```
 
 Category 2:
 ```
-data.yaml: time_tol
 fastsam.yaml: max_depth, voxel_size
-gt_pose.yaml: time_tol
 mapper.yaml: iou_voxel_size, segment_voxel_size
 submap_align.yaml: submap_radius, submap_center_dist
 ```
 
 For reasons for changes in category 2, see the corresponding .yaml files.
+
+### GRaCo (Ground-04)
+
+This demo is run in a similar manner to the `HERCULES` demo from above, but using the parameter directory `demo/params/graco_ground04`.
