@@ -1,14 +1,16 @@
 from __future__ import annotations
 
-from enum import Enum
+import scipy.spatial
+
+from .hull_methods import get_convex_hull_from_point_cloud, find_point_overlap_with_hulls
 from itertools import chain, combinations
-from ..map.observation import Observation
 import numpy as np
 from numpy.typing import NDArray
-from ..object.segment import Segment
 import open3d as o3d
+from robotdatapy.camera import xyz_2_pixel
+from robotdatapy.transform import transform
 import trimesh
-from .scene_graph_3D import SceneGraph3D
+import scipy
 from scipy.spatial import ConvexHull
 from typeguard import typechecked
 
@@ -61,6 +63,26 @@ class GraphNode():
         self.cleanup_point_cloud()
 
     # ==================== Getters ====================
+    def __str__(self):
+        """ Print a human-readable explanation of the current node. """
+        semantic_count = len(self.semantic_descriptors)
+        semantic_weights = [round(w, 3) for _, w in self.semantic_descriptors]
+        point_count = self.point_cloud.shape[0]
+
+        return (
+            f"GraphNode(\n"
+            f"  Id: {id(self)}\n"
+            f"  Parent: {'None' if self.parent_node is None else 'Present'}\n"
+            f"  Dummy: {self._is_dummy}\n"
+            f"  Semantic Descriptors: {semantic_count} descriptors\n"
+            f"    Weights: {semantic_weights}\n"
+            f"  Point Cloud: {point_count} points\n"
+            f"  First Seen: {self.first_seen:.2f}, Last Updated: {self.last_updated:.2f}\n"
+            f"  Current Time: {self.curr_time:.2f}\n"
+            f"  First Pose: {np.array2string(self.first_pose, precision=2, separator=', ')}\n"
+            f"  Current Pose: {np.array2string(self.curr_pose, precision=2, separator=', ')}\n"
+            f")")
+
     @typechecked
     def no_parent(self) -> bool:
         if self.parent_node is None: return True
@@ -91,8 +113,8 @@ class GraphNode():
         return self._is_dummy
     
     @typechecked
-    def get_convex_hull(self)-> trimesh.Trimesh:
-        return SceneGraph3D.get_convex_hull_from_point_cloud(self.get_point_cloud())
+    def get_convex_hull(self)-> trimesh.Trimesh | None:
+        return get_convex_hull_from_point_cloud(self.get_point_cloud())
     
     @typechecked
     def get_weighted_semantic_descriptor(self) -> np.ndarray:
@@ -132,6 +154,36 @@ class GraphNode():
     def get_first_pose(self) -> np.ndarray:
         return self.first_pose
     
+    @typechecked
+    def reprojected_bbox(self, pose: np.ndarray, K: np.ndarray, width: int, height: int) -> tuple[int, int] | None:
+        """Calculates the bounding box for a graph node given camera extrinsics & intrinsics"""
+
+        # Skip bbox calculation if we have no points
+        points = self.get_point_cloud()
+        if points.shape[0] == 0: return None
+
+        # Calculate points in camera frame and prune those behind the camera
+        points_c = transform(np.linalg.inv(pose), points, axis=0)
+        points_c = points_c[points_c[:,2] >= 0]
+        if points_c.shape[0] == 0: return None
+
+        # Convert xyz to pixels and prune those outside of the image
+        pixels = xyz_2_pixel(points_c, K)
+        pixels = pixels[np.bitwise_and(pixels[:,0] >= 0, pixels[:,0] < width), :]
+        pixels = pixels[np.bitwise_and(pixels[:,1] >= 0, pixels[:,1] < height), :]
+        if pixels.shape[0] == 0: return None
+
+        # Get upper left and lower right of bounding box
+        upper_left = np.max([np.min(pixels, axis=0).astype(int), [0, 0]], axis=0)
+        lower_right = np.min([np.max(pixels, axis=0).astype(int), [width, height]], axis=0)
+
+        # Check for wierd bugs
+        if lower_right[0] - upper_left[0] <= 0 or lower_right[1] - upper_left[1] <= 0:
+            raise RuntimeError("lower_right[0] - upper_left[0] <= 0 or lower_right[1] - upper_left[1] <= 0 in reprojected_bbox!")
+        
+        # Return the bounding box corners
+        return upper_left, lower_right
+    
     def get_time_last_updated_recursive(self) -> float:
         """ Gets the most recent last updated time for self and descendents. """
         raise NotImplementedError("Use a child class, not GraphNode itself!")
@@ -149,11 +201,11 @@ class GraphNode():
         """ Returns True if self is an ascendent of other."""
         raise NotImplementedError("Use a child class, not GraphNode itself!")
     
-    def get_children(self) -> list[GraphNode] | None:
+    def get_children(self) -> list[GraphNode]:
         raise NotImplementedError("Use a child class, not GraphNode itself!")
     
     # ==================== Calculations ====================
-    def calculate_weighted_semantic_descriptor(descriptors: list[tuple[NDArray[np.float64], float]]):
+    def calculate_weighted_semantic_descriptor(self, descriptors: list[tuple[NDArray[np.float64], float]]):
         # If we have no descriptors, raise an error
         if len(descriptors) == 0:
             raise ValueError("Cannot calculate weighted semantic descriptor when descriptors is empty!")
@@ -174,7 +226,7 @@ class GraphNode():
 
     # ==================== Setters ====================
     @typechecked
-    def set_parent(self, node: ParentGraphNode) -> None:
+    def set_parent(self, node: ParentGraphNode | None) -> None:
         self.parent_node = node
 
     @typechecked
@@ -183,7 +235,7 @@ class GraphNode():
 
     # ==================== Manipulators ====================
     @typechecked
-    def add_semantic_descriptors(self, descriptors: list[tuple[NDArray[np.float64], float]]) -> None:
+    def add_semantic_descriptors(self, descriptors: list[tuple[np.ndarray, float]]) -> None:
         self.semantic_descriptors += descriptors
         self.last_updated = self.curr_time
 
@@ -193,7 +245,7 @@ class GraphNode():
         if new_points.shape[0] == 0: return
 
         # Check the input arry is the shape we expect
-        if new_points.shape[1] !=3: raise ValueError(f"Point array in a non-supported shape: {new_points.shape()}")
+        if new_points.shape[1] != 3: raise ValueError(f"Point array in a non-supported shape: {new_points.shape()}")
 
         # Append them to our point cloud
         self.point_cloud = np.concatenate((self.point_cloud, new_points), axis=0)
@@ -203,8 +255,10 @@ class GraphNode():
         self.cleanup_point_cloud()
 
     def cleanup_point_cloud(self):
+        """ Remove outliers and duplicates from point-cloud. """
+
         # Only clean-up if there are points to clean-up
-        if self.point_cloud.shape[0] is not None:
+        if self.point_cloud.shape[0] > 0:
 
             # Convert into o3d PointCloud
             pcd = o3d.geometry.PointCloud()
@@ -214,14 +268,11 @@ class GraphNode():
             # TODO: See if removing this has any negative impact -> pcd_sampled = pcd.voxel_down_sample(voxel_size=self.voxel_size)
             # TODO: Tune these parameters, see if it has any effect
             pcd_pruned, _ = pcd.remove_statistical_outlier(10, 1.0)
-
-            # Save the new outlier free point cloud
-            if pcd_pruned.is_empty():
-                self.point_cloud = None
-            else:
-                self.point_cloud = np.asarray(pcd_pruned.points)
+            
+            # Save the new outlier free point cloud (while also removing duplicates)
+            self.point_cloud = np.unique(np.asarray(pcd_pruned.points), axis=0)
             self.last_updated = self.curr_time
-    
+
     @typechecked
     def remove_points_from_self(self, pc_to_remove: np.ndarray):
         # Create views for efficiency
@@ -230,7 +281,7 @@ class GraphNode():
         view_remove = pc_to_remove.view(dtype)
 
         # Remove points that are in pc_to_remove
-        mask = np.isin(view_pc, view_remove, invert=True)
+        mask = np.isin(view_pc, view_remove, invert=True).squeeze()
         if np.sum(mask) != mask.shape[0]:
             self.point_cloud = self.point_cloud[mask]
             self.last_updated = self.curr_time
@@ -276,6 +327,17 @@ class GraphNode():
                                        first_seen, self.curr_time, self.curr_time, first_pose, 
                                        self.curr_pose)
         return new_node
+    
+    def claim_parenthood_of_children(self):
+        """ 
+        Claim parenthood of all of our children, overwritting their previous parent.
+        Useful for converting a dummy node to a real node, as the children of the
+        dummy node don't have the dummy set as their parent.
+        """
+        for child in self.get_children():
+            prev_parent = child.get_parent()
+            child.set_parent(self)
+            prev_parent.remove_child(child)
                 
     def merge_with_observation(self, new_pc: np.ndarray, new_descriptor: np.ndarray | None) -> None:
         raise NotImplementedError("Use a child class, not GraphNode itself!")
@@ -302,11 +364,10 @@ class GraphNode():
     # ==================== Iterator ====================
     def __iter__(self):
         stack = [self]
-        while stack:
+        while stack:            
             node = stack.pop()
             yield node
-            if isinstance(node, ParentGraphNode):
-                stack.extend(node.child_nodes)
+            stack.extend(node.get_children())
 
 class ParentGraphNode(GraphNode):
     # ================== Attributes ==================
@@ -314,7 +375,7 @@ class ParentGraphNode(GraphNode):
 
     # ================ Initialization =================
     @typechecked
-    def __init__(self, parent_node: ParentGraphNode | None, semantic_descriptors: list[tuple[np.ndarray]], 
+    def __init__(self, parent_node: ParentGraphNode | None, semantic_descriptors: list[tuple[np.ndarray, float]], 
                  point_cloud: np.ndarray, child_nodes: list[GraphNode], first_seen: float, last_updated: float, 
                  curr_time: float, first_pose: np.ndarray, curr_pose: np.ndarray):
         super().__init__(parent_node, semantic_descriptors, point_cloud, 
@@ -359,7 +420,7 @@ class ParentGraphNode(GraphNode):
     def get_number_of_nodes(self) -> int:
         num = 1
         for child in self.child_nodes:
-            num += child.get_number_of_nodes(child)
+            num += child.get_number_of_nodes()
         return num
     
     def is_ascendent(self, other: GraphNode) -> bool:
@@ -379,7 +440,7 @@ class ParentGraphNode(GraphNode):
         return False
     
     @typechecked
-    def get_children(self) -> list[GraphNode] | None:
+    def get_children(self) -> list[GraphNode]:
         return self.child_nodes
     
     # ==================== Manipulators ====================
@@ -396,14 +457,14 @@ class ParentGraphNode(GraphNode):
 
         # Get convex hulls of each child
         hulls: list[trimesh.Trimesh] = []
-        for child in self.child_nodes:
+        for child in self.get_children():
             hulls.append(child.get_convex_hull())
         
         # Get masks of which points fall into which hulls
-        contain_masks = SceneGraph3D.find_point_overlap_with_hulls(new_pc, hulls, fail_on_multi_assign=True)
+        contain_masks = find_point_overlap_with_hulls(new_pc, hulls, fail_on_multi_assign=True)
 
         # Based on point assignments, update each child node
-        for i, child in enumerate(self.child_nodes):
+        for i, child in enumerate(self.get_children()):
             child_pc = new_pc[contain_masks[i],:]
             child.merge_with_observation(child_pc, None)
             
@@ -448,6 +509,8 @@ class ParentGraphNode(GraphNode):
 
     @typechecked
     def add_child(self, new_child: GraphNode):
+        if new_child in self.child_nodes:
+            raise ValueError("Tried to add a child node that is already a child of this ParentGraphNode!")
         self.child_nodes.append(new_child)
 
     @typechecked
@@ -476,7 +539,7 @@ class ParentGraphNode(GraphNode):
     # ==================== Dummy Nodes ====================
     def add_dummy_nodes(self, only_leaf: bool = False):
         # First, iterate through each child and create their dummy nodes
-        for child in self.child_nodes:
+        for child in self.get_children()[:]:
             child.add_dummy_nodes(only_leaf)
 
         # If we only want to add dummy nodes to leaf nodes and we have at least
@@ -507,35 +570,39 @@ class ParentGraphNode(GraphNode):
             dummy_node.set_is_dummy(True)
 
             # Add it as one of our children
-            self.add_child(dummy_child_nodes)
+            self.add_child(dummy_node)
 
     def prune_dummy_nodes(self):
-        # First, iterate through children and prune their dummy nodes
-        for child in self.child_nodes:
-            child.prune_dummy_nodes()
-
         # If we are a dummy, remove ourselves
         if self.is_dummy():
 
-            # Reconnect children nodes to our parent
-            for child in self.child_nodes:
-                child.set_parent(self.get_parent())
-                self.get_parent().add_child(child)
+            # Remove all of our children
             self.remove_all_children()
 
-            # Disconnect ourselves
+            # Disconnect ourselves from our parent
             self.get_parent().remove_child(self)
             self.parent_node = None
+        else:
+            # Otherwise, iterate through children and prune their dummy nodes
+            for child in self.get_children()[:]:
+                child.prune_dummy_nodes()
 
 class RootGraphNode(ParentGraphNode):
     # ================ Initialization =================
     @typechecked
-    def __init__(self, parent_node: ParentGraphNode | None, semantic_descriptors: list[tuple[np.ndarray]], 
-                 point_cloud: np.ndarray, child_nodes: list[GraphNode], first_seen: float, last_updated: float, 
-                 curr_time: float, first_pose: np.ndarray, curr_pose: np.ndarray):
+    def __init__(self, parent_node: ParentGraphNode | None, semantic_descriptors: list[tuple[np.ndarray, float]], 
+                 point_cloud: np.ndarray, child_nodes: list[GraphNode], first_seen: float | None, 
+                 last_updated: float | None, curr_time: float | None, first_pose: np.ndarray | None, 
+                 curr_pose: np.ndarray | None):
         super().__init__(parent_node, semantic_descriptors, point_cloud, child_nodes, 
                          first_seen, last_updated, curr_time, first_pose, curr_pose)
 
+    # ==================== Getters ==================== 
+    @typechecked
+    def get_convex_hull(self) -> trimesh.Trimesh | None:
+        """ Should return None, as a hull spanning infinity isn't feasible. """
+        return None
+    
     # ==================== Setters ====================
     def set_parent(self, node: ParentGraphNode) -> None:
         raise RuntimeError("Calling set_parent on RootGraphNode, which should never happen!")
@@ -570,8 +637,8 @@ class LeafGraphNode(GraphNode):
         """ Returns True if self is an ascendent of other."""
         return False
     
-    def get_children(self) -> list[GraphNode] | None:
-        return None
+    def get_children(self) -> list[GraphNode]:
+        return []
 
     # ==================== Manipulators ====================
     @typechecked

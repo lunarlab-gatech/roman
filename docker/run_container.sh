@@ -1,8 +1,8 @@
 DATA_DIR='/media/dbutterfield3/T75'
-REPO_DIR='/home/dbutterfield3/Research/ROMAN'
+REPO_DIR='/home/dbutterfield3/Research/ROMAN_DEVEL'
 
 docker run -it \
-    --name="roman_baseline" \
+    --name="meronomy" \
     --net="host" \
     --privileged \
     --gpus="all" \

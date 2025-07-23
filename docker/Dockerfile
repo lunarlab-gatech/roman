@@ -71,3 +71,6 @@ SHELL ["/bin/bash", "-c"]
 
 # Set the User environment variables
 RUN echo "export USER=${USERNAME}" >> ~/.bashrc
+
+# Install graphviz
+RUN sudo apt-get install graphviz graphviz-dev

@@ -42,3 +42,7 @@ iou_voxel_size: 1.0
 # small meant that all points of far away objects were completely 
 # removed. Thus, we increased it by 5x.
 segment_voxel_size: 0.25
+
+# Parameter that tells whether to ignore the above parameters
+# and use a 3D scene graph instead
+use_3D_Scene_graph: True

@@ -52,6 +52,7 @@ class MapperParams():
     segment_graveyard_dist: float = 10.0
     iou_voxel_size: float = 0.2
     segment_voxel_size: float = 0.05
+    use_3D_Scene_graph: bool = False
     
     @classmethod
     def from_yaml(cls, yaml_path: str, run: str = None):

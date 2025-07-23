@@ -1,16 +1,21 @@
 from __future__ import annotations
 
-import copy
-from enum import Enum
+import colorsys
 from .graph_node import GraphNode, ParentGraphNode, RootGraphNode
+from .hull_methods import find_point_overlap_with_hulls, get_convex_hull_from_point_cloud, \
+convex_hull_geometric_overlap, shortest_dist_between_convex_hulls, longest_line_of_convex_hull
+from matplotlib import rcParams
+import matplotlib.pyplot as plt
 from ..map.observation import Observation
+import networkx as nx
 import numpy as np
-from ..object.segment import Segment
+import open3d as o3d
+import random
 from scipy.optimize import linear_sum_assignment
-from scipy.spatial import ConvexHull, KDTree
-from scipy.spatial.distance import pdist
 import trimesh
 from typeguard import typechecked
+from typing import Union
+from .visualize_graph import SceneGraphViewer
 
 class SceneGraph3D():
     # Node that connects all highest-level objects together for implementation purposes
@@ -20,10 +25,10 @@ class SceneGraph3D():
     inactive_nodes: list[GraphNode] = []
 
     # Keeps track of current time so we can keep track of when we are updated.
-    curr_time: float
+    times: list[float] = []
 
     # Keeps track of the current pose so we know where we are
-    curr_pose: np.ndarray
+    poses: list[np.ndarray] = []
 
     # The two requirements for an observation to be associated with a current graph node,
     # or for two nodes to be merged.
@@ -52,9 +57,11 @@ class SceneGraph3D():
     max_dist_active_for_node = 10 # meters
 
     @typechecked
-    def __init__(self):
-        self.root_node = RootGraphNode(None, [], np.zeros((0, 3), dtype=np.float64), [], None, None, None, None, None)
+    def __init__(self, _T_camera_flu: np.ndarray):
+        self.root_node = RootGraphNode(None, [], np.zeros((0, 3), dtype=np.float64), [], 0, 0, 0, np.empty(0), np.empty(0))
+        self.pose_FLU_wrt_Camera = _T_camera_flu
         self.assert_root_node_has_no_parent()
+        self.viewer = SceneGraphViewer()
 
     def assert_root_node_has_no_parent(self):
         if self.root_node.no_parent() is False:
@@ -65,37 +72,47 @@ class SceneGraph3D():
         return self.root_node.get_number_of_nodes()
 
     @typechecked
-    def update(self, observations: list[Observation], time: float, pose: np.ndarray):
-        # Update current time in all nodes and self
-        self.curr_time = time
-        self.root_node.update_curr_time(time)
+    def update(self, time: float | np.longdouble, pose: np.ndarray, observations: list[Observation]):
+        # Make sure that time ends up as a float
+        time = float(time)
 
-        # Set the current pose in all nodes and self
-        self.curr_pose = pose
-        self.root_node.update_curr_pose(pose)
+        # Update current time in all nodes and self
+        self.times.append(time)
+        self.root_node.update_curr_time(self.times[-1])
+
+        # Set the current pose (in FLU frame) in all nodes and self
+        self.poses.append(pose @ self.pose_FLU_wrt_Camera)
+        self.root_node.update_curr_pose(self.poses[-1])
+
+        # Throw away any observations that can't form a ConvexHull.
+        valid_obs: list[Observation] = []
+        for obs in observations:
+            if obs.get_convex_hull() is not None:
+                valid_obs.append(obs)
         
         # Associate observations with any current object nodes
-        associated_pairs = self.hungarian_assignment(observations)
+        associated_pairs = self.hungarian_assignment(valid_obs)
 
         # Merge associated pairs
-        for i in range(len(observations)):
-            for j, node in self.root_node:
+        for i in range(len(valid_obs)):
+            for j, node in enumerate(self.root_node):
 
                 # See if this is a match
                 for pair in associated_pairs:
                     if i == pair[0] and j == pair[1]:
 
                         # If so, update node with observation
-                        node.merge_with_observation(observations[i].transformed_points, observations[i].clip_embedding)
+                        node.merge_with_observation(valid_obs[i].transformed_points, valid_obs[i].clip_embedding)
         
         # Resolve any overlapping point clouds
         self.resolve_overlapping_point_clouds()
 
-        # Add the remaining unassociated observations as nodes to the scene graph
+        # Add the remaining unassociated valid_obs as nodes to the scene graph
         associated_obs_indices = [x[0] for x in associated_pairs]
-        for i in range(len(observations)):
+        for i in range(len(valid_obs)):
             if i not in associated_obs_indices:
-                self.add_new_observation_to_graph(observations[i].transformed_points, observations[i].clip_embedding)
+                self.add_new_observation_to_graph(valid_obs[i].transformed_points, valid_obs[i].clip_embedding)
+                self.viewer.update(self)
 
         # Merge nodes that can be merged, and infer higher level ones
         self.merging_and_generation()
@@ -128,7 +145,7 @@ class SceneGraph3D():
                     continue
                 
                 # Calculate IOU and Semantic Similarity
-                iou, _, _ = SceneGraph3D.convex_hull_geometric_overlap(node.get_convex_hull(), obs[i].get_convex_hull())
+                iou, _, _ = convex_hull_geometric_overlap(node.get_convex_hull(), obs[i].get_convex_hull())
                 sem_con = SceneGraph3D.semantic_consistency(node.get_weighted_semantic_descriptor(), obs[i].clip_embedding)
 
                 # Check if it passes minimum requirements for association
@@ -152,28 +169,6 @@ class SceneGraph3D():
     
     @typechecked
     @staticmethod
-    def convex_hull_geometric_overlap(a: trimesh.Trimesh, b: trimesh.Trimesh) -> tuple[float, float, float]:
-        """
-        Returns:
-            iou
-            enc_a_ratio (float) -> The percentage of hull a that is enclosed by b.
-            enc_b_ratio (float) -> The percentage of hull b that is enclosed by a.
-        """
-        # Calculate the intersection trimesh
-        intersection = a.intersection(b, engine='manifold')
-
-        # Calculate the IOU value
-        inter_vol = intersection.volume
-        iou = inter_vol / (a.volume + b.volume - inter_vol)
-
-        # Calculate the relative enclosure ratios
-        enc_a_ratio = inter_vol / a.volume
-        enc_b_ratio = inter_vol / b.volume
-
-        return iou, enc_a_ratio, enc_b_ratio
-    
-    @typechecked
-    @staticmethod
     def semantic_consistency(a: np.ndarray, b: np.ndarray, rescaling: list = [0.7, 1.0]):
         # Normalize both embeddings (just in case they aren't already)
         a = a / np.linalg.norm(a)
@@ -189,32 +184,14 @@ class SceneGraph3D():
         return rescaled_clamped
     
     @typechecked
-    @staticmethod
-    def shortest_dist_between_convex_hulls(a: trimesh.Trimesh, b: trimesh.Trimesh):
-        """ Since we sample surfance points, this is an approximation. """
-
-        # Sample surface points on each hull
-        points_a = a.sample(1000)
-        points_b = b.sample(1000)
-
-        # Get minimum distance efficently with KDTree
-        tree_a = KDTree(points_a)
-        distances = tree_a.query(points_b, 1)
-        return np.array(distances).min()
-    
-    @typechecked
-    def longest_line_of_convex_hull(a: trimesh.Trimesh):
-        return pdist(a.vertices).max()
-
-    @typechecked
     def pass_minimum_requirements_for_association(self, iou: float, sem_con: float) ->  bool:
         # Make sure inputs are within required bounds
         SceneGraph3D.check_within_bounds(iou, (0, 1))
         SceneGraph3D.check_within_bounds(sem_con, (0, 1))
 
         # Check if within thresholds for association
-        iou_fail: bool = iou < self.min_iou_for_association
-        sem_fail: bool = sem_con < self.min_sem_con_for_association  
+        iou_fail: bool = bool(iou < self.min_iou_for_association)
+        sem_fail: bool = bool(sem_con < self.min_sem_con_for_association)
 
         # Print warning if IOU overlap is high and semantic is far off.
         # Could be indicative of underlying bug in algorithm.
@@ -223,14 +200,6 @@ class SceneGraph3D():
 
         # Return true if both requirements are fulfilled
         return iou_fail and sem_fail
-    
-    @typechecked
-    @staticmethod
-    def get_convex_hull_from_point_cloud(point_cloud: np.ndarray) -> trimesh.Trimesh:
-        hull = ConvexHull(point_cloud)
-        mesh = trimesh.Trimesh(vertices=point_cloud, faces=hull.simplices, process=True)
-        mesh.fix_normals()
-        return mesh
     
     @typechecked
     def resolve_overlapping_point_clouds(self):
@@ -247,7 +216,7 @@ class SceneGraph3D():
                         # Calculate the geometric overlap between them
                         hull_i = node_i.get_convex_hull()
                         hull_j = node_j.get_convex_hull()
-                        iou, _, _ = self.convex_hull_geometric_overlap(hull_i, hull_j)
+                        iou, _, _ = convex_hull_geometric_overlap(hull_i, hull_j)
 
                         # If this is above a threshold, then we've found an overlap
                         if iou > self.iou_threshold_overlapping_obj:
@@ -258,7 +227,7 @@ class SceneGraph3D():
                             pc_merged = np.concatenate((pc_i, pc_j), dtype=np.float64)
 
                             # Find all points in this overlap region
-                            contain_masks = self.find_point_overlap_with_hulls(pc_merged, [hull_i, hull_j])
+                            contain_masks = find_point_overlap_with_hulls(pc_merged, [hull_i, hull_j])
                             num_mask_assignments = np.sum(contain_masks, axis=0)
                             overlaps = np.where(num_mask_assignments > 1)[0]
                             pc_overlap = pc_merged[overlaps,:]
@@ -269,8 +238,8 @@ class SceneGraph3D():
                                 # Remove these points from their parents
                                 node_i.remove_points(pc_overlap)
                                 node_j.remove_points(pc_overlap)
-                                
-                                # Add these points as a new node to the graph
+
+                                # Try to add the new observation to the graph
                                 self.add_new_observation_to_graph(pc_overlap, None)
 
                                 # TODO: Long-term want to keep track of when images/masks correspond to which points,
@@ -280,28 +249,16 @@ class SceneGraph3D():
 
                                 # Remember to reiterate
                                 change_occured = True
+                                break
 
                             else:
                                 # Otherwise, this is a "fake" overlap due to our approximation via Convex Hulls
                                 # Do nothing, and it shouldn't cause issues as no actual points overlap in another's hull
                                 pass
-
-    @typechecked
-    @staticmethod
-    def find_point_overlap_with_hulls(pc: np.ndarray, hulls: list[trimesh.Trimesh], fail_on_multi_assign: bool = False) -> np.ndarray:  
-        # Find which points fall into which Convex hulls
-        contain_masks = np.zeros((len(hulls), len(pc)), dtype=int)
-        for i, hull in enumerate(hulls):
-            contain_masks[i] = np.array(hull.contains(pc), dtype=int)
-
-        # If fail_on_multi_assign, throw an error if some points fall into multiple hulls
-        if fail_on_multi_assign:
-            num_mask_assignments = np.sum(contain_masks, axis=0)
-            if np.any(num_mask_assignments > 1):
-                overlaps = np.where(num_mask_assignments > 1)[0]
-                raise RuntimeError(f"Points in observation overlap with multiple child Convex Hulls: {overlaps.tolist()}")
-            
-        return contain_masks
+                
+                if change_occured:
+                    # Break out of both loops to reiterate from the beginning
+                    break
     
     @typechecked
     def add_new_observation_to_graph(self, new_pc: np.ndarray, new_descriptor: np.ndarray | None):
@@ -310,11 +267,15 @@ class SceneGraph3D():
             new_pc (np.ndarray): Point Cloud in shape of (N, 3) in the global frame.
         """
 
+        # Calculate convex hull for this new point cloud
+        hull_new = get_convex_hull_from_point_cloud(new_pc)
+        if hull_new is None:
+            # This observation doesn't have enough points to form a hull, so toss it.
+            return
+
         # Generate dummy nodes in the graph (to be potential locations for the new node)
         self.root_node.add_dummy_nodes()
-
-        # Calculate convex hull for this new point cloud
-        hull_new = SceneGraph3D.get_convex_hull_from_point_cloud(new_pc)
+        self.visualize_2D()
 
         # Choose the dummy node in the graph that is the best location to add our observation
         node_index_chosen = self.choose_dummy_with_highest_likelihood(hull_new, new_descriptor)
@@ -330,10 +291,13 @@ class SceneGraph3D():
                 # Update dummy node with observation, and make it a non-dummy node.
                 node.merge_with_observation(new_pc, new_descriptor)
                 node.set_is_dummy(False)
+                node.claim_parenthood_of_children()
                 break
 
         # Prune dummy nodes from the graph
+        self.visualize_2D()
         self.root_node.prune_dummy_nodes()
+        self.visualize_2D()
 
         # Resolve overlapping point clouds
         self.resolve_overlapping_point_clouds()
@@ -347,11 +311,16 @@ class SceneGraph3D():
         on leafs.
         """
 
+        # Make sure our new node has a enough points to successfully form a hull
+        hull_new = node.get_convex_hull()
+        if hull_new is None: 
+            raise ValueError("Merged node from two nodes can't form a Convex Hull, this should never happen!")
+
         # Generate dummy leaf nodes in the graph.
         self.root_node.add_dummy_nodes(only_leaf=True)
 
         # Choose the dummy node in the graph that is the best location to add our merged node
-        node_index_chosen = self.choose_dummy_with_highest_likelihood(node.get_convex_hull(), node.get_weighted_semantic_descriptor())
+        node_index_chosen = self.choose_dummy_with_highest_likelihood(hull_new, node.get_weighted_semantic_descriptor())
 
         # Find the chosen node again
         for i, curr_node in enumerate(self.root_node):
@@ -380,7 +349,7 @@ class SceneGraph3D():
         self.resolve_overlapping_point_clouds()
 
     @typechecked
-    def choose_dummy_with_highest_likelihood(self, hull_new: trimesh.Trimesh, new_descriptor: np.ndarray) -> int:
+    def choose_dummy_with_highest_likelihood(self, hull_new: trimesh.Trimesh, new_descriptor: np.ndarray | None) -> int:
         # Generate likelihood scores for each dummy
         likelihood_scores = np.zeros((self.len()), dtype=np.float64)
         for i, node in enumerate(self.root_node):
@@ -389,22 +358,24 @@ class SceneGraph3D():
                 # Get the convex hull comprising of all the children, and one for the parent
                 # These are different because dummy node doesn't use point cloud of parent for its hull.
                 hull_all_children = node.get_convex_hull()
-                if not node.get_parent().is_RootGraphNode(): 
-                    hull_parent = node.get_parent().get_convex_hull()
+                hull_parent = node.get_parent().get_convex_hull()
                 
                 # Add similarities for geometric overlaps with children
-                children_iou, children_enclosure, _ = SceneGraph3D.convex_hull_geometric_overlap(hull_all_children, hull_new)
+                children_iou, children_enclosure, _ = convex_hull_geometric_overlap(hull_all_children, hull_new)
 
                 # Add similarities for geometric overlaps with parents
-                if not node.get_parent().is_RootGraphNode():
-                    parent_iou, _, parent_encompassment = SceneGraph3D.convex_hull_geometric_overlap(hull_parent, hull_new)
-                else:
-                    # A root node has an IOU with child approaching 0, and full encompassment of any object.
-                    parent_iou, _, parent_encompassment = 0.0, None, 1.0
+                parent_iou, _, parent_encompassment = convex_hull_geometric_overlap(hull_parent, hull_new)
 
                 # Calculate semantic similarity
                 if new_descriptor is not None:
-                    children_sem_sim = SceneGraph3D.semantic_consistency(node.get_weighted_semantic_descriptor(), new_descriptor)
+                    # Calculate similarity with children
+                    if not node.is_LeafGraphNode():
+                        children_sem_sim = SceneGraph3D.semantic_consistency(node.get_weighted_semantic_descriptor(), new_descriptor)
+                    else:
+                        # A dummy leaf graph node has no children, so assume neutral similarity
+                        children_sem_sim = 0.5
+
+                    # Calculate similarity with parent
                     if not node.get_parent().is_RootGraphNode():
                         parent_sem_sim = SceneGraph3D.semantic_consistency(node.get_parent().get_weighted_semantic_descriptor(), new_descriptor)
                     else:
@@ -429,7 +400,7 @@ class SceneGraph3D():
         # Make sure we didn't pick a node with likelihood of -np.inf (meaning its a normal node
         if likelihood_scores[node_index_chosen] == -np.inf:
             raise RuntimeError("We chose a non-dummy node as the location for a new node, this should never happen here!")
-        return node_index_chosen
+        return int(node_index_chosen)
 
     @typechecked
     def calculate_likelihood_score_for_dummy(self, children_iou: float, children_enclosure: float, children_sem_sim: float,
@@ -472,7 +443,7 @@ class SceneGraph3D():
                         # ========== Minimum Requirements for Association Merge ==========
 
                         # Calculate IOU and Semantic Similarity
-                        iou, _, _ = SceneGraph3D.convex_hull_geometric_overlap(node_i.get_convex_hull(), node_j.get_convex_hull())
+                        iou, _, _ = convex_hull_geometric_overlap(node_i.get_convex_hull(), node_j.get_convex_hull())
                         sem_con = SceneGraph3D.semantic_consistency(node_i.get_weighted_semantic_descriptor(), node_j.get_weighted_semantic_descriptor())
 
                         # See if they pass minimum requirements for association
@@ -489,7 +460,7 @@ class SceneGraph3D():
                         # ========== Nearby Object Semantic Merge ==========
 
                         # Get shortest distance between the nodes
-                        dist = SceneGraph3D.shortest_dist_between_convex_hulls(node_i.get_convex_hull(), node_j.get_convex_hull())
+                        dist = shortest_dist_between_convex_hulls(node_i.get_convex_hull(), node_j.get_convex_hull())
 
                         # Get longest line of either node
                         longest_line_node_i = SceneGraph3D.longest_line_of_convex_hull(node_i.get_convex_hull())
@@ -527,7 +498,7 @@ class SceneGraph3D():
 
                             # Create a new parent node with these as children and put back in the graph
                             first_seen = min(node_i.get_time_first_seen(), node_j.get_time_first_seen())
-                            inferred_parent_node = ParentGraphNode(None, [], np.zeros((0, 3), dtype=np.float64), [node_i, node_j], first_seen, self.curr_time)
+                            inferred_parent_node = ParentGraphNode(None, [], np.zeros((0, 3), dtype=np.float64), [node_i, node_j], first_seen, self.times[-1])
                             self.add_new_node_to_graph(inferred_parent_node)
 
                             # Break out of double-nested loop to reset iterators
@@ -579,13 +550,55 @@ class SceneGraph3D():
 
     def node_retirement(self):
         # Iterate only through the direct children of the root node
-        for child in self.root_node.get_children():
+        for child in self.root_node.get_children()[:]:
 
             # If the time the child was first seen was too long ago OR
             # we've move substancially since then, Inactivate this node and descendents
-            if self.curr_time - child.get_time_first_seen() > self.max_t_active_for_node \
-                or np.linalg.norm(self.curr_pose[:3,3] - child.get_first_pose()) > self.max_dist_active_for_node:
+            if self.times[-1] - child.get_time_first_seen() > self.max_t_active_for_node \
+                or np.linalg.norm(self.poses[-1][:3,3] - child.get_first_pose()[:3,3]) > self.max_dist_active_for_node:
 
                 # Pop this child off of the root node and put in our inactive nodes
                 self.root_node.remove_child(child)
                 self.inactive_nodes.append(child)
+
+    def visualize_2D(self, filename: str = "scene_graph.png"):
+        rcParams.update({'figure.autolayout': True})
+        G = nx.DiGraph()
+
+        node_colors = {}
+
+        # Recursive traversal and node/edge addition
+        def add_node_recursive(node, parent_id=None):
+            node_id = id(node)
+            label = getattr(node, "get_label", lambda: f"Node {node_id}")()
+            G.add_node(node_id, label=label)
+
+            # Color red if dummy, blue otherwise
+            color = 'red' if getattr(node, "is_dummy", lambda: False)() else 'skyblue'
+            node_colors[node_id] = color
+
+            if parent_id is not None:
+                G.add_edge(parent_id, node_id)
+
+            for child in node.get_children():
+                add_node_recursive(child, node_id)
+
+        # Start from root
+        add_node_recursive(self.root_node)
+
+        # Layout and labels
+        pos = nx.nx_agraph.graphviz_layout(G, prog="dot")
+        labels = nx.get_node_attributes(G, 'label')
+
+        # Draw with color distinction
+        plt.figure(figsize=(14, 10))
+        nx.draw(
+            G, pos, with_labels=True, labels=labels,
+            node_size=1500,
+            node_color=[node_colors[n] for n in G.nodes()],
+            font_size=8, font_color='black', arrows=True
+        )
+
+        plt.title("SceneGraph3D Structure")
+        plt.savefig(filename, dpi=300)
+        plt.close()
