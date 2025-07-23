@@ -18,7 +18,7 @@ setup(
     packages=find_packages(),
     install_requires=[
         'coverage',
-        'fastsam @ git+ssh://git@github.com/CASIA-IVA-Lab/FastSAM@4d153e9',
+        'fastsam @ git+https://github.com/CASIA-IVA-Lab/FastSAM.git@4d153e9',
         'gdown',
         'gtsam',
         'manifold3d',
