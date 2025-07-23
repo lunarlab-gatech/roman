@@ -171,3 +171,6 @@ output_old/
 
 # Ignore datasets
 datasets/
+
+# Ignore porfiling results
+profile.out

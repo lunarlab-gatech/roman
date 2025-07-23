@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from .graph_node import GraphNode, ParentGraphNode, RootGraphNode
+from .graph_node import GraphNode, RootGraphNode
 from .hull_methods import find_point_overlap_with_hulls, get_convex_hull_from_point_cloud, \
 convex_hull_geometric_overlap, shortest_dist_between_convex_hulls
+from itertools import chain, combinations
 from matplotlib import rcParams
 import matplotlib.pyplot as plt
 from ..map.observation import Observation
@@ -16,7 +17,7 @@ from .visualize_graph import SceneGraphViewer
 
 class SceneGraph3D():
     # Node that connects all highest-level objects together for implementation purposes
-    root_node: ParentGraphNode
+    root_node: RootGraphNode
 
     # List of high-level nodes that have been inactivated
     inactive_nodes: list[GraphNode] = []
@@ -70,6 +71,10 @@ class SceneGraph3D():
 
     @typechecked
     def update(self, time: float | np.longdouble, pose: np.ndarray, observations: list[Observation]):
+        print(f"Called with {len(observations)} observations")
+        with open("observations.pkl", 'wb') as file:
+            pickle.dump(observations, file)
+
         # Make sure that time ends up as a float
         time = float(time)
 
@@ -86,11 +91,13 @@ class SceneGraph3D():
         for obs in observations:
             if obs.get_convex_hull() is not None:
                 valid_obs.append(obs)
+        print(f"Remaining valid observations: {len(valid_obs)}")
         
         # Associate observations with any current object nodes
         associated_pairs = self.hungarian_assignment(valid_obs)
 
         # Merge associated pairs
+        print(f"Number of assocations to merge: {len(associated_pairs)}")
         for i in range(len(valid_obs)):
             for j, node in enumerate(self.root_node):
 
@@ -109,13 +116,15 @@ class SceneGraph3D():
         for i in range(len(valid_obs)):
             if i not in associated_obs_indices:
                 self.add_new_observation_to_graph(valid_obs[i].transformed_points, valid_obs[i].clip_embedding)
-                self.viewer.update(self)
 
         # Merge nodes that can be merged, and infer higher level ones
         self.merging_and_generation()
 
         # Run node retirement
         self.node_retirement()
+
+        # Update the viewer
+        self.viewer.update(self)
 
     @typechecked
     def hungarian_assignment(self, obs: list[Observation]) -> list[tuple]:
@@ -147,13 +156,13 @@ class SceneGraph3D():
 
                 # Check if it passes minimum requirements for association
                 if self.pass_minimum_requirements_for_association(iou, sem_con):
-                    # If fail (or root node), then give a very large number to practically disable association
-                    scores[i,j] = 1e9
-                else:
                     # Negative as hungarian algorithm tries to minimize cost
                     scores[i,j] = -iou - sem_con
-
-        # augment cost to add option for no associations
+                else:
+                    # If fail (or root node), then give a very large number to practically disable association
+                    scores[i,j] = 1e9
+                    
+        # Augment cost to add option for no associations
         hungarian_cost = np.concatenate([ np.concatenate([scores, np.ones(scores.shape)], axis=1), np.ones((scores.shape[0], 2*scores.shape[1]))], axis=0)
         row_ind, col_ind = linear_sum_assignment(hungarian_cost)
 
@@ -187,16 +196,16 @@ class SceneGraph3D():
         SceneGraph3D.check_within_bounds(sem_con, (0, 1))
 
         # Check if within thresholds for association
-        iou_fail: bool = bool(iou < self.min_iou_for_association)
-        sem_fail: bool = bool(sem_con < self.min_sem_con_for_association)
+        iou_pass: bool = bool(iou >= self.min_iou_for_association)
+        sem_pass: bool = bool(sem_con >= self.min_sem_con_for_association)
 
         # Print warning if IOU overlap is high and semantic is far off.
         # Could be indicative of underlying bug in algorithm.
-        if not iou_fail and sem_fail:
-            print("WARNING: IOU overlap is high enough for assocication, but semantic is too far off. This shouldn't happen!")      
+        if iou_pass and not sem_pass:
+            raise RuntimeError("WARNING: IOU overlap is high enough for association, but semantic is too far off. This shouldn't happen!")      
 
         # Return true if both requirements are fulfilled
-        return iou_fail and sem_fail
+        return iou_pass and sem_pass
     
     @typechecked
     def resolve_overlapping_point_clouds(self):
@@ -209,6 +218,10 @@ class SceneGraph3D():
             for i, node_i in enumerate(self.root_node):
                 for j, node_j in enumerate(self.root_node):
                     if i < j and not node_i.is_descendent_or_ascendent(node_j):
+
+                        # If the nodes are obviously seperated, no point in checking.
+                        if not self.check_if_nodes_are_somewhat_nearby(node_i, node_j):
+                            continue
 
                         # Calculate the geometric overlap between them
                         hull_i = node_i.get_convex_hull()
@@ -270,13 +283,10 @@ class SceneGraph3D():
             # This observation doesn't have enough points to form a hull, so toss it.
             return
 
-        # Generate dummy nodes in the graph (to be potential locations for the new node)
-        self.root_node.add_dummy_nodes()
-        self.save_graph_to_file("sceneGraph.pickle")
-        self.visualize_2D()
 
-        # Choose the dummy node in the graph that is the best location to add our observation
-        node_index_chosen = self.choose_dummy_with_highest_likelihood(hull_new, new_descriptor)
+        # Create a new node for this observation
+        new_node = GraphNode(self.root_node.request_new_ID(), None, [], np.zeros((0, 3), dtype=np.float64), 
+                             [node_i, node_j], first_seen, self.times[-1], self.times[-1], first_pose, self.poses[-1])
         
         # Find the chosen node again
         for i, node in enumerate(self.root_node):
@@ -290,19 +300,12 @@ class SceneGraph3D():
                 node.merge_with_observation(new_pc, new_descriptor)
                 node.set_is_dummy(False)
                 node.claim_parenthood_of_children()
+                print(f"Observation added to graph as Node {node.get_id()} and child of Node {node.get_parent().get_id()}")
                 break
 
-        # Prune dummy nodes from the graph
-        self.visualize_2D()
-        self.root_node.prune_dummy_nodes()
-        self.save_graph_to_file("sceneGraph.pickle")
-        self.visualize_2D()
-
-        # Resolve overlapping point clouds
-        self.resolve_overlapping_point_clouds()
 
     @typechecked
-    def add_new_node_to_graph(self, node: GraphNode):
+    def add_new_node_to_graph(self, node: GraphNode, only_leaf=False):
         """
         This is really only called when nodes are merged, and since the merging process has already
         pulled the relevant nodes and their children out of the graph, the combined node should 
@@ -315,105 +318,137 @@ class SceneGraph3D():
         if hull_new is None: 
             raise ValueError("Merged node from two nodes can't form a Convex Hull, this should never happen!")
 
-        # Generate dummy leaf nodes in the graph.
-        self.root_node.add_dummy_nodes(only_leaf=True)
+        # Keep track of the current likeliest node
+        best_likelihood_score = -np.inf
+        best_likelihood_position = None
 
-        # Choose the dummy node in the graph that is the best location to add our merged node
-        node_index_chosen = self.choose_dummy_with_highest_likelihood(hull_new, node.get_weighted_semantic_descriptor())
+        # Iterate through each node, considering ourselves as their potential child
+        pos_parent_node: RootGraphNode = self.root_node
+        node_queue = []
+        while pos_parent_node is not None:
 
-        # Find the chosen node again
-        for i, curr_node in enumerate(self.root_node):
-            if i == node_index_chosen:
-                
-                # Double-check its a dummy and that its a Leaf Node
-                if not curr_node.is_dummy():
-                    raise RuntimeError("We chose a non-dummy node as the location for a new node, this should never happen here!")
-                if not curr_node.is_LeafGraphNode():
-                    raise RuntimeError("We chose a non-LeafGraphNode as location for new node, this should never happen in add_new_node_to_graph!")
-                
-                # Remove the dummy node from the graph
-                parent_node = curr_node.get_parent()
-                parent_node.remove_child(curr_node)
-                curr_node.set_parent(None)
+            # See if this node is anywhere near us. If not, we obviously can't be their child
+            if not self.check_if_nodes_are_somewhat_nearby(node, pos_parent_node):
+                continue
 
-                # Place our already fully formed node in its spot
-                parent_node.add_child(node)
-                node.set_parent(parent_node)
-                break
+            # Since we're nearby this, add all of this nodes children to the queue as well
+            # so that we check if we should be their children as well
+            node_queue += pos_parent_node.get_children()
 
-        # Prune dummy nodes from the graph
-        self.root_node.prune_dummy_nodes()
+            # If we only want to add ourselves as a LeafNode, make sure pos_parent_node has no children
+            if only_leaf:
+                if len(pos_parent_node.get_children()) > 0:
+                    continue
+
+            # Get the convex hull comprising of all the children, and one for the parent
+            hull_all_children: list[trimesh.Trimesh] = [child.get_convex_hull() for child in node.get_children()]
+            hull_parent: trimesh.Trimesh = node.get_parent().get_convex_hull()
+
+            # Get the volumes of each of the children
+            children_volumes = [child.get_volume() for child in node.get_children()]
+            
+            # Add similarities for geometric overlaps with children
+            children_iou, children_enclosure = [], []
+            for hull in hull_all_children:
+                iou, child_enc, _ = convex_hull_geometric_overlap(hull, hull_new)
+                children_iou.append(iou)
+                children_enclosure.append(child_enc)
+
+            # Add similarities for geometric overlaps with parent
+            parent_iou, _, parent_encompassment = convex_hull_geometric_overlap(hull_parent, hull_new)
+
+            # Calculate semantic similarity
+            if node.get_weighted_semantic_descriptor() is not None:
+
+                # Calculate similarity with children
+                children_sem_sim = []
+                for child in pos_parent_node.get_children():
+                    children_sem_sim.append(SceneGraph3D.semantic_consistency(node.get_weighted_semantic_descriptor(), child.get_weighted_semantic_descriptor()))
+
+                # Calculate similarity with parent
+                if not node.get_parent().is_RootGraphNode():
+                    parent_sem_sim = SceneGraph3D.semantic_consistency(node.get_weighted_semantic_descriptor(), pos_parent_node.get_weighted_semantic_descriptor())
+                else:
+                    # Neutral similarity with root node, as it represents everything
+                    parent_sem_sim = 0.5
+            else:
+                # Give it a neutral similarity if there is no descriptor
+                children_sem_sim = []
+                parent_sem_sim = 0.5
+
+            # Calculate the final likelihood score
+            score, subset = self.calculate_best_likelihood_score(children_iou, children_enclosure, children_sem_sim, children_volumes,
+                                                                        parent_iou, parent_encompassment, parent_sem_sim)
+            
+            # If this is the best score so far, keep it
+            if score >= best_likelihood_score:
+                best_likelihood_score = score
+                best_likelihood_position = (pos_parent_node, subset)
+
+            # After checking this node, move to check the next one
+            if len(node_queue) >= 1:
+                pos_parent_node: GraphNode = node_queue[0]
+                node_queue = node_queue[1:]
+            else:
+                pos_parent_node = None
+        
+        # Place our already fully formed node into its spot
+        new_parent = best_likelihood_position[0]
+        new_children = new_parent.get_children()[best_likelihood_position[1]]
+
+        print(f"Node {node.get_id()} added to graph as child of Node {new_parent.get_id()}")
+        new_parent.add_child(node)
+        node.set_parent(new_parent)
+        node.add_children(new_children)
 
         # Resolve overlapping point clouds
         self.resolve_overlapping_point_clouds()
 
     @typechecked
-    def choose_dummy_with_highest_likelihood(self, hull_new: trimesh.Trimesh, new_descriptor: np.ndarray | None) -> int:
-        # Generate likelihood scores for each dummy
-        likelihood_scores = np.zeros((self.len()), dtype=np.float64)
-        for i, node in enumerate(self.root_node):
-            if node.is_dummy():
-                
-                # Get the convex hull comprising of all the children, and one for the parent
-                # These are different because dummy node doesn't use point cloud of parent for its hull.
-                hull_all_children = node.get_convex_hull()
-                hull_parent = node.get_parent().get_convex_hull()
-                
-                # Add similarities for geometric overlaps with children
-                children_iou, children_enclosure, _ = convex_hull_geometric_overlap(hull_all_children, hull_new)
+    def calculate_best_likelihood_score(self, children_iou: list[float], children_enclosure: list[float], children_sem_sim: list[float],
+        children_volumes: list[float], parent_iou: float, parent_encompassment: float, parent_sem_sim: float) -> tuple[float, tuple[int, ...]]:
 
-                # Add similarities for geometric overlaps with parents
-                parent_iou, _, parent_encompassment = convex_hull_geometric_overlap(hull_parent, hull_new)
-
-                # Calculate semantic similarity
-                if new_descriptor is not None:
-                    # Calculate similarity with children
-                    if not node.is_LeafGraphNode():
-                        children_sem_sim = SceneGraph3D.semantic_consistency(node.get_weighted_semantic_descriptor(), new_descriptor)
-                    else:
-                        # A dummy leaf graph node has no children, so assume neutral similarity
-                        children_sem_sim = 0.5
-
-                    # Calculate similarity with parent
-                    if not node.get_parent().is_RootGraphNode():
-                        parent_sem_sim = SceneGraph3D.semantic_consistency(node.get_parent().get_weighted_semantic_descriptor(), new_descriptor)
-                    else:
-                        # Neutral similarity with root node, as it represents everything
-                        parent_sem_sim = 0.5
-                else:
-                    # Give it a neutral similarity if there is no descriptor
-                    children_sem_sim = 0.5
-                    parent_sem_sim = 0.5
-
-                # Calculate the final likelihood score
-                likelihood_scores[i] = self.calculate_likelihood_score_for_dummy(children_iou, children_enclosure, children_sem_sim,
-                                                                                 parent_iou, parent_encompassment, parent_sem_sim)
-            
-            # If it isn't a dummy, give it a likelihood score negative infinity
-            else:
-                likelihood_scores[i] = -np.inf
-
-        # Pick the node with the highest likelihood
-        node_index_chosen = np.argmax(likelihood_scores)
-
-        # Make sure we didn't pick a node with likelihood of -np.inf (meaning its a normal node
-        if likelihood_scores[node_index_chosen] == -np.inf:
-            raise RuntimeError("We chose a non-dummy node as the location for a new node, this should never happen here!")
-        return int(node_index_chosen)
-
-    @typechecked
-    def calculate_likelihood_score_for_dummy(self, children_iou: float, children_enclosure: float, children_sem_sim: float,
-                                                   parent_iou: float, parent_encompassment: float, parent_sem_sim: float) -> float:
         # Make sure each value is within expected thresholds
-        SceneGraph3D.check_within_bounds(children_iou, (0, 1))
-        SceneGraph3D.check_within_bounds(children_enclosure, (0, 1))
-        SceneGraph3D.check_within_bounds(children_sem_sim, (0, 1))
+        for i in range(len(children_iou)):
+            SceneGraph3D.check_within_bounds(children_iou[i], (0, 1))
+            SceneGraph3D.check_within_bounds(children_enclosure[i], (0, 1))
+            SceneGraph3D.check_within_bounds(children_sem_sim[i], (0, 1))
+            SceneGraph3D.check_within_bounds(children_volumes[i], (0, np.inf))
         SceneGraph3D.check_within_bounds(parent_iou, (0, 1))
         SceneGraph3D.check_within_bounds(parent_encompassment, (0, 1))
         SceneGraph3D.check_within_bounds(parent_sem_sim, (0, 1))
 
-        # Calculate the final score
-        return children_iou + children_enclosure + children_sem_sim + parent_iou + parent_encompassment + parent_sem_sim
+        # Keep track of the best score and subset
+        best_score = -np.inf
+        best_subset = None
+        
+        # Create powerset of all possible children combinations in the current node
+        num_children = len(self.child_nodes)
+        powerset = chain.from_iterable(combinations(range(num_children), r) for r in range(num_children + 1))
+
+        # Iterate through each subset of child combinations and create a dummy node with those children
+        for subset in powerset:
+            # Get the values for this specific combination of children
+            rel_child_iou = children_iou[subset]
+            rel_child_enc = children_enclosure[subset]
+            rel_child_sem_sim = children_sem_sim[subset]
+            rel_volumes = children_volumes[subset]
+
+            # Get a weighted average of them based on each childs volume
+            temp_child_iou = np.average(rel_child_iou, axis=0, weights=rel_volumes)
+            temp_child_enc = np.average(rel_child_enc, axis=0, weights=rel_volumes)
+            temp_child_sem_sim = np.average(rel_child_sem_sim, axis=0, weights=rel_volumes)
+
+            # Calculate the final score
+            score = temp_child_iou + temp_child_enc + temp_child_sem_sim + parent_iou + parent_encompassment + parent_sem_sim
+
+            # If this is the best so far, keep track of it
+            if score >= best_score:
+                best_score = score
+                best_subset = subset
+        
+        # Return the result of the best child combination score
+        return best_score, best_subset
     
     @typechecked
     @staticmethod
@@ -428,6 +463,22 @@ class SceneGraph3D():
         if a < bounds[0] or a > bounds[1]:
             raise ValueError("Value {a} is outside the range of [0, 1] inclusive.")
     
+    @typechecked
+    def check_if_nodes_are_somewhat_nearby(a: GraphNode, b: GraphNode) -> bool:
+        """ Returns False if node centroids are not within size_a + size_b of each other. """
+
+        # If one is the RootGraphNode, then obviously they are nearby
+        if a.is_RootGraphNode() or b.is_RootGraphNode():
+            return True
+
+        # See if they are close enough
+        size_a = a.get_longest_line_size()
+        size_b = b.get_longest_line_size()
+        c_a = a.get_centroid()
+        c_b = b.get_centroid()
+        if np.linalg.norm(c_a - c_b) > size_a + size_b: return False
+        else: return True
+
     def merging_and_generation(self):
         # Iterate over graph repeatedly until no merges/generations occur
         merge_occured = True
@@ -438,7 +489,7 @@ class SceneGraph3D():
             for i, node_i in enumerate(self.root_node):
                 for j, node_j in enumerate(self.root_node):
                     if i < j and not node_i.is_descendent_or_ascendent(node_j):
-
+                        
                         # ========== Minimum Requirements for Association Merge ==========
 
                         # Calculate IOU and Semantic Similarity
@@ -462,8 +513,8 @@ class SceneGraph3D():
                         dist = shortest_dist_between_convex_hulls(node_i.get_convex_hull(), node_j.get_convex_hull())
 
                         # Get longest line of either node
-                        longest_line_node_i = SceneGraph3D.longest_line_of_convex_hull(node_i.get_convex_hull())
-                        longest_line_node_j = SceneGraph3D.longest_line_of_convex_hull(node_j.get_convex_hull())
+                        longest_line_node_i = node_i.get_longest_line_size()
+                        longest_line_node_j = node_j.get_longest_line_size()
                         longest_line = max(longest_line_node_i, longest_line_node_j)
 
                         # Get ratio of shortest distance to longest line (in other words, dist to object length)
@@ -484,9 +535,13 @@ class SceneGraph3D():
 
                         # ========== Higher Level Object Inference ==========
 
+                        # If they already have a shared parent that isn't the RootGraphNode, no point checking this...
+                        if node_i.get_parent() == node_j.get_parent() and not node_i.get_parent().is_RootGraphNode():
+                            pass
+                        
                         # If ratio of shorest distance to object length is within larger threshold AND
                         # the semantic embedding is close enough to assume they could have a shared parent...
-                        if dist_to_object_length < self.ratio_dist2length_threshold_higher_level_object_inference and \
+                        elif dist_to_object_length < self.ratio_dist2length_threshold_higher_level_object_inference and \
                             sem_con < self.min_sem_con_for_higher_level_object_inference:
                             
                             # Disconnect both of these nodes from the graph
@@ -495,9 +550,19 @@ class SceneGraph3D():
                             node_i.set_parent(None)
                             node_j.set_parent(None)
 
-                            # Create a new parent node with these as children and put back in the graph
+                            # Create a new parent node with these as children
                             first_seen = min(node_i.get_time_first_seen(), node_j.get_time_first_seen())
-                            inferred_parent_node = ParentGraphNode(None, [], np.zeros((0, 3), dtype=np.float64), [node_i, node_j], first_seen, self.times[-1])
+                            if first_seen == node_i.get_time_first_seen(): first_pose = node_i.get_first_pose()
+                            else: first_pose = node_j.get_first_pose()
+                            inferred_parent_node = GraphNode(self.root_node.request_new_ID(), None, [], np.zeros((0, 3), dtype=np.float64), 
+                                                             [node_i, node_j], first_seen, self.times[-1], self.times[-1], first_pose, self.poses[-1])
+                            
+                            # Tell the children who their new parent is
+                            node_i.set_parent(inferred_parent_node)
+                            node_j.set_parent(inferred_parent_node)
+
+                            # Add this inferred node back to the graph
+                            print(f"Inferring new high-level Parent Node {inferred_parent_node.get_id()} from Node {node_i.get_id()} and Node {node_j.get_id()}")
                             self.add_new_node_to_graph(inferred_parent_node)
 
                             # Break out of double-nested loop to reset iterators
@@ -567,9 +632,9 @@ class SceneGraph3D():
         node_colors = {}
 
         # Recursive traversal and node/edge addition
-        def add_node_recursive(node, parent_id=None):
-            node_id = id(node)
-            label = getattr(node, "get_label", lambda: f"Node {node_id}")()
+        def add_node_recursive(node: GraphNode, parent_id=None):
+            node_id = node.get_id()
+            label = getattr(node, "get_label", lambda: f"{node_id}")()
             G.add_node(node_id, label=label)
 
             # Color red if dummy, blue otherwise
@@ -604,4 +669,4 @@ class SceneGraph3D():
     
     def save_graph_to_file(self, file_path: str):
         with open(file_path, 'wb') as file:
-            pickle.dump(self, file)
+            pickle.dump(self.root_node, file)

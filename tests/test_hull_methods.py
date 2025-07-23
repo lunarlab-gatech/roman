@@ -92,6 +92,13 @@ class TestHullMethods(unittest.TestCase):
         np.testing.assert_almost_equal(convex_hull_geometric_overlap(self.hull_1, self.hull_2)[1], 1/8, 3)
         np.testing.assert_almost_equal(convex_hull_geometric_overlap(self.hull_1, self.hull_2)[2], 1/8, 3)
 
+        np.testing.assert_almost_equal(convex_hull_geometric_overlap(self.hull_1, None)[0], 0, 14)
+        np.testing.assert_almost_equal(convex_hull_geometric_overlap(self.hull_1, None)[1], 1, 14)
+        np.testing.assert_almost_equal(convex_hull_geometric_overlap(self.hull_1, None)[2], 1, 14)
+
+        with np.testing.assert_raises(ValueError):
+            _, _, _ = convex_hull_geometric_overlap(None, None)
+
     def test_shortest_dist_between_convex_hulls(self):
         """ Make sure the short distance calculation is reasonable. """
 

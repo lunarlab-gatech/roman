@@ -2,6 +2,7 @@ import colorsys
 import hashlib
 import numpy as np
 import random
+from roman.scene_graph.graph_node import GraphNode
 import trimesh
 import pyvista as pv
 
@@ -49,7 +50,7 @@ class SceneGraphViewer:
         current_node_hashes = {}
         current_positions = {}
 
-        def traverse(node, parent_centroid=None, parent_hsv=None, depth=0):
+        def traverse(node: GraphNode, parent_centroid=None, parent_hsv=None, depth=0):
             if parent_hsv is None:
                 hsv = random_base_color_hsv()
             else:
@@ -57,22 +58,23 @@ class SceneGraphViewer:
                 hsv = hsv_shift(parent_hsv, h_shift=h_shift, s_shift=0.05, v_shift=-0.05)
 
             rgb = hsv_to_rgb_tuple(hsv)
-            points = node.get_point_cloud()
-            if points is None or len(points) == 0:
+
+            # Check that this node has something to show
+            hull = node.get_convex_hull()
+            if hull is None:
                 return
-            centroid = np.mean(points, axis=0)
+            
+            # Calculate the centroid
+            centroid = np.mean(node.get_point_cloud(), axis=0)
             current_positions[node] = centroid
 
             # Convex hull mesh and hash
-            hull = None
             mesh_hash = None
             try:
-                hull = get_convex_hull_from_point_cloud(points)
-                if hull:
-                    faces = np.hstack(
-                        [np.full((len(hull.faces), 1), 3), hull.faces]
-                    ).astype(np.int64)
-                    mesh_hash = self._hash_mesh(hull.vertices, faces)
+                faces = np.hstack(
+                    [np.full((len(hull.faces), 1), 3), hull.faces]
+                ).astype(np.int64)
+                mesh_hash = self._hash_mesh(hull.vertices, faces)
             except Exception as e:
                 print(f"Failed to compute hull: {e}")
 

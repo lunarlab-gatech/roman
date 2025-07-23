@@ -115,6 +115,9 @@ def run(
         if vid and img_t is not None:
             video.write(img_t)
         bar.update()
+
+        # REMOVE ME
+        break
             
     if vid:
         video.release()
@@ -124,30 +127,36 @@ def run(
     print(f"Run duration was {runner.tf - runner.t0:.2f} seconds")
     print(f"Compute per second: {(time.time() - wc_t0) / (runner.tf - runner.t0):.2f}")
 
-    print(f"Number of poses: {len(runner.mapper.poses_flu_history)}.")
+    if not mapper_params.use_3D_Scene_graph:
+        print(f"Number of poses: {len(runner.mapper.poses_flu_history)}.")
+    else:
+        print(f"Number of poses: {len(runner.mapper.poses)}.")
 
     # Output results
-    pkl_path = os.path.expanduser(expandvars(output_path)) + ".pkl"
-    pkl_file = open(pkl_path, 'wb')
-    pickle.dump(runner.mapper.get_roman_map(), pkl_file, -1)
-    logging.info(f"Saved tracker, poses_flu_history to file: {pkl_path}.")
-    pkl_file.close()
+    if not mapper_params.use_3D_Scene_graph:
+        pkl_path = os.path.expanduser(expandvars(output_path)) + ".pkl"
+        pkl_file = open(pkl_path, 'wb')
+        pickle.dump(runner.mapper.get_roman_map(), pkl_file, -1)
+        logging.info(f"Saved tracker, poses_flu_history to file: {pkl_path}.")
+        pkl_file.close()
 
-    timing_file = os.path.expanduser(expandvars(output_path)) + ".time.txt"
-    with open(timing_file, 'w') as f:
-        f.write(f"dt: {data_params.dt}\n\n")
-        f.write(f"AVERAGE TIMES\n")
-        f.write(f"fastsam: {np.mean(runner.processing_times.fastsam_times):.3f}\n")
-        f.write(f"segment_track: {np.mean(runner.processing_times.map_times):.3f}\n")
-        f.write(f"total: {np.mean(runner.processing_times.total_times):.3f}\n")
-        f.write(f"TOTAL TIMES\n")
-        f.write(f"total: {np.sum(runner.processing_times.total_times):.2f}\n")
-    
-    if viz_params.save_img_data:
-        img_data_path = os.path.expanduser(expandvars(output_path)) + ".img_data.npz"
-        print(f"Saving visualization to {img_data_path}")
-        img_data = ImgData(times=runner.mapper.times_history, imgs=runner.viz_imgs, data_type='raw')
-        img_data.to_npz(img_data_path)
+        timing_file = os.path.expanduser(expandvars(output_path)) + ".time.txt"
+        with open(timing_file, 'w') as f:
+            f.write(f"dt: {data_params.dt}\n\n")
+            f.write(f"AVERAGE TIMES\n")
+            f.write(f"fastsam: {np.mean(runner.processing_times.fastsam_times):.3f}\n")
+            f.write(f"segment_track: {np.mean(runner.processing_times.map_times):.3f}\n")
+            f.write(f"total: {np.mean(runner.processing_times.total_times):.3f}\n")
+            f.write(f"TOTAL TIMES\n")
+            f.write(f"total: {np.sum(runner.processing_times.total_times):.2f}\n")
+        
+        if viz_params.save_img_data:
+            img_data_path = os.path.expanduser(expandvars(output_path)) + ".img_data.npz"
+            print(f"Saving visualization to {img_data_path}")
+            img_data = ImgData(times=runner.mapper.times_history, imgs=runner.viz_imgs, data_type='raw')
+            img_data.to_npz(img_data_path)
+    else:
+        print("OUTPUT ISN'T IMPLEMENTED FOR 3D_SCENE_GRAPH YET")
     
     del runner
     return

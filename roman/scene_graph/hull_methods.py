@@ -18,7 +18,8 @@ def get_convex_hull_from_point_cloud(point_cloud: np.ndarray) -> trimesh.Trimesh
     try:  
         hull = ConvexHull(point_cloud)
         mesh = trimesh.Trimesh(vertices=point_cloud, faces=hull.simplices, process=True)
-        mesh.fix_normals()
+        if not mesh.is_volume:
+            mesh.fix_normals()
         return mesh
     
     except scipy.spatial._qhull.QhullError as e: 
@@ -91,5 +92,14 @@ def shortest_dist_between_convex_hulls(a: trimesh.Trimesh, b: trimesh.Trimesh):
     return np.array(distances).min()
 
 @typechecked
-def longest_line_of_convex_hull(a: trimesh.Trimesh):
-    return pdist(a.vertices).max()
+def shortest_dist_between_point_clouds(a: np.ndarray, b: np.ndarray):
+    """ Shortest distance between any pair of points in the point clouds. """
+
+    # Get minimum distance efficently with KDTree
+    tree_a = KDTree(a)
+    distances = tree_a.query(b, 1)
+    return np.array(distances).min()
+
+@typechecked
+def longest_line_of_point_cloud(a: np.ndarray):
+    return pdist(a).max()
