@@ -2,6 +2,9 @@
 ROMAN_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 cd $ROMAN_DIR
 
+# Install gdown if not already installed
+pip install gdown
+
 # Install CLIPPER
 git submodule update --init --recursive
 mkdir dependencies/clipper/build
