@@ -1,20 +1,17 @@
 from __future__ import annotations
 
-import colorsys
 from .graph_node import GraphNode, ParentGraphNode, RootGraphNode
 from .hull_methods import find_point_overlap_with_hulls, get_convex_hull_from_point_cloud, \
-convex_hull_geometric_overlap, shortest_dist_between_convex_hulls, longest_line_of_convex_hull
+convex_hull_geometric_overlap, shortest_dist_between_convex_hulls
 from matplotlib import rcParams
 import matplotlib.pyplot as plt
 from ..map.observation import Observation
 import networkx as nx
 import numpy as np
-import open3d as o3d
-import random
+import pickle
 from scipy.optimize import linear_sum_assignment
 import trimesh
 from typeguard import typechecked
-from typing import Union
 from .visualize_graph import SceneGraphViewer
 
 class SceneGraph3D():
@@ -275,6 +272,7 @@ class SceneGraph3D():
 
         # Generate dummy nodes in the graph (to be potential locations for the new node)
         self.root_node.add_dummy_nodes()
+        self.save_graph_to_file("sceneGraph.pickle")
         self.visualize_2D()
 
         # Choose the dummy node in the graph that is the best location to add our observation
@@ -297,6 +295,7 @@ class SceneGraph3D():
         # Prune dummy nodes from the graph
         self.visualize_2D()
         self.root_node.prune_dummy_nodes()
+        self.save_graph_to_file("sceneGraph.pickle")
         self.visualize_2D()
 
         # Resolve overlapping point clouds
@@ -602,3 +601,7 @@ class SceneGraph3D():
         plt.title("SceneGraph3D Structure")
         plt.savefig(filename, dpi=300)
         plt.close()
+    
+    def save_graph_to_file(self, file_path: str):
+        with open(file_path, 'wb') as file:
+            pickle.dump(self, file)
