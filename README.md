@@ -1,5 +1,8 @@
 # ROMAN
 
+[![Unit Tests](https://github.com/lunarlab-gatech/roman/actions/workflows/python_test.yaml/badge.svg?branch=echelon)](https://github.com/lunarlab-gatech/roman/actions/workflows/python_test.yaml)
+[![Coverage Status](https://coveralls.io/repos/github/lunarlab-gatech/roman/badge.svg?branch=echelon)](https://coveralls.io/github/lunarlab-gatech/roman?branch=echelon)
+
 Our fork of the [ROMAN](https://github.com/mit-acl/roman) repository for evaluation as a baseline running on the HERCULES dataset.
 
 ## Install
