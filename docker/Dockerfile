@@ -73,4 +73,4 @@ SHELL ["/bin/bash", "-c"]
 RUN echo "export USER=${USERNAME}" >> ~/.bashrc
 
 # Install graphviz
-RUN sudo apt-get install graphviz graphviz-dev
+RUN sudo apt-get install graphviz graphviz-dev -y
