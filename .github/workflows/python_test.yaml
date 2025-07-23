@@ -29,6 +29,7 @@ jobs:
         ./install.sh
     - name: Test with unittest & evaluate test coverage
       run: |
+        pip install coverage
         python -m coverage run --source roman -m unittest discover tests/ -v
     - name: Coveralls GitHub Action (Upload Coverage Report)
       uses: coverallsapp/github-action@v2.3.6
