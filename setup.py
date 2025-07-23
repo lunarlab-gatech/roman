@@ -17,6 +17,7 @@ setup(
     license='MIT',
     packages=find_packages(),
     install_requires=[
+        'coverage',
         'fastsam @ git+ssh://git@github.com/CASIA-IVA-Lab/FastSAM@4d153e9',
         'gdown',
         'gtsam',
