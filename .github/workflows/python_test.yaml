@@ -6,35 +6,23 @@ on:
   pull_request:
     branches: [ "**" ]
 
-permissions:
-  contents: read
-
 jobs:
   build-and-test:
-    name: "Build & Test Python"
     runs-on: ubuntu-latest
-    timeout-minutes: 180
-
-    container:
-      image: roman_baseline
-      options: --user root
-      build:
-        context: .
-        dockerfile: docker/Dockerfile
 
     steps:
-    - uses: actions/checkout@v3
-    - name: Upgrade pip
-      run: |
-        python -m pip install --upgrade pip
-    - name: Install the package
-      run: |
-        ./install.sh
-    - name: Test with unittest & evaluate test coverage
-      run: |
-        python -m coverage run --source roman -m unittest discover tests/ -v
-    - name: Coveralls GitHub Action (Upload Coverage Report)
-      uses: coverallsapp/github-action@v2.3.6
-      with:
-        github-token: ${{ secrets.GITHUB_TOKEN }}
-      
+      - uses: actions/checkout@v3
+      - name: Build Docker Image
+        run: |
+          docker build -t roman_baseline .
+      - name: Run tests inside Docker container
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}:/app \
+            -w /app \
+            roman_baseline \
+            bash -c "./install.sh && python -m coverage run --source roman -m unittest discover tests/ -v"
+      - name: Upload coverage to Coveralls
+        uses: coverallsapp/github-action@v2.3.6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
