@@ -16,6 +16,7 @@ import cv2 as cv
 import numpy as np
 import open3d as o3d
 import copy
+import random
 import torch
 from yolov7_package import Yolov7Detector
 import math
@@ -31,6 +32,13 @@ from robotdatapy.camera import CameraParams
 from roman.map.observation import Observation
 from roman.params.fastsam_params import FastSAMParams
 from roman.utils import expandvars_recursive
+
+# Try to make FastSAM and YOLO Deterministic
+torch.manual_seed(42)
+random.seed(42)
+np.random.seed(42)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARN)

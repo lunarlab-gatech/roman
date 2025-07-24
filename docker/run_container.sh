@@ -1,4 +1,4 @@
-DATA_DIR='/media/dbutterfield3/SSD3'
+DATA_DIR='/media/dbutterfield3/SSD32'
 REPO_DIR='/home/dbutterfield3/Research/ROMAN_DEVEL'
 
 docker run -it \

@@ -16,7 +16,7 @@ def get_convex_hull_from_point_cloud(point_cloud: np.ndarray) -> trimesh.Trimesh
 
     # Calculate the convex hull
     try:  
-        hull = ConvexHull(point_cloud)
+        hull = ConvexHull(point_cloud, qhull_options='Qx')
         mesh = trimesh.Trimesh(vertices=point_cloud, faces=hull.simplices, process=True)
         if not mesh.is_volume:
             mesh.fix_normals()
@@ -64,32 +64,40 @@ def convex_hull_geometric_overlap(a: trimesh.Trimesh | None, b: trimesh.Trimesh 
     # If either of the hulls are None, then IOU is zero and encompassment is 1.0.
     if a is None or b is None:
         return 0.0, 1.0, 1.0
+    
+    # Make sure both meshes are watertight
+    assert a.is_watertight
+    assert b.is_watertight
 
     # Calculate the intersection trimesh
     intersection = a.intersection(b, engine='manifold')
 
     # Calculate the IOU value
     inter_vol = intersection.volume
-    iou = inter_vol / (a.volume + b.volume - inter_vol)
+    iou = min(inter_vol / (a.volume + b.volume - inter_vol), 1.0)
 
     # Calculate the relative enclosure ratios
-    enc_a_ratio = inter_vol / a.volume
-    enc_b_ratio = inter_vol / b.volume
+    enc_a_ratio = min(inter_vol / a.volume, 1.0)
+    enc_b_ratio = min(inter_vol / b.volume, 1.0)
 
     return iou, enc_a_ratio, enc_b_ratio
 
 @typechecked
-def shortest_dist_between_convex_hulls(a: trimesh.Trimesh, b: trimesh.Trimesh):
+def shortest_dist_between_convex_hulls(a: trimesh.Trimesh | None, b: trimesh.Trimesh | None) -> float:
     """ Since we sample surfance points, this is an approximation. """
+    
+    # If both hulls are None, throw an error
+    if a is None and b is None:
+        raise ValueError("Both hulls are None, this shouldn't happen during normal operation!")
 
+    # If either of the hulls are None, then assume that they are really far away
+    if a is None or b is None:
+        return np.inf
+    
     # Sample surface points on each hull
     points_a = a.sample(1000)
     points_b = b.sample(1000)
-
-    # Get minimum distance efficently with KDTree
-    tree_a = KDTree(points_a)
-    distances = tree_a.query(points_b, 1)
-    return np.array(distances).min()
+    return shortest_dist_between_point_clouds(points_a, points_b)
 
 @typechecked
 def shortest_dist_between_point_clouds(a: np.ndarray, b: np.ndarray):
@@ -97,9 +105,11 @@ def shortest_dist_between_point_clouds(a: np.ndarray, b: np.ndarray):
 
     # Get minimum distance efficently with KDTree
     tree_a = KDTree(a)
-    distances = tree_a.query(b, 1)
+    distances = tree_a.query(b, 1)[0]
     return np.array(distances).min()
 
 @typechecked
 def longest_line_of_point_cloud(a: np.ndarray):
+    if a.shape[0] == 0: return 0.0
+    #print("SHAPE of A: ", a.shape)
     return pdist(a).max()

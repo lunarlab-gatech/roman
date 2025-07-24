@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from .hull_methods import get_convex_hull_from_point_cloud, find_point_overlap_with_hulls, longest_line_of_point_cloud
 from .id_manager import IDManager
-from itertools import chain, combinations
+from .logger import logger
 import numpy as np
 from numpy.typing import NDArray
-import open3d as o3d
 from robotdatapy.camera import xyz_2_pixel
 from robotdatapy.transform import transform
 import trimesh
@@ -133,7 +132,7 @@ class GraphNode():
         return self._convex_hull
     
     @typechecked
-    def get_weighted_semantic_descriptor(self) -> np.ndarray:
+    def get_weighted_semantic_descriptor(self) -> np.ndarray | None:
         return self.calculate_weighted_semantic_descriptor(self.get_semantic_descriptors())
     
     @typechecked
@@ -203,15 +202,17 @@ class GraphNode():
         return self._longest_line_size
     
     @typechecked
-    def get_centroid(self) -> float:
+    def get_centroid(self) -> np.ndarray[float]:
         if self._centroid is None:
             self._centroid = np.mean(self.get_point_cloud(), axis=0)
         return self._centroid
     
     @typechecked
     def get_volume(self) -> float:
-        if not self.get_convex_hull().is_watertight():
-            raise RuntimeError("Trying to get volume of ConvexHull, but its not watertight!")
+        if self.get_convex_hull() is None:
+            raise RuntimeError(f"Trying to get volume of ConvexHull for Node {self.get_id()}, but there isn't a valid ConvexHull!")
+        if not self.get_convex_hull().is_watertight:
+            raise RuntimeError(f"Trying to get volume of ConvexHull for Node {self.get_id()}, but its not watertight!")
         return self.get_convex_hull().volume
     
     @typechecked
@@ -232,6 +233,12 @@ class GraphNode():
             for child in self.get_children():
                 full_pc = np.concatenate((full_pc, child.get_point_cloud()), dtype=np.float64)
             self._point_cloud = np.concatenate((full_pc, self.point_cloud), dtype=np.float64)
+            num_points = self._point_cloud.shape[0]
+            if num_points < 4:
+                logger.debug(f"[bright_red]WARNING[/bright_red]: Current point cloud is {num_points} for Node {self.get_id()}")
+            else:
+                logger.debug(f"[bright_yellow]UPDATE[/bright_yellow]: Current point cloud is {num_points} for Node {self.get_id()}")
+        np.save(f"/home/dbutterfield3/roman/debug_pc/node_{self.get_id()}_pc.npy", self._point_cloud)
         return self._point_cloud
     
     @typechecked
@@ -270,10 +277,10 @@ class GraphNode():
         return self.child_nodes
     
     # ==================== Calculations ====================
-    def calculate_weighted_semantic_descriptor(self, descriptors: list[tuple[NDArray[np.float64], float]]):
-        # If we have no descriptors, raise an error
+    def calculate_weighted_semantic_descriptor(self, descriptors: list[tuple[NDArray[np.float64], float]]) -> np.ndarray | None:
+        # If we have no descriptors, just return None
         if len(descriptors) == 0:
-            raise ValueError("Cannot calculate weighted semantic descriptor when descriptors is empty!")
+            return None
 
         # Extract the embeddings and weights
         embeddings, weights = zip(*descriptors)
@@ -296,6 +303,25 @@ class GraphNode():
 
     # ==================== Manipulators ====================
     @typechecked
+    def remove_from_graph(self) -> set[GraphNode]:
+        """ Does so by disconnecting self from parent both ways. Returns any remaining parents that need to be deleted now. """
+        if self.is_RootGraphNode():
+            raise RuntimeError("Can't call remove_from_graph() on RootGraphNode!")
+
+        logger.info(f"remove_from_graph: Currently on Node {self.get_id()}")
+        to_delete = self.get_parent().remove_child(self)
+        self.set_parent(None)
+        return to_delete
+    
+    @typechecked
+    def remove_from_graph_complete(self) -> None:
+        """ Does so by disconnecting self from parent both ways. Also immediately deletes any parent nodes that are now invalid. """
+
+        to_delete = self.remove_from_graph()
+        while to_delete:
+            to_delete.update(to_delete.pop().remove_from_graph())
+
+    @typechecked
     def add_semantic_descriptors(self, descriptors: list[tuple[np.ndarray, float]]) -> None:
         self.semantic_descriptors += descriptors
         self.last_updated = self.curr_time
@@ -316,40 +342,30 @@ class GraphNode():
         self.cleanup_point_cloud()
 
         # Reset point cloud dependent saved variables
-        self.reset_saved_vars()
+        logger.debug(f"update_point_cloud(): Resetting Point Cloud for Node {self.get_id()}")
+        self.reset_saved_vars_safe()
 
     def cleanup_point_cloud(self):
-        """ Remove outliers and duplicates from point-cloud. """
+        """ Remove duplicates from point-cloud. """
 
         # Only clean-up if there are points to clean-up
         if self.point_cloud.shape[0] > 0:
 
+            # Turn off Outlier Removal, as we'd probably need to do it on the point cloud from node.get_point_cloud()
+            # for it to actually work properly... #TODO: Implement this maybe...
+
             # Convert into o3d PointCloud
-            pcd = o3d.geometry.PointCloud()
-            pcd.points = o3d.utility.Vector3dVector(self.point_cloud)
+            #pcd = o3d.geometry.PointCloud()
+            # pcd.points = o3d.utility.Vector3dVector(self.point_cloud)
 
             # Remove statistical outliers
             # TODO: See if removing this has any negative impact -> pcd_sampled = pcd.voxel_down_sample(voxel_size=self.voxel_size)
             # TODO: Tune these parameters, see if it has any effect
-            pcd_pruned, _ = pcd.remove_statistical_outlier(10, 1.0)
+            #pcd_pruned, _ = pcd.remove_statistical_outlier(10, 1.0)
             
             # Save the new outlier free point cloud (while also removing duplicates)
-            self.point_cloud = np.unique(np.asarray(pcd_pruned.points), axis=0)
+            self.point_cloud = np.unique(self.point_cloud, axis=0)
             self.last_updated = self.curr_time
-
-    @typechecked
-    def remove_points_from_self(self, pc_to_remove: np.ndarray):
-        # Create views for efficiency
-        dtype = [('x', float), ('y', float), ('z', float)]
-        view_pc = self.point_cloud.view(dtype)
-        view_remove = pc_to_remove.view(dtype)
-
-        # Remove points that are in pc_to_remove
-        mask = np.isin(view_pc, view_remove, invert=True).squeeze()
-        if np.sum(mask) != mask.shape[0]:
-            self.point_cloud = self.point_cloud[mask]
-            self.last_updated = self.curr_time
-            self.reset_saved_vars()
 
     @typechecked
     def merge_with_node(self, other: GraphNode) -> GraphNode:
@@ -362,10 +378,8 @@ class GraphNode():
         """
 
         # Remove both nodes (and all descendants) from the graph
-        self.get_parent().remove_child(self)
-        other.get_parent().remove_child(other)
-        self.set_parent(None)
-        other.set_parent(None)
+        self.remove_from_graph_complete()
+        other.remove_from_graph_complete()
 
         # Combine only semantic descriptors in the two nodes directly, not from children
         combined_descriptors = self.semantic_descriptors + other.semantic_descriptors
@@ -390,35 +404,63 @@ class GraphNode():
         # Tell our children who their new parent is
         for child in combined_children:
             child.set_parent(new_node)
-        print(f"Merging Node {other.get_id()} into Node {self.get_id()} and removing from graph")
         return new_node
-    
-    def claim_parenthood_of_children(self):
-        """ 
-        Claim parenthood of all of our children, overwritting their previous parent.
-        Useful for converting a dummy node to a real node, as the children of the
-        dummy node don't have the dummy set as their parent.
-        """
-        for child in self.get_children():
-            prev_parent = child.get_parent()
-            child.set_parent(self)
-            prev_parent.remove_child(child)
-        self.reset_saved_vars()
 
-    def reset_saved_vars(self):
-        """ Wipes saved variables since they need to be recalculated. """
+    def reset_saved_vars(self) -> set[GraphNode]:
+        """ 
+        Wipes saved variables since they need to be recalculated. 
+        Returns list of nodes that are no longer valid and should be removed. 
+        """
+        
+        # Wipe all variables
         self._convex_hull = None
         self._point_cloud = None
         self._longest_line_size = None
         self._centroid = None
+
+        # Track nodes that might need to be deleted...
+        to_delete = set()
+
+        # Check if we can still make a ConvexHull...
+        if self.get_convex_hull() is None:
+            logger.debug(f"We CANNOT get Convex Hull for Node {self.get_id()}, so plan to delete")
+            to_delete.add(self)
+        else:
+            logger.debug(f"We can still get Convex Hull for Node {self.get_id()}")
+
+        # Reset variables in parents and get any of those that need to be deleted.
         if self.parent_node is not None:
-            self.parent_node.reset_saved_vars()
-                
+            logger.debug(f"reset_saved_vars(): Resetting Point Cloud for Parent node {self.parent_node.get_id()}")
+            to_delete.update(self.parent_node.reset_saved_vars())
+
+        # Return nodes that need to be deleted
+        return to_delete
+    
+    def reset_saved_vars_safe(self) -> set[GraphNode]:
+        """ 
+        Similar to reset_saved_vars(), but called if points were only
+        possibly added to a node. Thus, no need to check node validity
+        or return nodes that might need to be deleted.
+        """
+        
+        # Wipe all variables
+        self._convex_hull = None
+        self._point_cloud = None
+        self._longest_line_size = None
+        self._centroid = None
+
+        # Reset variables in parents 
+        if self.parent_node is not None:
+            self.parent_node.reset_saved_vars_safe()
+
     @typechecked
-    def merge_with_observation(self, new_pc: np.ndarray, new_descriptor: np.ndarray | None):
+    def merge_with_observation(self, new_pc: np.ndarray, new_descriptor: np.ndarray | None) -> None:
         """
         Args:
             new_pc (np.ndarray): Point Cloud in shape of (N, 3) in the global frame.
+
+        Returns:
+            Set of Graph nodes that might need to be deleted.
         """
 
         # Save the semantic embedding into this parent graph node
@@ -465,44 +507,80 @@ class GraphNode():
             grandchild.set_parent(self)
 
         # Remove child
-        other.set_parent(None)
-        self.remove_child(other)
+        other.remove_from_graph_complete()
+        logger.debug(f"[bright_blue]Parent-Child Merge[/bright_blue]: Merged Node {other.get_id()} into Parent Node {self.get_id()}")
 
-        # Just to be extra careful, remove children from child
-        other.remove_all_children()
-        print(f"Merged Node {other.get_id()} into Parent Node {self.get_id()}")
+    @typechecked
+    def remove_points_from_self(self, pc_to_remove: np.ndarray) -> set[GraphNode]:
+        """ Returns any nodes to delete if they are invalidated by this remove. """
+        # Create views for efficiency
+        dtype = [('x', float), ('y', float), ('z', float)]
+        view_pc = self.point_cloud.view(dtype)
+        view_remove = pc_to_remove.view(dtype)
+
+        # Remove points that are in pc_to_remove
+        mask = np.isin(view_pc, view_remove, invert=True).squeeze(axis=1)
+        if np.sum(mask) != mask.shape[0]:
+            num_points_before = self.point_cloud.shape[0]
+            self.point_cloud = self.point_cloud[mask]
+            num_points_after = self.point_cloud.shape[0]
+            logger.info(f"NODE: {self.get_id()}, POINT CLOUD UPDATED from {num_points_before} to {num_points_after}")
+            self.last_updated = self.curr_time
+            logger.debug(f"remove_points_from_self(): Resetting Point Cloud for Node {self.get_id()}")
+            return self.reset_saved_vars()
+
+        # Otherwise, we don't want to be deleted
+        return set()
+
+    @typechecked
+    def remove_points(self, pc_to_remove: np.ndarray) -> set[GraphNode]:
+        """ Returns all nodes that are no longer valid after their points are removed. """
+        nodes_to_delete = set()
+
+        # Start with children, as parents validity depends on if children's clouds are altered
+        for child in self.child_nodes:
+            nodes_to_delete.update(child.remove_points(pc_to_remove))
+
+        # Now, delete points from self
+        nodes_to_delete.update(self.remove_points_from_self(pc_to_remove))
+        return nodes_to_delete
     
     @typechecked
-    def remove_points(self, pc_to_remove: np.ndarray):
-        self.remove_points_from_self(pc_to_remove)
-        for child in self.child_nodes:
-            child.remove_points(pc_to_remove)
+    def remove_points_complete(self, pc_to_remove: np.ndarray) -> None:
+        """ Remove points and then delete any nodes that are no longer valid. """
+        to_delete = self.remove_points(pc_to_remove)
+        while to_delete:
+            to_delete.update(to_delete.pop().remove_from_graph())
 
     @typechecked
-    def add_child(self, new_child: GraphNode):
+    def add_child(self, new_child: GraphNode) -> None:
         if new_child in self.child_nodes:
             raise ValueError("Tried to add a child node that is already a child of this GraphNode!")
         self.child_nodes.append(new_child)
-        self.reset_saved_vars()
+        logger.debug(f"add_child(): Resetting Point Cloud for Node {self.get_id()}")
+        self.reset_saved_vars_safe()
 
     @typechecked
-    def add_children(self, new_children: list[GraphNode]):
+    def add_children(self, new_children: list[GraphNode]) -> None:
         for new_child in new_children:
             self.add_child(new_child)
     
     @typechecked
-    def remove_child(self, child: GraphNode):
+    def remove_child(self, child: GraphNode) -> set[GraphNode]:
         if child in self.child_nodes:
             self.child_nodes.remove(child)
-            self.reset_saved_vars()
+            logger.debug(f"remove_child(): Resetting Point Cloud for Node {self.get_id()}")
+            return self.reset_saved_vars()
         else:
             raise ValueError(f"Tried to remove {child} from {self}, but {child} not in self.child_nodes: {self.child_nodes}")
         
     @typechecked
-    def remove_all_children(self):
-        self.child_nodes = []
-        self.reset_saved_vars()
-    
+    def remove_children(self, to_remove: list[GraphNode]) -> set[GraphNode]:
+        to_delete = set()
+        for child in to_remove:
+            to_delete.update(self.remove_child(child))
+        return to_delete
+        
     @typechecked
     def update_curr_time(self, curr_time: float):
         self.curr_time = curr_time
@@ -558,11 +636,14 @@ class RootGraphNode(GraphNode):
     
     def get_centroid(self) -> None:
         return None
+    
+    def get_semantic_descriptors() -> None:
+        raise RuntimeError("get_semantic_descriptors() should not be called on RootGraphNode!")
 
     # ==================== Setters ====================
     def set_parent(self, node: GraphNode) -> None:
         raise RuntimeError("Calling set_parent() on RootGraphNode, which should never happen!")
             
     # ==================== Manipulators ====================
-    def reset_saved_vars(self):
-        pass
+    def reset_saved_vars(self) -> set[GraphNode]:
+        return set()

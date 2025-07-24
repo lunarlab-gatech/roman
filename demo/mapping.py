@@ -115,9 +115,6 @@ def run(
         if vid and img_t is not None:
             video.write(img_t)
         bar.update()
-
-        # REMOVE ME
-        break
             
     if vid:
         video.release()
