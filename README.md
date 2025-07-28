@@ -53,16 +53,15 @@ mv ~/.local/lib/python3.10/site-packages/cv2/qt ~/.local/lib/python3.10/site-pac
 Run the following command to run this demo:
 
 ```
-mkdir demo_output
 export YOLO_VERBOSE=False
-python3 demo/demo.py -p demo/params/hercules_AustraliaEnv -o demo_output --skip-align --skip-rpgo
-python3 demo/demo.py -p demo/params/hercules_AustraliaEnv -o demo_output --skip-map --skip-rpgo    
-python3 demo/demo.py -p demo/params/hercules_AustraliaEnv -o demo_output --skip-map --skip-align
+python3 demo/demo.py -p demo/params/hercules_AustraliaEnv -o demo_output/hercules_AustraliaEnv --skip-align --skip-rpgo
+python3 demo/demo.py -p demo/params/hercules_AustraliaEnv -o demo_output/hercules_AustraliaEnv --skip-map --skip-rpgo    
+python3 demo/demo.py -p demo/params/hercules_AustraliaEnv -o demo_output/hercules_AustraliaEnv --skip-map --skip-align
 ```
 
 If you want to enable visualizations of the mapping step:
 ```
-python3 demo/demo.py -p demo/params/hercules_AustraliaEnv -o demo_output --viz-observations --viz-map --viz-3d --skip-align --skip-rpgo
+python3 demo/demo.py -p demo/params/hercules_AustraliaEnv -o demo_output/hercules_AustraliaEnv --viz-observations --viz-map --viz-3d --skip-align --skip-rpgo
 ```
 
 In the output directory, the 'map' folder will contain .mp4 files with visualizations, and .pkl files with the stored ROMAN maps. 
@@ -70,7 +69,7 @@ In the output directory, the 'map' folder will contain .mp4 files with visualiza
 To visualize a map, run the command below:
 
 ```
-python3 demo/o3d_viz.py demo_output/map/<robot_name>.pkl
+python3 demo/o3d_viz.py demo_output/hercules_AustraliaEnv/map/<robot_name>.pkl
 ```
 
 In the 'align' folder, the file 'align.png' will contain a plot titled "Number of CLIPPER associations". If this plot is a single color, there's a high likelihood that no associations were found, and thus no loop closures. Each detected loop closure can be found in `align.json`.
