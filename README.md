@@ -88,9 +88,9 @@ For a fair comparison with ROMAN, ideally we only change parameters in category 
 
 Category 1:
 ```
-data.yaml: runs, run_env, img_data, depth_data, pose_data, time_tol
+data.yaml: runs, run_env, img_data, depth_data, pose_data
 fastsam.yaml: depth_scale
-gt_pose.yaml: path, csv_options, time_tol
+gt_pose.yaml: path, csv_options, time_tol, interp, causal
 offline_rpgo.yaml: odom_t_std, odom_r_std
 ```
 

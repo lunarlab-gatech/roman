@@ -1,6 +1,6 @@
 # Specify that GT pose infomation is stored in a csv file
 type: "csv"
-path: "/home/${USER}/data/hercules_datasets/V1.2/extract/${ROBOT}_odomGT.csv"
+path:  "/media/dbutterfield3/T73/Hercules_datasets/V1.4/extract/files_for_roman_baseline/${ROBOT}/poseGT.csv"
 
 # Options that inform the algorithm where data is saved in the CSV file
 csv_options:
@@ -17,6 +17,6 @@ csv_options:
   timescale: 1.0
 
 # Time tolerance used to reject available data if no pose data is within the time tolerance value
-# Slightly more than max expected time difference (0.0025, or around 400Hz)
-time_tol: 0.0026 
-interp: True
+time_tol: 0.03
+interp: False
+causal: True
