@@ -33,10 +33,13 @@ enter_container.sh
 
 ### ROMAN Install
 
-Next install ROMAN by running the following command from the root folder of this repository:
+Next, install ROMAN by running the following command from the root folder of this repository:
 ```
 ./install.sh
 pip uninstall matplotlib
+```
+
+Note that if you needed to make a new Docker container but kept the repository, you should instead run `reinstall.sh` instead of `install.sh`.
 ```
 
 Finally, run the following to fix `Could not load the Qt platform plug "xcb"` bug:
