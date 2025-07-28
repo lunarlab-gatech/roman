@@ -1,6 +1,6 @@
 # Specify that GT pose infomation is stored in a csv file
 type: "csv"
-path:  "/media/dbutterfield3/T73/Hercules_datasets/V1.4/extract/files_for_roman_baseline/${ROBOT}/poseGT.csv"
+path:  "/home/${USER}/data/Hercules_datasets/V1.4/extract/files_for_roman_baseline/${ROBOT}/poseGT.csv"
 
 # Options that inform the algorithm where data is saved in the CSV file
 csv_options:
