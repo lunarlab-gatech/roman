@@ -107,11 +107,11 @@ class TestHullMethods(unittest.TestCase):
         np.testing.assert_almost_equal(shortest_dist_between_convex_hulls(self.hull_1, self.hull_2), 0, 1)
         np.testing.assert_almost_equal(shortest_dist_between_convex_hulls(self.hull_1, self.hull_3), math.sqrt(3), 1)
 
-    def test_longest_line_of_convex_hull(self):
+    def test_longest_line_of_point_cloud(self):
         """ Make sure we can get the longest inner dimension. """
 
-        np.testing.assert_almost_equal(longest_line_of_convex_hull(self.hull_1), math.sqrt(3), 1)
-        np.testing.assert_almost_equal(longest_line_of_convex_hull(self.hull_4), 3 * math.sqrt(3) - 0.1, 1)
+        np.testing.assert_almost_equal(longest_line_of_point_cloud(self.cube_1), math.sqrt(3), 1)
+        np.testing.assert_almost_equal(longest_line_of_point_cloud(self.cube_4), 3 * math.sqrt(3) - 0.1, 1)
 
 if __name__ == "__main__":
     unittest.main()

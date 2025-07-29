@@ -111,5 +111,4 @@ def shortest_dist_between_point_clouds(a: np.ndarray, b: np.ndarray):
 @typechecked
 def longest_line_of_point_cloud(a: np.ndarray):
     if a.shape[0] == 0: return 0.0
-    #print("SHAPE of A: ", a.shape)
     return pdist(a).max()
