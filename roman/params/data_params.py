@@ -184,7 +184,7 @@ class DataParams:
         else:
             T_postmultiply = None
             
-        extra_key_vals={'T_postmultiply': T_postmultiply, 'interp': True}
+        extra_key_vals={'T_postmultiply': T_postmultiply}
             
         return self.pose_data_params.load_pose_data(extra_key_vals)
         

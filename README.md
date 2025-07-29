@@ -36,10 +36,12 @@ enter_container.sh
 
 ### ROMAN Install
 
-Next install ROMAN by running the following command from the root folder of this repository:
+Next, install ROMAN by running the following command from the root folder of this repository:
 ```
-./install.sh
-pip uninstall matplotlib
+./install.sh && pip uninstall matplotlib -y
+```
+
+Note that if you needed to make a new Docker container but kept the repository, you should instead run `reinstall.sh` instead of `install.sh`.
 ```
 
 Finally, run the following to fix `Could not load the Qt platform plug "xcb"` bug:
@@ -53,16 +55,15 @@ mv ~/.local/lib/python3.10/site-packages/cv2/qt ~/.local/lib/python3.10/site-pac
 Run the following command to run this demo:
 
 ```
-mkdir demo_output
 export YOLO_VERBOSE=False
-python3 demo/demo.py -p demo/params/hercules_AustraliaEnv -o demo_output --skip-align --skip-rpgo
-python3 demo/demo.py -p demo/params/hercules_AustraliaEnv -o demo_output --skip-map --skip-rpgo    
-python3 demo/demo.py -p demo/params/hercules_AustraliaEnv -o demo_output --skip-map --skip-align
+python3 demo/demo.py -p demo/params/hercules_AustraliaEnv -o demo_output/hercules_AustraliaEnv --skip-align --skip-rpgo
+python3 demo/demo.py -p demo/params/hercules_AustraliaEnv -o demo_output/hercules_AustraliaEnv --skip-map --skip-rpgo    
+python3 demo/demo.py -p demo/params/hercules_AustraliaEnv -o demo_output/hercules_AustraliaEnv --skip-map --skip-align
 ```
 
 If you want to enable visualizations of the mapping step:
 ```
-python3 demo/demo.py -p demo/params/hercules_AustraliaEnv -o demo_output --viz-observations --viz-map --viz-3d --skip-align --skip-rpgo
+python3 demo/demo.py -p demo/params/hercules_AustraliaEnv -o demo_output/hercules_AustraliaEnv --viz-observations --viz-map --viz-3d --skip-align --skip-rpgo
 ```
 
 In the output directory, the 'map' folder will contain .mp4 files with visualizations, and .pkl files with the stored ROMAN maps. 
@@ -70,7 +71,7 @@ In the output directory, the 'map' folder will contain .mp4 files with visualiza
 To visualize a map, run the command below:
 
 ```
-python3 demo/o3d_viz.py demo_output/map/<robot_name>.pkl
+python3 demo/o3d_viz.py demo_output/hercules_AustraliaEnv/map/<robot_name>.pkl
 ```
 
 In the 'align' folder, the file 'align.png' will contain a plot titled "Number of CLIPPER associations". If this plot is a single color, there's a high likelihood that no associations were found, and thus no loop closures. Each detected loop closure can be found in `align.json`.
@@ -91,9 +92,9 @@ For a fair comparison with ROMAN, ideally we only change parameters in category 
 
 Category 1:
 ```
-data.yaml: runs, run_env, img_data, depth_data, pose_data, time_tol
+data.yaml: runs, run_env, img_data, depth_data, pose_data
 fastsam.yaml: depth_scale
-gt_pose.yaml: path, csv_options, time_tol
+gt_pose.yaml: path, csv_options, time_tol, interp, causal
 offline_rpgo.yaml: odom_t_std, odom_r_std
 ```
 

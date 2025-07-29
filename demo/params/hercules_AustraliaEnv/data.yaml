@@ -2,7 +2,7 @@
 dt: 0.166666666666666667
 
 # Robots for which to include in the experiment
-runs: ["Husky1", "Husky2"]
+runs: ["Husky1", "Husky2", "Drone1", "Drone2"]
 
 # Environment variable to make parameters below work for each robot
 run_env: "ROBOT" 
@@ -11,37 +11,37 @@ img_data:
   # Specify that we want to load data from .npy files with memory-mapping
   # Allows us to avoid loading all images into RAM
   type: "npy"
-  path: "/home/${USER}/data/Hercules_datasets/V1.2/extract/${ROBOT}_RGB/imgs.npy"
-  path_times: "/home/${USER}/data/Hercules_datasets/V1.2/extract/${ROBOT}_RGB/times.npy"
+  path: "/home/${USER}/data/Hercules_datasets/V1.4/extract/files_for_roman_baseline/${ROBOT}/rgb/imgs.npy"
+  path_times: "/home/${USER}/data/Hercules_datasets/V1.4/extract/files_for_roman_baseline/${ROBOT}/rgb/times.npy"
 
   # Camera parameters
-  K: [640, 0,   640,
-        0, 640, 360,
+  K: [376,   0, 376,
+        0, 376, 240,
         0,   0,   1]
   D: [ 0, 0, 0, 0]
-  width: 1280
-  height: 720
+  width: 752
+  height: 480
 
 depth_data:
   type: "npy"
-  path: "/home/${USER}/data/Hercules_datasets/V1.2/extract/${ROBOT}_Depth/imgs.npy"
-  path_times: "/home/${USER}/data/Hercules_datasets/V1.2/extract/${ROBOT}_Depth/times.npy"
-  K: [640,   0, 640,
-        0, 640, 360,
+  path: "/home/${USER}/data/Hercules_datasets/V1.4/extract/files_for_roman_baseline/${ROBOT}/depth/imgs.npy"
+  path_times: "/home/${USER}/data/Hercules_datasets/V1.4/extract/files_for_roman_baseline/${ROBOT}/depth/times.npy"
+  K: [376,   0, 376,
+        0, 376, 240,
         0,   0,   1]
   D: [ 0, 0, 0, 0]
-  width: 1280
-  height: 720
+  width: 752
+  height: 480
 
 pose_data:
   # Load from csv to avoid expensive rosbag search
   type: "csv"
-  path: "/home/${USER}/data/Hercules_datasets/V1.2/extract/${ROBOT}_odomGT.csv"
+  path: "/home/${USER}/data/Hercules_datasets/V1.4/extract/files_for_roman_baseline/${ROBOT}/vins_result_no_loop_reformatted.csv"
 
   # Time tolerance used to reject available data if no pose data is within the time tolerance value
-  # Slightly more than max expected time difference (0.0025, or around 400Hz)
-  time_tol: 0.0026
-  interp: True
+  time_tol: 0.03
+  interp: False # Don't interpolate between poses
+  causal: True  # Can't use more than one pose for multiple frames
 
   # Options that inform the algorithm where data is saved in the CSV file
   csv_options:
