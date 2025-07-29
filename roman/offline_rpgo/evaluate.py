@@ -19,9 +19,8 @@ def make_lightness_palette(base_color, n_colors=20, light_range=(0.3, 0.8)):
     palette = [colorsys.hls_to_rgb(h, li, s) for li in lightnesses]
     return palette
 
-def draw_plot_with_robot_trajectories_different_colors(traj_est_aligned_robot0,
-        traj_gt_robot0, traj_est_aligned_robot1, traj_gt_robot1, run_names, file_path,
-        no_background=False, robot0color="#B3A369", robot1color="#003057",
+def draw_plot_with_robot_trajectories_different_colors(traj_est_aligned_copies, traj_gt_copies,
+        run_names, file_path, no_background=False, robot_colors=["#B3A369", "#003057"],
         linewidth=1.0, plot_gt=True, aspect='equal'):
         
     # Draw a secondary plot where the trajectories from different robots have slightly different color
@@ -32,33 +31,38 @@ def draw_plot_with_robot_trajectories_different_colors(traj_est_aligned_robot0,
     else:
         fig.patch.set_facecolor('white')
         axs.set_facecolor("#F0F0F0")
-    robot0_name = str(list(run_names.values())[0])
-    robot1_name = str(list(run_names.values())[1])
-    
-    # Setup custom color palette based on GT colors
-    gold_palette = make_lightness_palette(robot0color)
-    blue_palette = make_lightness_palette(robot1color)
 
-    axs.plot(traj_est_aligned_robot0.positions_xyz[:,0], traj_est_aligned_robot0.positions_xyz[:,1], 
-                label=robot0_name + " (Est.)", color=gold_palette[10], linewidth=linewidth)
-    if plot_gt:
-        axs.plot(traj_gt_robot0.positions_xyz[:,0], traj_gt_robot0.positions_xyz[:,1], 
-                    label=robot0_name + " (GT)", color=gold_palette[4], linewidth=linewidth,
-                    linestyle="dotted")
-    axs.plot(traj_est_aligned_robot1.positions_xyz[:,0], traj_est_aligned_robot1.positions_xyz[:,1], 
-                label=robot1_name + " (Est.)", color=blue_palette[8], linewidth=linewidth)
-    if plot_gt:
-        axs.plot(traj_gt_robot1.positions_xyz[:,0], traj_gt_robot1.positions_xyz[:,1], 
-                    label=robot1_name + " (GT)", color=blue_palette[2], linewidth=linewidth,
-                    linestyle="dotted")    
+    # Get the robot names
+    robot_names = [str(name) for name in list(run_names.values())]
+
+    # Setup custom color palette based on provided colors
+    for i, color in enumerate(robot_colors):
+        robot_colors[i] = make_lightness_palette(color)
+
+    # Plot the trajectories
+    for i in range(len(robot_names)):
+        traj_est = traj_est_aligned_copies[i]
+        traj_gt = traj_gt_copies[i]
+
+        axs.plot(traj_est.positions_xyz[:,0], traj_est.positions_xyz[:,1], 
+                    label=robot_names[i] + " (Est.)", color=robot_colors[i][9], linewidth=linewidth)
+        if plot_gt:
+            axs.plot(traj_gt.positions_xyz[:,0], traj_gt.positions_xyz[:,1], 
+                        label=robot_names[i] + " (GT)", color=robot_colors[i][3], linewidth=linewidth,
+                        linestyle="dotted")
     axs.set_aspect(aspect, adjustable='box')
 
+    # Adjust the spines
     for spine in axs.spines.values():
         spine.set_edgecolor('black')
         spine.set_linewidth(0.75)
+
+    # Add labels
     axs.set_title("Ground Truth vs. ROMAN Estimated Trajectories (Aligned)")
     axs.set_xlabel("X (meters)")
     axs.set_ylabel("Y (meters)")
+    axs.set_xlim([-250, 250])
+    axs.set_ylim([-250, 250])
     axs.legend()
     plt.savefig(file_path, dpi=300)
 
@@ -101,39 +105,40 @@ def evaluate(est_g2o_file: str, est_time_file: str, gt_files: Dict[int, str],
         except:
             print("WARNING: loading evo plotting failed, likely due to qt issues.")
 
-        try:
-            from evo.tools import plot
+        from evo.tools import plot
 
-            # If number of robots is two, draw plot with colors per robot
-            if len(list(run_names.keys())) == 2:
+        # If number of robots is two, draw plot with colors per robot
+        num_robots = len(list(run_names.keys()))
 
-                # Get PoseData objects not merged between robots
-                list_est, list_gt = gt_csv_est_g2o_to_pose_data(est_g2o_file, est_time_file, gt_files, run_names, run_env, skip_final_merge=True)
+        # Get PoseData objects not merged between robots
+        list_est, list_gt = gt_csv_est_g2o_to_pose_data(est_g2o_file, est_time_file, gt_files, run_names, run_env, skip_final_merge=True)
 
-                # Extract evo PoseTrajectory3Ds that corresond to each robot
-                time_offset_robot1 = list_est[0].tf - list_est[1].t0 + 1.0
-
-                traj_est_aligned_robot0 = copy.deepcopy(traj_est_aligned)
-                traj_est_aligned_robot1 = copy.deepcopy(traj_est_aligned)
-                traj_gt_robot0 = copy.deepcopy(traj_ref)
-                traj_gt_robot1 = copy.deepcopy(traj_ref)
-
-                traj_est_aligned_robot0.reduce_to_time_range(list_est[0].t0, list_est[0].tf)
-                traj_est_aligned_robot1.reduce_to_time_range(list_est[1].t0 + time_offset_robot1, list_est[1].tf + time_offset_robot1)
-                traj_gt_robot0.reduce_to_time_range(list_est[0].t0, list_est[0].tf)
-                traj_gt_robot1.reduce_to_time_range(list_est[1].t0 + time_offset_robot1, list_est[1].tf + time_offset_robot1)
-
-                # Draw a secondary plot where the trajectories from different robots have slightly different color
-                draw_plot_with_robot_trajectories_different_colors(traj_est_aligned_robot0, traj_gt_robot0,
-                    traj_est_aligned_robot1, traj_gt_robot1, run_names, f"{output_dir}/offline_rpgo/aligned_gt_est_per_robot.png",
-                    no_background=True, linewidth=4.0, robot0color="#11EE72", robot1color="#7211EE", aspect=1)
-                draw_plot_with_robot_trajectories_different_colors(traj_est_aligned_robot0, traj_gt_robot0, 
-                    traj_est_aligned_robot1, traj_gt_robot1, run_names, f"{output_dir}/offline_rpgo/aligned_gt_est_per_robot_noBackground.png",
-                    no_background=True, linewidth=4.0, robot0color="#11EE72", robot1color="#7211EE", plot_gt=False)
+        # Extract evo PoseTrajectory3Ds that corresond to each robot
+        time_offsets = []
+        for i in range(num_robots):
+            if i == 0:
+                time_offsets.append(0)
             else:
-                print("Skipping plot of trajectories w/color per robot since not implemented for 3+ robots yet.")
-        except Exception as e:
-            print("Exception: ", e)
+                time_offsets.append(list_est[i-1].tf - list_est[i].t0 + 1.0) # TODO: Why +1
+
+        # Make deep copies of trajectories
+        traj_est_aligned_copies = [copy.deepcopy(traj_est_aligned) for x in range(num_robots)]
+        traj_gt_copies = [copy.deepcopy(traj_ref) for x in range(num_robots)]
+
+        # Reduce trajectories to the specific time that covers each robot
+        # TODO: THIS TIME OFFSET CODE IS COMPLETELY BUSTED.
+        print("WARNING: This code is not fully tested yet!")
+        for i, traj in enumerate(traj_est_aligned_copies):
+            print(f"Robot {i}: ", list_est[i].t0 + np.sum(time_offsets[0:i+1]), list_est[i].tf + np.sum(time_offsets[0:i+1]))
+            traj.reduce_to_time_range(list_est[i].t0 + np.sum(time_offsets[0:i+1]), list_est[i].tf + np.sum(time_offsets[0:i+1]))
+        for i, traj in enumerate(traj_gt_copies):
+            traj.reduce_to_time_range(list_est[i].t0 + np.sum(time_offsets[0:i+1]), list_est[i].tf + np.sum(time_offsets[0:i+1]))
+
+        # Draw a secondary plot where the trajectories from different robots have slightly different color
+        draw_plot_with_robot_trajectories_different_colors(traj_est_aligned_copies, traj_gt_copies, run_names, f"{output_dir}/offline_rpgo/aligned_gt_est_per_robot.png",
+            no_background=True, linewidth=2.0, robot_colors=["#11EE72", "#7211EE", "#38C2C7", "#2F3FD0"], aspect=1)
+        draw_plot_with_robot_trajectories_different_colors(traj_est_aligned_copies, traj_gt_copies, run_names, f"{output_dir}/offline_rpgo/aligned_gt_est_per_robot_noBackground.png",
+            no_background=True, linewidth=2.0, robot_colors=["#11EE72", "#7211EE", "#38C2C7", "#2F3FD0"], plot_gt=False)
 
     # Calculate the Absolute Pose Error
     ape_metric = metrics.APE(pose_relation)

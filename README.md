@@ -35,8 +35,7 @@ enter_container.sh
 
 Next, install ROMAN by running the following command from the root folder of this repository:
 ```
-./install.sh
-pip uninstall matplotlib
+./install.sh && pip uninstall matplotlib -y
 ```
 
 Note that if you needed to make a new Docker container but kept the repository, you should instead run `reinstall.sh` instead of `install.sh`.
