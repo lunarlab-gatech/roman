@@ -135,8 +135,8 @@ class SceneGraph3D():
         self.node_retirement()
 
         # Update the viewer
-        # self.viewer.update(self.root_node.get_children())
-        # self.visualize_2D()
+        self.viewer.update(self.root_node.get_children())
+        self.visualize_2D()
 
     @typechecked
     def hungarian_assignment(self, obs: list[Observation]) -> list[tuple]:
@@ -228,8 +228,8 @@ class SceneGraph3D():
         # Iterate through entire graph until no overlaps with shared points are detected
         change_occured = True
         while change_occured:
-            # self.viewer.update(self.root_node.get_children())
-            # self.visualize_2D()
+            self.viewer.update(self.root_node.get_children())
+            self.visualize_2D()
             change_occured =  False
 
             # Iterate through each pair of nodes that aren't an ascendent or descendent with each other
@@ -508,8 +508,8 @@ class SceneGraph3D():
         merge_occured = True
         while merge_occured:
             # Update the viewer
-            # self.viewer.update(self.root_node.get_children())
-            # self.visualize_2D()
+            self.viewer.update(self.root_node.get_children())
+            self.visualize_2D()
 
             merge_occured = False
 
@@ -635,6 +635,7 @@ class SceneGraph3D():
                                 child_node = node_i
 
                             # Merge the child into the parent
+                            logger.info(f"[green1]Parent-Child Semantic Merge[/green1]: Merging Node {node_i.get_id()} into Node {node_j.get_id()} and popping off graph")
                             parent_node.merge_child_with_self(child_node)
 
                             # Make sure nothing wierd has happened to point clouds, though I don't believe this should do anything
