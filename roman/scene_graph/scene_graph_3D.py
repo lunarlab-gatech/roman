@@ -12,6 +12,7 @@ from ..map.observation import Observation
 import networkx as nx
 import numpy as np
 import pickle
+from .rerun_wrapper import RerunWrapper
 from scipy.optimize import linear_sum_assignment
 import trimesh
 from typeguard import typechecked
@@ -61,16 +62,18 @@ class SceneGraph3D():
         self.root_node = RootGraphNode(None, [], np.zeros((0, 3), dtype=np.float64), [], 0, 0, 0, np.empty(0), np.empty(0))
         self.pose_FLU_wrt_Camera = _T_camera_flu
         self.assert_root_node_has_no_parent()
-        self.viewer = SceneGraphViewer()
+        #self.viewer = SceneGraphViewer()
 
         # For visualize_2D()
-        self.G = None
-        self.pos = None
-        self.fig, self.ax = plt.subplots(figsize=(14, 10))
-        plt.ion()  # interactive mode on
-        self.fig.show()
-        self.node_colors = {}
-        self.last_num_nodes = 0
+        # self.G = None
+        # self.pos = None
+        # self.fig, self.ax = plt.subplots(figsize=(14, 10))
+        # plt.ion()  # interactive mode on
+        # self.fig.show()
+        # self.node_colors = {}
+        # self.last_num_nodes = 0
+
+        self.rerun_viewer = RerunWrapper()
 
     def assert_root_node_has_no_parent(self):
         if self.root_node.no_parent() is False:
@@ -135,8 +138,9 @@ class SceneGraph3D():
         self.node_retirement()
 
         # Update the viewer
-        self.viewer.update(self.root_node.get_children())
-        self.visualize_2D()
+        self.rerun_viewer.update(self.root_node, self.times[-1])
+        # self.viewer.update(self.root_node.get_children())
+        # self.visualize_2D()
 
     @typechecked
     def hungarian_assignment(self, obs: list[Observation]) -> list[tuple]:
@@ -228,8 +232,9 @@ class SceneGraph3D():
         # Iterate through entire graph until no overlaps with shared points are detected
         change_occured = True
         while change_occured:
-            self.viewer.update(self.root_node.get_children())
-            self.visualize_2D()
+            self.rerun_viewer.update(self.root_node, self.times[-1])
+            # self.viewer.update(self.root_node.get_children())
+            # self.visualize_2D()
             change_occured =  False
 
             # Iterate through each pair of nodes that aren't an ascendent or descendent with each other
@@ -508,8 +513,9 @@ class SceneGraph3D():
         merge_occured = True
         while merge_occured:
             # Update the viewer
-            self.viewer.update(self.root_node.get_children())
-            self.visualize_2D()
+            self.rerun_viewer.update(self.root_node, self.times[-1])
+            # self.viewer.update(self.root_node.get_children())
+            # self.visualize_2D()
 
             merge_occured = False
 
@@ -538,33 +544,33 @@ class SceneGraph3D():
                         
                         # ========== Nearby Object Semantic Merge ==========
 
-                        # Get shortest distance between the nodes
-                        dist = shortest_dist_between_convex_hulls(node_i.get_convex_hull(), node_j.get_convex_hull())
+                        # # Get shortest distance between the nodes
+                        # dist = shortest_dist_between_convex_hulls(node_i.get_convex_hull(), node_j.get_convex_hull())
 
-                        # Get longest line of either node
-                        longest_line_node_i = node_i.get_longest_line_size()
-                        longest_line_node_j = node_j.get_longest_line_size()
-                        longest_line = max(longest_line_node_i, longest_line_node_j)
+                        # # Get longest line of either node
+                        # longest_line_node_i = node_i.get_longest_line_size()
+                        # longest_line_node_j = node_j.get_longest_line_size()
+                        # longest_line = max(longest_line_node_i, longest_line_node_j)
 
-                        # Get ratio of shortest distance to longest line (in other words, dist to object length)
-                        dist_to_object_length = dist / longest_line
+                        # # Get ratio of shortest distance to longest line (in other words, dist to object length)
+                        # dist_to_object_length = dist / longest_line
 
-                        # If ratio of shortest distance to object length is within threshold AND
-                        # the semanatic embedding is close enough for association
-                        if dist_to_object_length < self.ratio_dist2length_threshold_nearby_obj_semantic_merge and \
-                            sem_con < self.min_sem_con_for_association:
+                        # # If ratio of shortest distance to object length is within threshold AND
+                        # # the semanatic embedding is close enough for association
+                        # if dist_to_object_length < self.ratio_dist2length_threshold_nearby_obj_semantic_merge and \
+                        #     sem_con < self.min_sem_con_for_association:
 
-                            # If so, merge these two nodes in the graph
-                            logger.info(f"[green1]Nearby Obj Sem Merge[/green1]: Merging Node {node_i.get_id()} into Node {node_j.get_id()} and popping off graph")
-                            logger.info(f"SHORTEST DIST: {dist}")
-                            logger.info(f"LONGEST LINE: {longest_line}")
-                            print(f"DIST TO OBJEDT LENGTH: {dist_to_object_length} < {self.ratio_dist2length_threshold_nearby_obj_semantic_merge}")
-                            merged_node = node_i.merge_with_node(node_j)
-                            self.add_new_node_to_graph(merged_node, only_leaf=True)
+                        #     # If so, merge these two nodes in the graph
+                        #     logger.info(f"[green1]Nearby Obj Sem Merge[/green1]: Merging Node {node_i.get_id()} into Node {node_j.get_id()} and popping off graph")
+                        #     logger.info(f"SHORTEST DIST: {dist}")
+                        #     logger.info(f"LONGEST LINE: {longest_line}")
+                        #     print(f"DIST TO OBJEDT LENGTH: {dist_to_object_length} < {self.ratio_dist2length_threshold_nearby_obj_semantic_merge}")
+                        #     merged_node = node_i.merge_with_node(node_j)
+                        #     self.add_new_node_to_graph(merged_node, only_leaf=True)
 
-                            # Break out of double-nested loop to reset iterators
-                            merge_occured = True
-                            break
+                        #     # Break out of double-nested loop to reset iterators
+                        #     merge_occured = True
+                        #     break
 
                         # ========== Higher Level Object Inference ==========
 
@@ -613,37 +619,39 @@ class SceneGraph3D():
             for i, node_i in enumerate(self.root_node):
                 for j, node_j in enumerate(self.root_node):
                     if i < j and node_i.is_parent_or_child(node_j):
+
+                        pass
                         
                         # ========== Parent-Child Semantic Merging ==========
 
-                        # If either is the root node, skip as this shouldn't really merge with any children
-                        if node_i.is_RootGraphNode() or node_j.is_RootGraphNode():
-                            continue
+                        # # If either is the root node, skip as this shouldn't really merge with any children
+                        # if node_i.is_RootGraphNode() or node_j.is_RootGraphNode():
+                        #     continue
 
-                        # Calculate Semantic Similarity
-                        sem_con = SceneGraph3D.semantic_consistency(node_i.get_weighted_semantic_descriptor(), node_j.get_weighted_semantic_descriptor())
+                        # # Calculate Semantic Similarity
+                        # sem_con = SceneGraph3D.semantic_consistency(node_i.get_weighted_semantic_descriptor(), node_j.get_weighted_semantic_descriptor())
 
-                        # If semantic embedding is enough for assocation, just merge the child into the parent
-                        if sem_con < self.min_sem_con_for_association:
+                        # # If semantic embedding is enough for assocation, just merge the child into the parent
+                        # if sem_con < self.min_sem_con_for_association:
 
-                            # Get which node is the parent and which is the child
-                            if node_i.is_parent(node_j): 
-                                parent_node = node_i
-                                child_node = node_j
-                            else: 
-                                parent_node = node_j
-                                child_node = node_i
+                        #     # Get which node is the parent and which is the child
+                        #     if node_i.is_parent(node_j): 
+                        #         parent_node = node_i
+                        #         child_node = node_j
+                        #     else: 
+                        #         parent_node = node_j
+                        #         child_node = node_i
 
-                            # Merge the child into the parent
-                            logger.info(f"[green1]Parent-Child Semantic Merge[/green1]: Merging Node {node_i.get_id()} into Node {node_j.get_id()} and popping off graph")
-                            parent_node.merge_child_with_self(child_node)
+                        #     # Merge the child into the parent
+                        #     logger.info(f"[green1]Parent-Child Semantic Merge[/green1]: Merging Node {node_i.get_id()} into Node {node_j.get_id()} and popping off graph")
+                        #     parent_node.merge_child_with_self(child_node)
 
-                            # Make sure nothing wierd has happened to point clouds, though I don't believe this should do anything
-                            #self.resolve_overlapping_point_clouds()
+                        #     # Make sure nothing wierd has happened to point clouds, though I don't believe this should do anything
+                        #     #self.resolve_overlapping_point_clouds()
                         
-                            # Break out of double-nested loop to reset iterators
-                            merge_occured = True
-                            break
+                        #     # Break out of double-nested loop to reset iterators
+                        #     merge_occured = True
+                        #     break
                 
                 # If we break out of inner loop, leave outer loop too
                 if merge_occured:

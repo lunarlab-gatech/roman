@@ -74,3 +74,14 @@ RUN echo "export USER=${USERNAME}" >> ~/.bashrc
 
 # Install graphviz
 RUN sudo apt-get install graphviz graphviz-dev -y
+
+# Install Rerun and dependencies
+RUN pip install rerun-sdk && \
+    sudo apt install vulkan-tools && \
+    sudo apt update && \
+    sudo apt install mesa-vulkan-drivers
+
+# Add user to proper groups so Rerun has permission to access GPU
+RUN sudo usermod -aG input ${USERNAME} && \
+    sudo usermod -aG video ${USERNAME}
+

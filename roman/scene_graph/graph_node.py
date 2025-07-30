@@ -238,7 +238,7 @@ class GraphNode():
                 logger.debug(f"[bright_red]WARNING[/bright_red]: Current point cloud is {num_points} for Node {self.get_id()}")
             else:
                 logger.debug(f"[bright_yellow]UPDATE[/bright_yellow]: Current point cloud is {num_points} for Node {self.get_id()}")
-        np.save(f"/home/dbutterfield3/roman/debug_pc/node_{self.get_id()}_pc.npy", self._point_cloud)
+        #np.save(f"/home/dbutterfield3/roman/debug_pc/node_{self.get_id()}_pc.npy", self._point_cloud)
         return self._point_cloud
     
     @typechecked
@@ -256,6 +256,7 @@ class GraphNode():
             num += child.get_number_of_nodes()
         return num
     
+    @typechecked
     def is_ascendent(self, other: GraphNode) -> bool:
         """ Returns True if self is an ascendent of other."""
 

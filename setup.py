@@ -31,6 +31,7 @@ setup(
         'graphviz',
         'pyvista',
         'pyyaml',
+        'rerun-sdk',
         'rich',
         'rtree',
         'scikit-image',
