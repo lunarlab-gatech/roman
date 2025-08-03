@@ -105,10 +105,10 @@ class ROMANMapRunner:
         img_output = None
         update_t0 = time.time()
 
-        img_time, observations, pose_odom_camera, img = self.update_fastsam(t)
+        img_time, observations, pose_odom_camera, img, depth_img = self.update_fastsam(t)
         update_t1 = time.time()
         if observations is not None and pose_odom_camera is not None and img is not None:
-            img_output = self.update_segment_track(img_time, observations, pose_odom_camera, img)
+            img_output = self.update_segment_track(img_time, observations, pose_odom_camera, img, depth_img)
         
         update_t2 = time.time()
         self.processing_times.map_times.append(update_t2 - update_t1)
@@ -123,30 +123,30 @@ class ROMANMapRunner:
             img_t = self.img_data.nearest_time(t)
         except NoDataNearTimeException as e:
             print("img_t Error: ", e)
-            return None, None, None, None
+            return None, None, None, None, None
         
         try:
             img = self.img_data.img(img_t)
         except NoDataNearTimeException as e:
             print("img Error: ", e)
-            return None, None, None, None
+            return None, None, None, None, None
         
         try:
             img_depth = self.depth_data.img(img_t)
         except NoDataNearTimeException as e:
             print("img_depth Error: ", e)
-            return None, None, None, None
+            return None, None, None, None, None
         
         try:
             pose_odom_camera = self.camera_pose_data.T_WB(img_t)
         except NoDataNearTimeException as e:
             print("pose_odom_camera Error: ", e)
-            return None, None, None, None
+            return None, None, None, None, None
            
         observations = self.fastsam.run(img_t, pose_odom_camera, img, img_depth=img_depth)
-        return img_t, observations, pose_odom_camera, img
+        return img_t, observations, pose_odom_camera, img, img_depth
 
-    def update_segment_track(self, t, observations, pose_odom_camera, img): 
+    def update_segment_track(self, t, observations, pose_odom_camera, img, depth_img): 
 
         # collect reprojected masks
         reprojected_bboxs = []
@@ -168,8 +168,16 @@ class ROMANMapRunner:
                         if bbox is not None:
                             reprojected_bboxs.append((i, bbox))
 
+        # Create the segmentation image
+        height = self.data_params.img_data_params.height
+        width = self.data_params.img_data_params.width
+        seg_img = np.zeros((height, width), dtype=np.uint16)
+        for i, obs in enumerate(observations):
+            mask = obs.mask
+            seg_img += np.multiply(mask.astype(np.uint16), np.full((height, width), i+1, dtype=np.uint16))
+
         if len(observations) > 0:
-            self.mapper.update(t, pose_odom_camera, observations)
+            self.mapper.update(t, pose_odom_camera, observations, img, depth_img, self.data_params.img_data_params, seg_img)
         else:
             if not self.mapper_params.use_3D_Scene_graph:
                 self.mapper.poses_flu_history.append(pose_odom_camera @ self.mapper._T_camera_flu)

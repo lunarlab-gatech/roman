@@ -5,6 +5,7 @@ from .id_manager import IDManager
 from .logger import logger
 import numpy as np
 from numpy.typing import NDArray
+import open3d as o3d
 from robotdatapy.camera import xyz_2_pixel
 from robotdatapy.transform import transform
 import trimesh
@@ -51,25 +52,63 @@ class GraphNode():
     _longest_line_size: float = None
     _centroid: np.ndarray = None
 
+    # Track if creating the node succeeded with create_node_if_possible()
+    _class_method_creation_success: bool = True
+
     # ================ Initialization =================
     @typechecked
     def __init__(self, id: int, parent_node: GraphNode | None, semantic_descriptors: list[tuple[np.ndarray, float]], 
                  point_cloud: np.ndarray, child_nodes: list[GraphNode], first_seen: float, last_updated: float, 
-                 curr_time: float, first_pose: np.ndarray, curr_pose: np.ndarray):
+                 curr_time: float, first_pose: np.ndarray, curr_pose: np.ndarray, run_dbscan: bool=True):
+        """
+        Don't create a Graph Node directly! Instead do it with create_node_if_possible(), 
+        as node can be invalid after creation.
+        """
         
         self.id = id
         self.parent_node = parent_node
         self.semantic_descriptors = semantic_descriptors
-        self.point_cloud = point_cloud
         self.child_nodes = child_nodes
         self.first_seen = first_seen
         self.last_updated = last_updated
         self.curr_time = curr_time
         self.first_pose = first_pose
         self.curr_pose = curr_pose
+        
+        # Update point cloud and check that the cloud is good
+        to_delete = self.update_point_cloud(point_cloud, run_dbscan=run_dbscan)
+        if len(to_delete) > 0:
+            self._class_method_creation_success = False
+        else:
+            # Try to create our ConvexHull and make sure that also succeeds
+            hull = self.get_convex_hull()
+            if hull is None:
+                self._class_method_creation_success = False
 
-        # Always cleanup incoming point cloud
-        self.cleanup_point_cloud()
+        # If we are RootGraphNode, creation is always successful as we don't 
+        # ever use our ConvexHull or Point Cloud
+        if self.is_RootGraphNode():
+            self._class_method_creation_success = True
+
+    @classmethod
+    def create_node_if_possible(cls, id: int, parent_node: GraphNode | None, semantic_descriptors: list[tuple[np.ndarray, float]], 
+                 point_cloud: np.ndarray, child_nodes: list[GraphNode], first_seen: float, last_updated: float, 
+                 curr_time: float, first_pose: np.ndarray, curr_pose: np.ndarray) -> GraphNode | None:
+        """ 
+        This method will create and return a GraphNode if that node is valid, 
+        or return None if its point cloud or hull isn't reasonable after cleanup. 
+        """
+
+        # Create node and run dbscan to filter out extra objects included in one faulty segmentation
+        potential_node = cls(id, parent_node, semantic_descriptors, point_cloud, 
+                                   child_nodes, first_seen, last_updated, curr_time, 
+                                   first_pose, curr_pose, run_dbscan=True)
+        
+        # Return the node if node creation was successful
+        if potential_node._class_method_creation_success:
+            return potential_node
+        else:
+            return None
 
     # ==================== Getters ====================
     def __str__(self):
@@ -309,18 +348,22 @@ class GraphNode():
         if self.is_RootGraphNode():
             raise RuntimeError("Can't call remove_from_graph() on RootGraphNode!")
 
-        logger.info(f"remove_from_graph: Currently on Node {self.get_id()}")
         to_delete = self.get_parent().remove_child(self)
         self.set_parent(None)
         return to_delete
     
     @typechecked
-    def remove_from_graph_complete(self) -> None:
-        """ Does so by disconnecting self from parent both ways. Also immediately deletes any parent nodes that are now invalid. """
+    def remove_from_graph_complete(self) -> list[int]:
+        """ Does so by disconnecting self from parent both ways. Also immediately deletes any parent nodes that are now invalid. 
+            Returns any additional nodes that were also retired (not including self). """
 
+        deleted_ids = []
         to_delete = self.remove_from_graph()
         while to_delete:
+            for node in to_delete:
+                deleted_ids.append(node.get_id())
             to_delete.update(to_delete.pop().remove_from_graph())
+        return deleted_ids
 
     @typechecked
     def add_semantic_descriptors(self, descriptors: list[tuple[np.ndarray, float]]) -> None:
@@ -328,54 +371,92 @@ class GraphNode():
         self.last_updated = self.curr_time
 
     @typechecked
-    def update_point_cloud(self, new_points: np.ndarray) -> None:
-        # Skip math if no new points are included
-        if new_points.shape[0] == 0: return
+    def update_point_cloud(self, new_points: np.ndarray, run_dbscan: bool = False) -> set[GraphNode]:
+        """ Returns nodes that might need to be deleted due to cleanup removing points..."""
+        
+        # Helper method to calculate points shared between two sets of points
+        def intersect_rows(A, B):
+            A = np.ascontiguousarray(A)
+            B = np.ascontiguousarray(B)
+            A_view = A.view([('', A.dtype)] * A.shape[1])
+            B_view = B.view([('', B.dtype)] * B.shape[1])
+            return np.intersect1d(A_view, B_view).view(A.dtype).reshape(-1, A.shape[1])
 
-        # Check the input arry is the shape we expect
+        # Skip math if no new points are included
+        if new_points.shape[0] == 0: return set()
+
+        # Check the input array is the shape we expect
         if new_points.shape[1] != 3: raise ValueError(f"Point array in a non-supported shape: {new_points.shape()}")
 
         # Append them to our point cloud
         self.point_cloud = np.concatenate((self.point_cloud, new_points), axis=0)
         self.last_updated = self.curr_time
 
-        # Remove any outliers
-        self.cleanup_point_cloud()
+        # =========== Clean-up Point Cloud  ============
+        # Considers child cloud as part of self for determining how to downsample, remove outliers,
+        # and cluster. Necessary to limit sizes of point clouds for computation purposes and for
+        # ensuring incoming point clouds only represent a single object.
 
-        # Reset point cloud dependent saved variables
+        # Define parameters that are hopefully invariant to environment size by depending on object size
+        sample_voxel_size_to_longest_line_ratio = 0.025
+        sample_epsilon_to_longest_line_ratio = 5 * sample_voxel_size_to_longest_line_ratio
+        cluster_percentage_of_full = 0.7 # Can't be too small or semantics might change too mcuh
+
+        # Convert into o3d PointCloud
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(self.get_point_cloud())
+
+        # Downsample Operation
+        length = self.get_longest_line_size()
+        pcd_sampled = pcd.voxel_down_sample(length * sample_voxel_size_to_longest_line_ratio)
+
+        # Remove statistical outliers
+        pcd_sampled, _ = pcd_sampled.remove_statistical_outlier(10, 2.0)
+
+        # Perform DBSCAN clustering (if desired)
+        if run_dbscan:
+            labels = np.array(pcd_sampled.cluster_dbscan(eps=length * sample_epsilon_to_longest_line_ratio, min_points=4))
+            max_cluster_index = labels.max()
+            if max_cluster_index == -1:
+                logger.info(f"[bright_red]WARNING[/bright_red]: All points in this node have been detected as noise!")
+
+                # Right now, lets just assume that our epsilon is off and thus every point should be kept
+                # Thus, let it continue the algorithm...
+
+            # Check size of max cluster
+            max_cluster_size = np.sum(labels == max_cluster_index)
+            cluster_size_ratio = max_cluster_size / len(pcd_sampled.points)
+            logger.debug(f"Cluster Size Ratio: {cluster_size_ratio}")
+            if cluster_size_ratio < cluster_percentage_of_full:
+                # Since this cluster is too small, the semantic embedding will not be 
+                # representative. Thus, we must delete this node, so wipe our point cloud.
+                self.point_cloud = np.zeros((0, 3), dtype=np.float64)
+                return self.reset_saved_vars()
+
+            # Filter out any points not belonging to max cluster
+            filtered_indices = np.asarray(labels == max_cluster_index).nonzero()
+            clustered_points = np.asarray(pcd_sampled.points)[filtered_indices]
+        else:
+            clustered_points = np.asarray(pcd_sampled.points)
+
+        # Save the new sampled point cloud (while also removing duplicates)
+        intersection = intersect_rows(self.point_cloud, clustered_points)
+        self.point_cloud = np.unique(intersection, axis=0)
+        self.last_updated = self.curr_time
+
+        # Reset point cloud dependent saved variables and return nodes to delete
         logger.debug(f"update_point_cloud(): Resetting Point Cloud for Node {self.get_id()}")
-        self.reset_saved_vars_safe()
-
-    def cleanup_point_cloud(self):
-        """ Remove duplicates from point-cloud. """
-
-        # Only clean-up if there are points to clean-up
-        if self.point_cloud.shape[0] > 0:
-
-            # Turn off Outlier Removal, as we'd probably need to do it on the point cloud from node.get_point_cloud()
-            # for it to actually work properly... #TODO: Implement this maybe...
-
-            # Convert into o3d PointCloud
-            #pcd = o3d.geometry.PointCloud()
-            # pcd.points = o3d.utility.Vector3dVector(self.point_cloud)
-
-            # Remove statistical outliers
-            # TODO: See if removing this has any negative impact -> pcd_sampled = pcd.voxel_down_sample(voxel_size=self.voxel_size)
-            # TODO: Tune these parameters, see if it has any effect
-            #pcd_pruned, _ = pcd.remove_statistical_outlier(10, 1.0)
-            
-            # Save the new outlier free point cloud (while also removing duplicates)
-            self.point_cloud = np.unique(self.point_cloud, axis=0)
-            self.last_updated = self.curr_time
+        return self.reset_saved_vars()
 
     @typechecked
-    def merge_with_node(self, other: GraphNode) -> GraphNode:
+    def merge_with_node(self, other: GraphNode) -> GraphNode | None:
         """
         As opposed to merge_with_observation (which can just be called), this method 
         will take out self and other from the graph and return a new node. This new
         node needs to be inserted back into the graph by the SceneGraph3D.
 
         NOTE: other cannot be a descendent or ascendent of self!
+        NOTE: If the new node is invalid, then will just return None.
         """
 
         # Remove both nodes (and all descendants) from the graph
@@ -399,8 +480,11 @@ class GraphNode():
         else: first_pose = other.get_first_pose()
 
         # Create a new node representing the merge
-        new_node = GraphNode(self.get_id(), None, combined_descriptors, combined_pc, combined_children, 
-                             first_seen, self.curr_time, self.curr_time, first_pose, self.curr_pose)
+        new_node = GraphNode.create_node_if_possible(self.get_id(), None, combined_descriptors, 
+                        combined_pc, combined_children, first_seen, self.curr_time, self.curr_time, 
+                        first_pose, self.curr_pose)
+        if new_node is None:
+            return None
             
         # Tell our children who their new parent is
         for child in combined_children:
@@ -488,7 +572,9 @@ class GraphNode():
 
         # If there are at least one point in this orphan point cloud, add them to this node's cloud
         if orphan_pc.shape[0] > 1:
-            self.update_point_cloud(orphan_pc)
+            to_delete = self.update_point_cloud(orphan_pc, run_dbscan=False)
+            if len(to_delete) > 0:
+                raise RuntimeError(f"Cannot merge_with_observation; Node {self.get_id()}'s point cloud invalid after adding additional points, which should never happen!")
 
     @typechecked
     def merge_child_with_self(self, other: GraphNode) -> None:
@@ -500,7 +586,9 @@ class GraphNode():
         self.add_semantic_descriptors(other.semantic_descriptors)
         
         # Do the same with point cloud specific to the child (not grandchildren)
-        self.update_point_cloud(other.point_cloud)
+        to_delete = self.update_point_cloud(other.point_cloud)
+        if len(to_delete) > 0:
+            raise RuntimeError(f"Cannot merge_child_with_self; New point cloud is invalid, this should never happen")
 
         # Add grandchildren as children and add self as grandchildrens' parent
         for grandchild in other.get_children():
@@ -574,13 +662,6 @@ class GraphNode():
             return self.reset_saved_vars()
         else:
             raise ValueError(f"Tried to remove {child} from {self}, but {child} not in self.child_nodes: {self.child_nodes}")
-        
-    @typechecked
-    def remove_children(self, to_remove: list[GraphNode]) -> set[GraphNode]:
-        to_delete = set()
-        for child in to_remove:
-            to_delete.update(self.remove_child(child))
-        return to_delete
         
     @typechecked
     def update_curr_time(self, curr_time: float):

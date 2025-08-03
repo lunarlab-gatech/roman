@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import colorsys
-from dataclasses import dataclass, field
+import cv2
+from dataclasses import dataclass
 from .graph_node import RootGraphNode, GraphNode
+from .logger import logger
 import numpy as np
+from ..params.data_params import ImgDataParams
 import rerun as rr
+import rerun.blueprint as rrb
+from scipy.spatial.transform import Rotation as R
 from typeguard import typechecked
 
 @dataclass
@@ -46,7 +51,23 @@ class RerunWrapper():
     """ Wrapper for spawning and visualizing using Rerun. """
 
     def __init__(self):
-        rr.init("Meronomy_Visualization", spawn=True)
+
+        # Create the blueprint
+        blueprint = rrb.Blueprint(
+            rrb.Vertical(
+            rrb.Horizontal(
+                rrb.GraphView(name="Graph", origin='/graph'),
+                rrb.Spatial3DView(name="World", origin='/world'),
+                rrb.TextLogView(name="Text Logs", origin="/logs"),
+            ),
+            rrb.Horizontal(
+                rrb.Spatial2DView(name="Image", origin='/world/robot/camera/image'),
+                rrb.Spatial2DView(name="Depth", origin='/world/robot/camera/depth'),
+                rrb.Spatial2DView(name="Segmentation Mask", origin='/world/robot/camera/segmentation')
+            )))
+
+        # Spawn Rerun
+        rr.init("Meronomy_Visualization", spawn=True, default_blueprint=blueprint)
         self.update_frame = 0
 
     def _hsv_to_rgb255(self, h: float, s: float = 1.0, v: float = 1.0) -> np.ndarray[np.uint8]:
@@ -73,11 +94,17 @@ class RerunWrapper():
         for child, child_space in zip(children, subspaces):
             self._assign_colors_recursive(child, child_space, node_colors, depth + 1)
 
-    def update(self, root_node: RootGraphNode, curr_time: float):
+    def update(self, root_node: RootGraphNode, curr_time: float, img: np.ndarray | None = None, depth_img: np.ndarray | None = None, camera_pose: np.ndarray | None = None, img_data_params: ImgDataParams | None = None, seg_img: np.ndarray | None = None, associations: list[tuple[int, int]] = []):
         """
         Args:
             nodes (RootGraphNode]): Takes as input the children of the RootGraphNode.
             curr_time (float): The current time of the camera frame.
+            img (np.ndarray): An optional image to be visualized
+            depth_img (np.ndarray): An optional depth image to be visualized.
+            camera_pose
+            img_data_params
+            seg_img
+            associations
         """
 
         # Update the timelines
@@ -94,9 +121,17 @@ class RerunWrapper():
         node_ids: list[int] = []
         edges: list[tuple[int, int]] = []
         colors_rgb: np.ndarray = np.zeros((0, 3), dtype=np.uint8)
+        points: np.ndarray = np.zeros((0, 3), dtype=np.uint8)
+        point_to_node_ids: np.ndarray = np.zeros((0), dtype=np.uint32)
+        point_colors: np.ndarray = np.zeros((0, 3), dtype=np.uint8)
+
+        if seg_img is not None:
+            num_obs = seg_img.max()
+            colormap: np.ndarray = np.full((num_obs+1, 3), 128, dtype=np.uint8)
+            colormap[0] = [0, 0, 0]
 
         # Iterate through all nodes reachable from the root.
-        for node in root_node:
+        for j, node in enumerate(root_node):
             # Extract id
             id = node.get_id()
             node_ids.append(id)
@@ -110,20 +145,102 @@ class RerunWrapper():
 
             # Colors
             h, s, v = node_colors[id]
-            colors_rgb = np.concatenate((colors_rgb, self._hsv_to_rgb255(h, s, v)), dtype=np.uint8)
+            color = self._hsv_to_rgb255(h, s, v)
+            colors_rgb = np.concatenate((colors_rgb, color), dtype=np.uint8)
+
+            # Extract points for this node
+            points = np.concatenate((points, node.point_cloud), dtype=np.float128)
+            point_to_node_ids = np.concatenate((point_to_node_ids, 
+                                                np.full((node.point_cloud.shape[0]), id, dtype=np.uint32)))
+            point_colors = np.concatenate((point_colors, np.full((node.point_cloud.shape[0], 3), color)))
+
+            # Remember this association color for the segmentation mask
+            if seg_img is not None:
+                for pair in associations:
+                    if pair[1] == node.get_id():
+                        colormap[pair[0]+1] = color
 
         # Remove all edges related to root node, so it doesn't appear in visualization
-        node_ids.remove(root_node.get_id())
-        to_remove = []
-        for i, edge in enumerate(edges):
-            if edge[0] == root_node.get_id() or edge[1] == root_node.get_id():
-                to_remove.append(i)
-        to_remove.sort(reverse=True)
-        for i in to_remove:
-            edges.pop(i)
+        # node_ids.remove(root_node.get_id())
+        # to_remove = []
+        # for i, edge in enumerate(edges):
+        #     if edge[0] == root_node.get_id() or edge[1] == root_node.get_id():
+        #         to_remove.append(i)
+        # to_remove.sort(reverse=True)
+        # for i in to_remove:
+        #     edges.pop(i)    
+
+        # Calculate bounding boxes & extract convex hulls as lines for nodes
+        box_centers = []
+        box_half_sizes = []
+        box_quats = []
+        box_colors = []
+        box_ids = []
+        line_ends = []
+        line_colors = []
+
+        for j, node in enumerate(root_node):
+            # Skip the root graph node
+            if node.is_RootGraphNode():
+                continue
+
+            # Axis-aligned bounding box
+            pc = node.get_point_cloud()
+            min_corner = pc.min(axis=0)
+            max_corner = pc.max(axis=0)
+            center = (min_corner + max_corner) / 2.0
+            size = (max_corner - min_corner) / 2.0
+
+            box_centers.append(center.tolist())
+            box_half_sizes.append(size.tolist())
+            box_quats.append(rr.Quaternion.identity()) 
+
+            # Box colors
+            h, s, v = node_colors[node.get_id()]
+            color = self._hsv_to_rgb255(h, s, v)
+            box_colors.append(color)
+            box_ids.append(node.get_id())
+
+            # Line segments
+            mesh = node.get_convex_hull()
+            line_edges: set[tuple] = set()
+            for face in mesh.faces:
+                a, b, c = face
+                line_edges.add(tuple(sorted((a, b))))
+                line_edges.add(tuple(sorted((b, c))))
+                line_edges.add(tuple(sorted((c, a))))
+
+            for i1, i2 in line_edges:
+                v1 = mesh.vertices[i1].tolist()
+                v2 = mesh.vertices[i2].tolist()
+                line_ends.append([v1, v2])  # a strip of 2 points = one line
+                line_colors.append(color)
+
 
         # Send the data to Rerun
-        rr.log("graph_connectivity",
-            rr.GraphNodes(node_ids=node_ids, labels=node_ids, colors=colors_rgb),
-            rr.GraphEdges(edges=edges, graph_type="directed"),
-        )
+        rr.log("/graph", rr.GraphNodes(node_ids=node_ids, labels=node_ids, colors=colors_rgb), 
+                        rr.GraphEdges(edges=edges, graph_type="directed"))
+        rr.log("/world/points", rr.Points3D(positions=points, colors=point_colors))
+        rr.log("/world/boxes", rr.Boxes3D(centers=box_centers, half_sizes=box_half_sizes,
+                            quaternions=box_quats, colors=box_colors, radii=0.1, fill_mode="line",
+                            labels=box_ids))
+        rr.log("/world/meshes", rr.LineStrips3D(strips=line_ends, colors=line_colors, radii=0.1))
+
+        if img is not None:
+            rr.log("/world/robot/camera/image", rr.Image(img))
+        if depth_img is not None:
+            rr.log("/world/robot/camera/depth", rr.DepthImage(depth_img, depth_range=75))
+        if camera_pose is not None:
+            rot = R.from_matrix(camera_pose[:3,:3])
+            rr.log("/world/robot/camera", rr.Transform3D(translation=camera_pose[:3,3],
+                quaternion=rot.as_quat(), relation=rr.TransformRelation.ParentFromChild, clear=False), strict=True)
+        if img_data_params is not None:
+            rr.log("/world/robot/camera/image", 
+                   rr.Pinhole(resolution=[img_data_params.width, img_data_params.height],
+                              focal_length=[img_data_params.K[0], img_data_params.K[4]],
+                              principal_point=[img_data_params.K[2], img_data_params.K[5]],
+                              image_plane_distance=1.0))
+        if seg_img is not None:
+            color_mask = colormap[seg_img]
+            overlay = cv2.addWeighted(img, 0.5, color_mask, 0.5, 0)
+            rr.log("/world/robot/camera/segmentation", rr.Image(overlay))

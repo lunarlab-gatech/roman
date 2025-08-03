@@ -109,6 +109,6 @@ def shortest_dist_between_point_clouds(a: np.ndarray, b: np.ndarray):
     return np.array(distances).min()
 
 @typechecked
-def longest_line_of_point_cloud(a: np.ndarray):
+def longest_line_of_point_cloud(a: np.ndarray[np.float64]):
     if a.shape[0] == 0: return 0.0
     return pdist(a).max()
