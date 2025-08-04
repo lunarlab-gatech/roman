@@ -17,7 +17,6 @@ from .rerun_wrapper import RerunWrapper
 from scipy.optimize import linear_sum_assignment
 import trimesh
 from typeguard import typechecked
-from .visualize_graph import SceneGraphViewer
 
 class SceneGraph3D():
     # Node that connects all highest-level objects together for implementation purposes
