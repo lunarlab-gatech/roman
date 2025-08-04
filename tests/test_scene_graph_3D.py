@@ -18,8 +18,7 @@ class TestSceneGraph3D(unittest.TestCase):
         sem_fail = 0.5 * graph.min_sem_con_for_association
 
         np.testing.assert_equal(graph.pass_minimum_requirements_for_association(iou_pass, sem_pass), True)
-        with np.testing.assert_raises(RuntimeError):
-            _ = graph.pass_minimum_requirements_for_association(iou_pass, sem_fail)
+        np.testing.assert_equal(graph.pass_minimum_requirements_for_association(iou_pass, sem_fail), False)
         np.testing.assert_equal(graph.pass_minimum_requirements_for_association(iou_fail, sem_pass), False)
         np.testing.assert_equal(graph.pass_minimum_requirements_for_association(iou_fail, sem_fail), False)
 
