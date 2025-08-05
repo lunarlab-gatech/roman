@@ -10,7 +10,7 @@ class TestSceneGraph3D(unittest.TestCase):
     def test_pass_minimum_requirements_for_association(self):
         """ Make sure that our logic is sound for association requirements. """
 
-        graph = SceneGraph3D(np.zeros((4, 4)))
+        graph = SceneGraph3D(np.zeros((4, 4)), headless=True)
 
         iou_pass = 0.5 * (1 + graph.min_iou_for_association)
         sem_pass = 0.5 * (1 + graph.min_sem_con_for_association)

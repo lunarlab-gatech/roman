@@ -1,26 +1,22 @@
 from __future__ import annotations
 
-from .graph_node import GraphNode, RootGraphNode
-from graphviz import Digraph
-from .hull_methods import find_point_overlap_with_hulls, get_convex_hull_from_point_cloud, \
-convex_hull_geometric_overlap, shortest_dist_between_convex_hulls
+from .graph_node import GraphNode
+from .hull_methods import find_point_overlap_with_hulls, convex_hull_geometric_overlap, shortest_dist_between_convex_hulls
 from itertools import chain, combinations
 from .logger import logger
-from matplotlib import rcParams
-import matplotlib.pyplot as plt
 from ..map.observation import Observation
-import networkx as nx
 import numpy as np
+import open3d as o3d
 from ..params.data_params import ImgDataParams
-import pickle
 from .rerun_wrapper import RerunWrapper
+from robotdatapy.transform import transform
 from scipy.optimize import linear_sum_assignment
 import trimesh
 from typeguard import typechecked
 
 class SceneGraph3D():
     # Node that connects all highest-level objects together for implementation purposes
-    root_node: RootGraphNode
+    root_node: GraphNode
 
     # List of high-level nodes that have been inactivated
     inactive_nodes: list[GraphNode] = []
@@ -48,7 +44,7 @@ class SceneGraph3D():
     # Minimum semantic consistency for two objects to infer a shared parent
     min_sem_con_for_higher_level_object_inference = 0.65
 
-    # TODO: Shoudl I keep or get rid of this?
+    # TODO: Should I keep or get rid of this?
     # If a NEW node isn't seen for this time, remove from graph
     # max_t_no_sightings_to_prune_new = 0.4 # seconds
 
@@ -59,10 +55,11 @@ class SceneGraph3D():
     max_dist_active_for_node = 10 # meters
 
     @typechecked
-    def __init__(self, _T_camera_flu: np.ndarray):
-        self.root_node = RootGraphNode(None, [], np.zeros((0, 3), dtype=np.float64), [], 0, 0, 0, np.empty(0), np.empty(0))
+    def __init__(self, _T_camera_flu: np.ndarray, headless: bool = False):
+        self.root_node = GraphNode.create_node_if_possible(0, None, [], np.zeros((0, 3), dtype=np.float64), [], 0, 0, 0, np.empty(0), np.empty(0), True)
         self.pose_FLU_wrt_Camera = _T_camera_flu
-        self.rerun_viewer = RerunWrapper()
+        if not headless:
+            self.rerun_viewer = RerunWrapper()
 
     @typechecked
     def len(self) -> int:
@@ -71,9 +68,6 @@ class SceneGraph3D():
     @typechecked
     def update(self, time: float | np.longdouble, pose: np.ndarray, observations: list[Observation], img: np.ndarray, depth_img: np.ndarray, img_data_params: ImgDataParams, seg_img: np.ndarray):
         
-        with open("observations.pkl", 'wb') as file:
-            pickle.dump(observations, file)
-
         # Make sure that time ends up as a float
         time = float(time)
 

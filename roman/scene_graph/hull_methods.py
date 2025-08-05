@@ -6,7 +6,7 @@ from scipy.spatial.distance import pdist
 import trimesh
 from typeguard import typechecked
 
-""" Methods for interacting with Convex Hulls. """
+""" Methods for interacting with Convex Hulls and Point Clouds. """
 
 @typechecked
 def get_convex_hull_from_point_cloud(point_cloud: np.ndarray) -> trimesh.Trimesh | None:

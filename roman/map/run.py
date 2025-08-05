@@ -11,29 +11,23 @@
 ###########################################################
 
 import numpy as np
-import cv2 as cv
 
-from os.path import expandvars, expanduser
-from typing import Tuple
 from dataclasses import dataclass
 import time
 from copy import deepcopy
 
-from robotdatapy.data.img_data import ImgData
-from robotdatapy.data.pose_data import PoseData
-from robotdatapy.transform import transform, T_RDFFLU, T_FLURDF
 from robotdatapy.data.robot_data import NoDataNearTimeException
-from robotdatapy.camera import CameraParams
 
 from roman.object.segment import Segment
 from roman.viz import visualize_map_on_img, visualize_observations_on_img, visualize_3d_on_img
 from roman.map.mapper import Mapper
 from roman.scene_graph.scene_graph_3D import SceneGraph3D
 from roman.map.fastsam_wrapper import FastSAMWrapper
-from roman.map.map import ROMANMap
 from roman.params.data_params import DataParams
 from roman.params.mapper_params import MapperParams
 from roman.params.fastsam_params import FastSAMParams
+
+from ..scene_graph.logger import logger
 
 @dataclass
 class ProcessingTimes:
@@ -122,25 +116,25 @@ class ROMANMapRunner:
         try:
             img_t = self.img_data.nearest_time(t)
         except NoDataNearTimeException as e:
-            print("img_t Error: ", e)
+            logger.info(f"[red]NoDataNearTimeException[/red]: No time within threshold of time {img_t}.")
             return None, None, None, None, None
         
         try:
             img = self.img_data.img(img_t)
         except NoDataNearTimeException as e:
-            print("img Error: ", e)
+            logger.info(f"[red]NoDataNearTimeException[/red]: No image data within threshold of time {img_t}.")
             return None, None, None, None, None
         
         try:
             img_depth = self.depth_data.img(img_t)
         except NoDataNearTimeException as e:
-            print("img_depth Error: ", e)
+            logger.info(f"[red]NoDataNearTimeException[/red]: No depth data within threshold of time {img_t}.")
             return None, None, None, None, None
         
         try:
             pose_odom_camera = self.camera_pose_data.T_WB(img_t)
         except NoDataNearTimeException as e:
-            print("pose_odom_camera Error: ", e)
+            logger.info(f"[red]NoDataNearTimeException[/red]: No pose data within threshold of time {img_t}.")
             return None, None, None, None, None
            
         observations = self.fastsam.run(img_t, pose_odom_camera, img, img_depth=img_depth)

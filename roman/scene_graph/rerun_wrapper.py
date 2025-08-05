@@ -3,7 +3,7 @@ from __future__ import annotations
 import colorsys
 import cv2
 from dataclasses import dataclass
-from .graph_node import RootGraphNode, GraphNode
+from .graph_node import GraphNode
 from .logger import logger
 import numpy as np
 from ..params.data_params import ImgDataParams
@@ -54,6 +54,7 @@ class RerunWrapper():
 
         # Create the blueprint
         blueprint = rrb.Blueprint(
+            rrb.Tabs(
             rrb.Vertical(
             rrb.Horizontal(
                 rrb.GraphView(name="Graph", origin='/graph'),
@@ -64,7 +65,15 @@ class RerunWrapper():
                 rrb.Spatial2DView(name="Image", origin='/world/robot/camera/image'),
                 rrb.Spatial2DView(name="Depth", origin='/world/robot/camera/depth'),
                 rrb.Spatial2DView(name="Segmentation Mask", origin='/world/robot/camera/segmentation')
-            )))
+            )),
+            rrb.Horizontal(
+                rrb.Spatial3DView(name="FastSAM Projections", origin='/fastsam'),
+                rrb.Vertical(
+                    rrb.Spatial2DView(name="Depth", origin='/fastsam/camera/depth'),
+                    rrb.Spatial2DView(name='Flow Magnitude', origin='/fastsam/camera/flow_mag'),
+                    rrb.Spatial2DView(name="Threshold for Dynamic Pixels", origin='/fastsam/camera/thresh'),
+                    rrb.Spatial2DView(name="Detected Dynamic Pixels", origin='/fastsam/camera/mask')
+            ))))
 
         # Spawn Rerun
         rr.init("Meronomy_Visualization", spawn=True, default_blueprint=blueprint)
@@ -94,10 +103,10 @@ class RerunWrapper():
         for child, child_space in zip(children, subspaces):
             self._assign_colors_recursive(child, child_space, node_colors, depth + 1)
 
-    def update(self, root_node: RootGraphNode, curr_time: float, img: np.ndarray | None = None, depth_img: np.ndarray | None = None, camera_pose: np.ndarray | None = None, img_data_params: ImgDataParams | None = None, seg_img: np.ndarray | None = None, associations: list[tuple[int, int]] = []):
+    def update(self, root_node: GraphNode, curr_time: float, img: np.ndarray | None = None, depth_img: np.ndarray | None = None, camera_pose: np.ndarray | None = None, img_data_params: ImgDataParams | None = None, seg_img: np.ndarray | None = None, associations: list[tuple[int, int]] = []):
         """
         Args:
-            nodes (RootGraphNode]): Takes as input the children of the RootGraphNode.
+            nodes (GraphNode]): Takes as input the RootGraphNode.
             curr_time (float): The current time of the camera frame.
             img (np.ndarray): An optional image to be visualized
             depth_img (np.ndarray): An optional depth image to be visualized.

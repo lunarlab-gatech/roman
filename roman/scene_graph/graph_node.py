@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from .hull_methods import get_convex_hull_from_point_cloud, find_point_overlap_with_hulls, longest_line_of_point_cloud
-from .id_manager import IDManager
 from .logger import logger
 import numpy as np
 from numpy.typing import NDArray
@@ -18,6 +17,10 @@ class GraphNode():
     # Node ID
     id: int
 
+    # Information tracking if we are the RootGraphNode
+    is_root: bool
+    _next_id: int # RootGraphNode handles id assignments
+
     # The parent node to this node.
     parent_node: GraphNode | None
 
@@ -30,7 +33,6 @@ class GraphNode():
     semantic_descriptors: list[tuple[np.ndarray, float]] = []
 
     # Points that relate only to this object and not any children.
-    # Ex. points on a wall, whose children are a painting and a window.
     point_cloud: np.ndarray = np.zeros((0, 3), dtype=np.float64)
 
     # Keeps track of time this node (not any children) was seen. Note 
@@ -46,7 +48,7 @@ class GraphNode():
     # Keeps track of the first pose associated with this node (not any descendents)
     first_pose: np.ndarray
 
-    # Holds values for reuse and to avoid recalculating them
+    # Holds values for reuse to avoid recalculating them
     _convex_hull: trimesh.Trimesh = None
     _point_cloud: np.ndarray = None
     _longest_line_size: float = None
@@ -59,13 +61,14 @@ class GraphNode():
     @typechecked
     def __init__(self, id: int, parent_node: GraphNode | None, semantic_descriptors: list[tuple[np.ndarray, float]], 
                  point_cloud: np.ndarray, child_nodes: list[GraphNode], first_seen: float, last_updated: float, 
-                 curr_time: float, first_pose: np.ndarray, curr_pose: np.ndarray, run_dbscan: bool=True):
+                 curr_time: float, first_pose: np.ndarray, curr_pose: np.ndarray, run_dbscan: bool = True, is_RootGraphNode: bool = False):
         """
         Don't create a Graph Node directly! Instead do it with create_node_if_possible(), 
         as node can be invalid after creation.
         """
         
         self.id = id
+        self._next_id = id + 1
         self.parent_node = parent_node
         self.semantic_descriptors = semantic_descriptors
         self.child_nodes = child_nodes
@@ -74,6 +77,7 @@ class GraphNode():
         self.curr_time = curr_time
         self.first_pose = first_pose
         self.curr_pose = curr_pose
+        self.is_root = is_RootGraphNode
         
         # Update point cloud and check that the cloud is good
         to_delete = self.update_point_cloud(point_cloud, run_dbscan=run_dbscan)
@@ -93,7 +97,7 @@ class GraphNode():
     @classmethod
     def create_node_if_possible(cls, id: int, parent_node: GraphNode | None, semantic_descriptors: list[tuple[np.ndarray, float]], 
                  point_cloud: np.ndarray, child_nodes: list[GraphNode], first_seen: float, last_updated: float, 
-                 curr_time: float, first_pose: np.ndarray, curr_pose: np.ndarray) -> GraphNode | None:
+                 curr_time: float, first_pose: np.ndarray, curr_pose: np.ndarray, is_RootGraphNode: bool = False) -> GraphNode | None:
         """ 
         This method will create and return a GraphNode if that node is valid, 
         or return None if its point cloud or hull isn't reasonable after cleanup. 
@@ -102,7 +106,7 @@ class GraphNode():
         # Create node and run dbscan to filter out extra objects included in one faulty segmentation
         potential_node = cls(id, parent_node, semantic_descriptors, point_cloud, 
                                    child_nodes, first_seen, last_updated, curr_time, 
-                                   first_pose, curr_pose, run_dbscan=True)
+                                   first_pose, curr_pose, run_dbscan=True, is_RootGraphNode=is_RootGraphNode)
         
         # Return the node if node creation was successful
         if potential_node._class_method_creation_success:
@@ -121,7 +125,6 @@ class GraphNode():
             f"GraphNode(\n"
             f"  Id: {id(self)}\n"
             f"  Parent: {'None' if self.parent_node is None else 'Present'}\n"
-            f"  Dummy: {self._is_dummy}\n"
             f"  Semantic Descriptors: {semantic_count} descriptors\n"
             f"    Weights: {semantic_weights}\n"
             f"  Point Cloud: {point_count} points\n"
@@ -136,12 +139,9 @@ class GraphNode():
         return self.id
 
     @typechecked
-    def no_parent(self) -> bool:
-        if self.parent_node is None: return True
-        else: return False
-
-    @typechecked
     def get_parent(self) -> GraphNode:
+        if self.is_RootGraphNode():
+            return RuntimeError("get_parent() should not be called on the RootGraphNode!")
         return self.parent_node
     
     def is_parent_or_child(self, other: GraphNode) -> bool:
@@ -161,11 +161,9 @@ class GraphNode():
         return other.is_parent(self)
     
     @typechecked
-    def is_dummy(self) -> bool:
-        return self._is_dummy
-    
-    @typechecked
     def get_convex_hull(self)-> trimesh.Trimesh | None:
+        if self.is_RootGraphNode():
+            return None
         if self._convex_hull is None:
             self._convex_hull = get_convex_hull_from_point_cloud(self.get_point_cloud())
         return self._convex_hull
@@ -186,7 +184,7 @@ class GraphNode():
     
     @typechecked
     def is_RootGraphNode(self) -> bool:
-        return isinstance(self, RootGraphNode)
+        return self.is_root
 
     @typechecked
     def get_time_first_seen(self) -> float:
@@ -232,16 +230,25 @@ class GraphNode():
     
     @typechecked
     def request_new_ID(self) -> int:
-        return self.parent_node.request_new_ID()
+        if self.is_RootGraphNode():
+            new_id = self._next_id
+            self._next_id += 1
+            return new_id
+        else:
+            return self.parent_node.request_new_ID()
     
     @typechecked
-    def get_longest_line_size(self) -> float:
+    def get_longest_line_size(self) -> float | None:
+        if self.is_RootGraphNode():
+            return None
         if self._longest_line_size is None:
             self._longest_line_size = longest_line_of_point_cloud(self.get_point_cloud())
         return self._longest_line_size
     
     @typechecked
-    def get_centroid(self) -> np.ndarray[float]:
+    def get_centroid(self) -> np.ndarray[float] | None:
+        if self.is_RootGraphNode():
+            return None
         if self._centroid is None:
             self._centroid = np.mean(self.get_point_cloud(), axis=0)
         return self._centroid
@@ -266,8 +273,10 @@ class GraphNode():
 
     @typechecked
     def get_point_cloud(self) -> np.ndarray:
+        if self.is_RootGraphNode():
+            raise RuntimeError("get_point_cloud() should not be called on RootGraphNode!")
+
         if self._point_cloud is None:
-            # Re-calculate the point cloud since its been changed
             full_pc = np.zeros((0, 3), dtype=np.float64)
             for child in self.get_children():
                 full_pc = np.concatenate((full_pc, child.get_point_cloud()), dtype=np.float64)
@@ -277,11 +286,13 @@ class GraphNode():
                 logger.debug(f"[bright_red]WARNING[/bright_red]: Current point cloud is {num_points} for Node {self.get_id()}")
             else:
                 logger.debug(f"[bright_yellow]UPDATE[/bright_yellow]: Current point cloud is {num_points} for Node {self.get_id()}")
-        #np.save(f"/home/dbutterfield3/roman/debug_pc/node_{self.get_id()}_pc.npy", self._point_cloud)
         return self._point_cloud
     
     @typechecked
-    def get_semantic_descriptors(self):
+    def get_semantic_descriptors(self) -> list[tuple[np.ndarray, float]]:
+        if self.is_RootGraphNode():
+            raise RuntimeError("get_semantic_descriptors() should not be called on RootGraphNode!")
+
         descriptors = []
         for child in self.get_children():
             descriptors += child.get_semantic_descriptors()
@@ -339,6 +350,8 @@ class GraphNode():
     # ==================== Setters ====================
     @typechecked
     def set_parent(self, node: GraphNode | None) -> None:
+        if self.is_RootGraphNode():
+            raise RuntimeError("Calling set_parent() on RootGraphNode, which should never happen!")
         self.parent_node = node
 
     # ==================== Manipulators ====================
@@ -496,6 +509,10 @@ class GraphNode():
         Wipes saved variables since they need to be recalculated. 
         Returns list of nodes that are no longer valid and should be removed. 
         """
+
+        # Do nothing if we are the RootGraphNode
+        if self.is_RootGraphNode():
+            return set()
         
         # Wipe all variables
         self._convex_hull = None
@@ -572,7 +589,7 @@ class GraphNode():
 
         # If there are at least one point in this orphan point cloud, add them to this node's cloud
         if orphan_pc.shape[0] > 1:
-            to_delete = self.update_point_cloud(orphan_pc, run_dbscan=False)
+            to_delete = self.update_point_cloud(orphan_pc)
             if len(to_delete) > 0:
                 raise RuntimeError(f"Cannot merge_with_observation; Node {self.get_id()}'s point cloud invalid after adding additional points, which should never happen!")
 
@@ -682,50 +699,3 @@ class GraphNode():
             node = stack.pop()
             yield node
             stack.extend(node.get_children())
-
-
-class RootGraphNode(GraphNode):
-
-    id_manager: IDManager
-
-    # ================ Initialization =================
-    @typechecked
-    def __init__(self, parent_node: GraphNode | None, semantic_descriptors: list[tuple[np.ndarray, float]], 
-                 point_cloud: np.ndarray, child_nodes: list[GraphNode], first_seen: float | None, 
-                 last_updated: float | None, curr_time: float | None, first_pose: np.ndarray | None, 
-                 curr_pose: np.ndarray | None):
-        self.id_manager = IDManager()
-        id = self.id_manager.assign_id()
-        super().__init__(id, parent_node, semantic_descriptors, point_cloud, child_nodes, 
-                         first_seen, last_updated, curr_time, first_pose, curr_pose)
-
-    # ==================== Getters ==================== 
-    def get_parent(self) -> None:
-        raise RuntimeError("get_parent() should not be called on the RootGraphNode!")
-    
-    def get_convex_hull(self) -> None:
-        return None
-    
-    def get_point_cloud(self) -> np.ndarray:
-        raise RuntimeError("get_point_cloud() should not be called on RootGraphNode!")
-    
-    @typechecked
-    def request_new_ID(self) -> int:
-        return self.id_manager.assign_id()
-    
-    def get_longest_line_size(self) -> None:
-        return None
-    
-    def get_centroid(self) -> None:
-        return None
-    
-    def get_semantic_descriptors() -> None:
-        raise RuntimeError("get_semantic_descriptors() should not be called on RootGraphNode!")
-
-    # ==================== Setters ====================
-    def set_parent(self, node: GraphNode) -> None:
-        raise RuntimeError("Calling set_parent() on RootGraphNode, which should never happen!")
-            
-    # ==================== Manipulators ====================
-    def reset_saved_vars(self) -> set[GraphNode]:
-        return set()
