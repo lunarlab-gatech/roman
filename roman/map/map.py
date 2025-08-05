@@ -223,7 +223,7 @@ def submaps_from_roman_map(roman_map: ROMANMap, submap_params: SubmapParams,
                     sm.segments.append(deepcopy(seg))
 
         print("Num of segments in submap bounds: ", num_segments_in_submap_bounds)
-        print("Num of segments additionally meeting time constraings: ", len(sm.segments))
+        print("Num of segments additionally meeting time constraints: ", len(sm.segments))
 
         T_center_odom = np.linalg.inv(sm.pose_gravity_aligned)
         for seg in sm.segments:

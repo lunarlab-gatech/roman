@@ -6,6 +6,7 @@ docker run -it \
     --net="host" \
     --privileged \
     --gpus="all" \
+    --device /dev/dri \
     --workdir="/home/$USER/roman" \
     --env="DISPLAY=$DISPLAY" \
     --env="QT_X11_NO_MITSHM=1" \
