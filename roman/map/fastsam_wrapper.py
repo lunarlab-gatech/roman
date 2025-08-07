@@ -31,7 +31,9 @@ from roman.params.fastsam_params import FastSAMParams
 from roman.utils import expandvars_recursive
 import rerun as rr
 from ..scene_graph.logger import logger 
+from scipy.ndimage import uniform_filter
 from scipy.spatial.transform import Rotation as R
+
 
 from typeguard import typechecked
 
@@ -44,7 +46,7 @@ torch.backends.cudnn.benchmark = False
 
 
 @typechecked
-def mask_bounding_box(mask: np.ndarray):
+def mask_bounding_box(mask: np.ndarray) -> tuple:
     """ 
     Calculate the bounding box around a mask.
     Originally by Annika Thomas.
@@ -76,15 +78,8 @@ def mask_bounding_box(mask: np.ndarray):
 
 class FastSAMWrapper():
 
-    def __init__(self, 
-        weights, 
-        conf=.5, 
-        iou=.9,
-        imgsz=(1024, 1024),
-        device='cuda',
-        mask_downsample_factor=1,
-        rotate_img=None,
-    ):
+    def __init__(self, weights: str, conf: float =.5, iou: float =.9, imgsz: tuple[int, int] =(1024, 1024),
+        device: str ='cuda', mask_downsample_factor: int = 1, rotate_img=None) -> None:
         """Wrapper for running FastSAM on images (especially RGB/depth pairs)
 
         Args:
@@ -112,7 +107,7 @@ class FastSAMWrapper():
         self._last_pose = None
         self.frame_tick = 0
         self.send_to_rerun = False
-
+        
         # member variables
         self.observations = []
         self.model = FastSAM(weights)
@@ -157,20 +152,9 @@ class FastSAMWrapper():
 
         return fastsam
             
-    def setup_filtering(self,
-        ignore_labels = [],
-        use_keep_labels=False,
-        keep_labels = [],
-        keep_labels_option='intersect',          
-        yolo_weights=None,
-        yolo_det_img_size=None,
-        area_bounds=np.array([0, np.inf]),
-        allow_tblr_edges = [True, True, True, True],
-        keep_mask_minimal_intersection=0.3,
-        clip_embedding=False,
-        clip_model='ViT-L/14',
-        triangle_ignore_masks=None
-    ):
+    def setup_filtering(self, ignore_labels: list = [], use_keep_labels=False, keep_labels: list = [], keep_labels_option='intersect',          
+        yolo_weights=None, yolo_det_img_size=None, area_bounds=np.array([0, np.inf]), allow_tblr_edges = [True, True, True, True],
+        keep_mask_minimal_intersection=0.3, clip_embedding=False, clip_model='ViT-L/14', triangle_ignore_masks=None) -> None:
         """
         Filtering setup function
 
@@ -213,17 +197,8 @@ class FastSAMWrapper():
         else:
             self.constant_ignore_mask = None
             
-    def setup_rgbd_params(
-        self, 
-        depth_cam_params, 
-        max_depth, 
-        depth_scale=1e3,
-        voxel_size=0.05, 
-        within_depth_frac=0.25, 
-        pcd_stride=4,
-        erosion_size=0,
-        plane_filter_params=None,
-    ):
+    def setup_rgbd_params(self, depth_cam_params: CameraParams, max_depth: float, depth_scale: float = 1e3, voxel_size: float = 0.05, 
+        within_depth_frac: float = 0.25, pcd_stride: int = 4, erosion_size = 0, plane_filter_params = None) -> None:
         """Setup params for processing RGB-D depth measurements
 
         Args:
@@ -281,103 +256,12 @@ class FastSAMWrapper():
         # Run FastSAM
         masks: np.ndarray = self._process_img(img, ignore_mask=ignore_mask, keep_mask=keep_mask)
 
-        # ================== Find Dynamic Objects ==================
-        dynamic_mask: np.ndarray | None = None
+        # Remove masks corresponding to dynamic objects
+        masks = self.remove_dynamic_object_masks(masks, img_depth, pose)
 
-        # Extract point cloud for whole image
-        img_depth_thresh = copy.deepcopy(img_depth)
-        img_depth_thresh[img_depth > self.max_depth] = self.max_depth
-        point_cloud = o3d.geometry.PointCloud.create_from_depth_image(
-                o3d.geometry.Image(np.ascontiguousarray(img_depth_thresh).astype(np.float32)), self.depth_cam_intrinsics,
-                depth_scale=self.depth_scale, stride=1, project_valid_depth_only=True)
-        point_cloud.remove_non_finite_points()
-        point_cloud: np.ndarray = np.asarray(point_cloud.points)
-
-        # Skip Scene Flow calculation on first frame
-        if self._last_pc is not None and self._last_pose is not None:
-
-            # Transform last point cloud into current frame
-            T_curr_wrt_last = np.linalg.inv(self._last_pose) @ pose
-            last_pc_wrt_curr = transform(np.linalg.inv(T_curr_wrt_last), self._last_pc, axis=0)
-
-            # Project transformed points into our current image frame
-            x, y, z = last_pc_wrt_curr[:,0], last_pc_wrt_curr[:,1], last_pc_wrt_curr[:,2]
-            u = (self.depth_cam_params.fx * x / z + self.depth_cam_params.cx).astype(int)
-            v = (self.depth_cam_params.fy * y / z + self.depth_cam_params.cy).astype(int)
-
-            # Calculate the u and v points that are valid (within image frame)
-            valid_mask = (z > 0) & (u >= 0) & (u < img_depth.shape[1]) & (v >= 0) & (v < img_depth.shape[0])
-            u = u[valid_mask]
-            v = v[valid_mask]
-
-            # Only keep points from last point cloud that were valid
-            last_pc_wrt_curr = last_pc_wrt_curr[valid_mask]
-            last_pc_wrt_curr_reshaped = np.full(img_depth.shape + (3,), np.nan, dtype=np.float32)
-            for i in range(0, len(u)):
-                last_pc_wrt_curr_reshaped[v[i], u[i]] = last_pc_wrt_curr[i]
-
-            # Get corresponding 3D point in current frame at projected pixel
-            point_cloud_temp = np.reshape(point_cloud, img_depth.shape + (3,))
-            pc_curr_matched = np.full(img_depth.shape + (3,), np.nan, dtype=np.float32)
-            for i in range(0, len(u)):
-                pc_curr_matched[v[i],u[i]] = point_cloud_temp[v[i], u[i]]
-
-            # Set NaNs to zeros (thus, flow magnitude will be zero and it won't be labeled as dynamic)
-            pc_curr_matched = np.nan_to_num(pc_curr_matched)
-            last_pc_wrt_curr_reshaped = np.nan_to_num(last_pc_wrt_curr_reshaped)
-
-            # Calculate scene flow
-            scene_flow = pc_curr_matched - last_pc_wrt_curr_reshaped
-            flow_mag = np.linalg.norm(scene_flow, axis=2)
-
-            # Set the threshold, which is calculated as expected translation and rotation error based on estimated odometry,
-            # and includes term to account for imprecision when aligning last points to current pixels
-            trans_norm = np.linalg.norm(T_curr_wrt_last[:3,3])
-            trans_error = 0.05 * trans_norm
-
-            rotation_norm = np.linalg.norm(R.from_matrix(T_curr_wrt_last[:3,:3]).as_rotvec())
-            rotation_error = 0.05 * rotation_norm
-            chord_length = 2 * img_depth * math.sin(rotation_error / 2)
-
-            pixel_imprecision = 1.0 * img_depth
-
-            threshold = trans_error + chord_length + pixel_imprecision
-
-            # Calculate dynamic object mask (must have flow above threshold and be within depth range)
-            dynamic_mask = (flow_mag > threshold).astype(bool) & (img_depth < self.max_depth).astype(bool)
-            
-            # Send data to Rerun for visualization
-            if self.send_to_rerun:
-                pc_curr_flat = np.reshape(pc_curr_matched, (img_depth.shape[0] * img_depth.shape[1], 3))
-                last_pc_wrt_curr_flat = np.reshape(last_pc_wrt_curr_reshaped, (img_depth.shape[0] * img_depth.shape[1], 3))
-                rr.set_time("fastsam_frame_tick", sequence=self.frame_tick)
-                rr.log("/fastsam/points/curr", rr.Points3D(positions=pc_curr_flat))
-                rr.log("/fastsam/points/last", rr.Points3D(positions=last_pc_wrt_curr_flat))
-                rr.log("/fastsam/camera/depth", rr.DepthImage(img_depth))
-                rr.log("/fastsam/camera/mask", rr.Image(dynamic_mask.astype(np.uint16) * 255))
-                threshold[img_depth > self.max_depth] = 0
-                rr.log('/fastsam/camera/thresh', rr.DepthImage(threshold, meter=1.0))
-                rr.log('/fastsam/camera/flow_mag', rr.DepthImage(flow_mag, meter=1.0))
-                self.frame_tick += 1
-
-        # Save current point cloud for next frame calculating scene flow
-        self._last_pc = point_cloud
-        self._last_pose = pose
-        
         # ================== Generate Observations ==================
         for i, mask in enumerate(masks):
             mask = self.apply_rotation(mask, unrotate=True)
-
-            # ============= Remove FastSAM Detections overlapping with dynamic mask =============
-            if dynamic_mask is not None:
-                intersection: np.int64 = np.sum(dynamic_mask.astype(bool) & mask.astype(bool))
-                overlap_observation_ratio: float = intersection / np.sum(mask)
-
-                # If too high, then count this as a dynamic object and skip observation creation
-                if overlap_observation_ratio > 0.2: 
-                    logger.info("[bright_red]Discard[/bright_red]: Mask {i} detected as a dynamic object.")
-                    print("FOUND DYNAMIC OBJECT, SKIPPING")
-                    continue
 
             # ============= Extract point cloud of object from RGBD =============
             ptcld = None
@@ -465,6 +349,128 @@ class FastSAMWrapper():
                 self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld))
                 
         return self.observations
+    
+    @typechecked
+    def remove_dynamic_object_masks(self, masks: np.ndarray, img_depth: np.ndarray, pose: np.ndarray) -> np.ndarray:
+        """ Uses Scene Flow to detect masks of dynamic object and remove them. """
+
+        # Skip computation if we detect no objects
+        if len(masks) == 0: return masks
+
+        # Skip Scene Flow calculation on first frame
+        if self._last_pc is not None and self._last_pose is not None:
+
+            # Transform last point cloud into current frame
+            T_curr_wrt_last = np.linalg.inv(self._last_pose) @ pose
+            last_pc_wrt_curr = transform(np.linalg.inv(T_curr_wrt_last), self._last_pc, axis=0)
+
+            # Project transformed points into our current image frame
+            x, y, z = last_pc_wrt_curr[:,0], last_pc_wrt_curr[:,1], last_pc_wrt_curr[:,2]
+            u = (self.depth_cam_params.fx * x / z + self.depth_cam_params.cx).astype(int)
+            v = (self.depth_cam_params.fy * y / z + self.depth_cam_params.cy).astype(int)
+
+            # Filter valid pixel locations
+            H, W = img_depth.shape
+            valid = (z > 0) & (u >= 0) & (u < W) & (v >= 0) & (v < H)
+            u_valid, v_valid = u[valid], v[valid]
+            last_pc_wrt_curr = last_pc_wrt_curr[valid]
+
+            # Convert depth at (u, v) into 3D using intrinsics
+            depth_curr = img_depth[v_valid, u_valid]
+            depth_curr = np.clip(depth_curr, 0, self.max_depth)
+            x_curr = (u_valid - self.depth_cam_params.cx) * depth_curr / self.depth_cam_params.fx
+            y_curr = (v_valid - self.depth_cam_params.cy) * depth_curr / self.depth_cam_params.fy
+            z_curr = depth_curr
+            pc_curr_matched = np.stack([x_curr, y_curr, z_curr], axis=1)
+
+            # Calculate scene flow
+            scene_flow = pc_curr_matched - last_pc_wrt_curr
+            flow_mag = np.linalg.norm(scene_flow, axis=1)
+
+            # Set the threshold, which is calculated as expected translation and rotation error based on estimated odometry,
+            # and includes term to account for imprecision when aligning last points to current pixels
+            trans_norm = np.linalg.norm(T_curr_wrt_last[:3,3])
+            trans_error = 0.05 * trans_norm
+
+            rotation_norm = np.linalg.norm(R.from_matrix(T_curr_wrt_last[:3,:3]).as_rotvec())
+            rotation_error = 0.05 * rotation_norm
+            chord_length = 2 * depth_curr * math.sin(rotation_error / 2)
+
+            pixel_imprecision = 0.1 * depth_curr
+
+            threshold = trans_error + chord_length + pixel_imprecision
+
+            # Calculate dynamic object mask (must have flow above threshold and be within depth range)
+            is_dynamic = (flow_mag > threshold).astype(bool) & (depth_curr < self.max_depth).astype(bool)
+            u_dyn = u_valid[is_dynamic]
+            v_dyn = v_valid[is_dynamic]
+            
+            # Send data to Rerun for visualization
+            if self.send_to_rerun:
+                rr.set_time("fastsam_frame_tick", sequence=self.frame_tick)
+                rr.log("/fastsam/points/curr", rr.Points3D(positions=pc_curr_matched[is_dynamic]))
+                rr.log("/fastsam/points/last", rr.Points3D(positions=last_pc_wrt_curr[is_dynamic]))
+                
+                dynamic_mask_vis = np.zeros((H, W, 3), dtype=np.uint8)
+                kernel = np.ones((11, 11), np.uint8)
+                dynamic_mask_vis[v_dyn, u_dyn] = np.array([255, 255, 255], dtype=np.uint8)
+                dynamic_mask_vis = cv.dilate(dynamic_mask_vis, kernel)
+                rr.log("/fastsam/camera/depth", rr.DepthImage(img_depth))
+                rr.log("/fastsam/camera/mask", rr.Image(dynamic_mask_vis))
+                
+                # Visualize threshold and flow_mag (sparse image)
+                threshold_image = np.zeros((H, W), dtype=np.float32)
+                flow_mag_image = np.zeros((H, W), dtype=np.float32)
+                threshold_image[v_valid, u_valid] = threshold
+                flow_mag_image[v_valid, u_valid] = flow_mag
+                threshold_image = cv.dilate(threshold_image, kernel)
+                flow_mag_image = cv.dilate(flow_mag_image, kernel)
+                rr.log("/fastsam/camera/thresh", rr.DepthImage(threshold_image, meter=1.0))
+                rr.log("/fastsam/camera/flow_mag", rr.DepthImage(flow_mag_image, meter=1.0))
+
+                self.frame_tick += 1
+
+            # ============= Remove FastSAM Detections overlapping with dynamic mask =============
+            to_keep = []
+            for i, mask in enumerate(masks):
+                from PIL import Image
+                im = Image.fromarray(mask.astype(np.uint8) * 255)
+                im.save("temp.jpeg")
+
+                dynamic_vis = np.zeros_like(mask, dtype=np.uint8)
+                dynamic_vis[v_valid, u_valid] = 255  # Mark dynamic regions in this mask
+                im = Image.fromarray(dynamic_vis)
+                im.save("temp2.jpg")
+
+                # Get dynamic point indices that lie within the mask
+                mask_flat = mask.astype(bool)
+                valid_in_mask = mask_flat[v_valid, u_valid]
+                dyn_in_mask = mask_flat[v_dyn, u_dyn]
+
+                num_valid_in_mask = np.count_nonzero(valid_in_mask)
+                if num_valid_in_mask > 0:
+                    overlap_ratio = np.count_nonzero(dyn_in_mask) / num_valid_in_mask
+                else: overlap_ratio = 0.0 # We saw no part of this object last frame
+
+                if overlap_ratio < 0.5:
+                    to_keep.append(i)
+                else:
+                    logger.info(f"[red]Discard[/red]: Mask {i} detected as a dynamic object.")
+                
+            masks = masks[to_keep,...]
+
+        # Generate point cloud at reduced resolution for next frame
+        masked_depth = np.clip(img_depth, 0, self.max_depth)
+        point_cloud: o3d.geometry.PointCloud = o3d.geometry.PointCloud.create_from_depth_image(
+            o3d.geometry.Image(np.ascontiguousarray(masked_depth).astype(np.float32)), self.depth_cam_intrinsics,
+            depth_scale=self.depth_scale, stride=10, project_valid_depth_only=True)
+        point_cloud: np.ndarray = np.asarray(point_cloud.points)
+
+        # Save current point cloud and pose for next frame calculating scene flow
+        self._last_pc = point_cloud
+        self._last_pose = pose
+
+        return masks
     
     def apply_rotation(self, img, unrotate=False):
         if self.rotate_img is None:

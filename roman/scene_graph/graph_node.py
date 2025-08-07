@@ -412,7 +412,7 @@ class GraphNode():
 
         # Define parameters that are hopefully invariant to environment size by depending on object size
         sample_voxel_size_to_longest_line_ratio = 0.025
-        sample_epsilon_to_longest_line_ratio = 5 * sample_voxel_size_to_longest_line_ratio
+        sample_epsilon_to_longest_line_ratio = 7.5 * sample_voxel_size_to_longest_line_ratio
         cluster_percentage_of_full = 0.7 # Can't be too small or semantics might change too mcuh
 
         # Convert into o3d PointCloud

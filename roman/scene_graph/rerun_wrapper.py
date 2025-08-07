@@ -50,34 +50,38 @@ class HSVSpace:
 class RerunWrapper():
     """ Wrapper for spawning and visualizing using Rerun. """
 
-    def __init__(self):
+    def __init__(self, enable=True):
 
-        # Create the blueprint
-        blueprint = rrb.Blueprint(
-            rrb.Tabs(
-            rrb.Vertical(
-            rrb.Horizontal(
-                rrb.GraphView(name="Graph", origin='/graph'),
-                rrb.Spatial3DView(name="World", origin='/world'),
-                rrb.TextLogView(name="Text Logs", origin="/logs"),
-            ),
-            rrb.Horizontal(
-                rrb.Spatial2DView(name="Image", origin='/world/robot/camera/image'),
-                rrb.Spatial2DView(name="Depth", origin='/world/robot/camera/depth'),
-                rrb.Spatial2DView(name="Segmentation Mask", origin='/world/robot/camera/segmentation')
-            )),
-            rrb.Horizontal(
-                rrb.Spatial3DView(name="FastSAM Projections", origin='/fastsam'),
+        # If not enabled, don't actually send any data
+        self.enable = enable
+
+        if self.enable:
+            # Create the blueprint
+            blueprint = rrb.Blueprint(
+                rrb.Tabs(
                 rrb.Vertical(
-                    rrb.Spatial2DView(name="Depth", origin='/fastsam/camera/depth'),
-                    rrb.Spatial2DView(name='Flow Magnitude', origin='/fastsam/camera/flow_mag'),
-                    rrb.Spatial2DView(name="Threshold for Dynamic Pixels", origin='/fastsam/camera/thresh'),
-                    rrb.Spatial2DView(name="Detected Dynamic Pixels", origin='/fastsam/camera/mask')
-            ))))
+                rrb.Horizontal(
+                    rrb.GraphView(name="Graph", origin='/graph'),
+                    rrb.Spatial3DView(name="World", origin='/world'),
+                    rrb.TextLogView(name="Text Logs", origin="/logs"),
+                ),
+                rrb.Horizontal(
+                    rrb.Spatial2DView(name="Image", origin='/world/robot/camera/image'),
+                    rrb.Spatial2DView(name="Depth", origin='/world/robot/camera/depth'),
+                    rrb.Spatial2DView(name="Segmentation Mask", origin='/world/robot/camera/segmentation')
+                )),
+                rrb.Horizontal(
+                    rrb.Spatial3DView(name="FastSAM Projections", origin='/fastsam'),
+                    rrb.Vertical(
+                        rrb.Spatial2DView(name="Depth", origin='/fastsam/camera/depth'),
+                        rrb.Spatial2DView(name='Flow Magnitude', origin='/fastsam/camera/flow_mag'),
+                        rrb.Spatial2DView(name="Threshold for Dynamic Pixels", origin='/fastsam/camera/thresh'),
+                        rrb.Spatial2DView(name="Detected Dynamic Pixels", origin='/fastsam/camera/mask')
+                ))))
 
-        # Spawn Rerun
-        rr.init("Meronomy_Visualization", spawn=True, default_blueprint=blueprint)
-        self.update_frame = 0
+            # Spawn Rerun
+            rr.init("Meronomy_Visualization", spawn=True, default_blueprint=blueprint)
+            self.update_frame = 0
 
     def _hsv_to_rgb255(self, h: float, s: float = 1.0, v: float = 1.0) -> np.ndarray[np.uint8]:
         """ Output will be integers 0-255 to be compatible with Rerun """
@@ -115,6 +119,9 @@ class RerunWrapper():
             seg_img
             associations
         """
+
+        if not self.enable:
+            return
 
         # Update the timelines
         rr.set_time("camera_frame_time", timestamp=curr_time)
