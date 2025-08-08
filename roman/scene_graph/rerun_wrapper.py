@@ -5,13 +5,16 @@ import copy
 import cv2
 from dataclasses import dataclass
 from .graph_node import GraphNode
+import hashlib
 from .logger import logger
 import numpy as np
 from ..params.data_params import ImgDataParams
+import random
 import rerun as rr
 import rerun.blueprint as rrb
 from scipy.spatial.transform import Rotation as R
 from typeguard import typechecked
+
 
 @dataclass
 @typechecked
@@ -84,6 +87,9 @@ class RerunWrapper():
             rr.init("Meronomy_Visualization", spawn=True, default_blueprint=blueprint)
             self.update_frame = 0
 
+            # Keep track of node colors:
+            self.node_colors: dict[int, tuple[float, float, float]] = {}
+
     def _hsv_to_rgb255(self, h: float, s: float = 1.0, v: float = 1.0) -> np.ndarray[np.uint8]:
         """ Output will be integers 0-255 to be compatible with Rerun """
         
@@ -93,22 +99,65 @@ class RerunWrapper():
         r, g, b = colorsys.hsv_to_rgb(clamp(h), clamp(s), clamp(v))
         return np.array([[int(round(r * 255)), int(round(g * 255)), int(round(b * 255))]], dtype=np.uint8)
 
-    def _assign_colors_recursive(self, node: GraphNode, hsv_space: HSVSpace,
-        node_colors: dict[int, tuple[float, float, float]], depth: int = 0) -> None:
+    # def _assign_colors_recursive(self, node: GraphNode, hsv_space: HSVSpace,
+    #     node_colors: dict[int, tuple[float, float, float]], depth: int = 0) -> None:
 
+    #     node_id = node.get_id()
+    #     node_colors[node_id] = hsv_space.center()
+
+    #     children = sorted(node.get_children(), key=lambda c: c.get_id())
+    #     if not children:
+    #         return
+
+    #     axis = depth % 3  # 0: H, 1: S, 2: V
+    #     subspaces = hsv_space.split(len(children), axis)
+    #     for child, child_space in zip(children, subspaces):
+    #         self._assign_colors_recursive(child, child_space, node_colors, depth + 1)
+
+    def _assign_colors_recursive(self, node: GraphNode, hsv_space: HSVSpace, depth: int = 0) -> None:
+
+        NUM_BUCKETS = 20
         node_id = node.get_id()
-        node_colors[node_id] = hsv_space.center()
 
+        if node_id not in self.node_colors:
+            # Deterministic RNG seeded from node_id
+            seed_bytes = hashlib.sha256(str(node_id).encode()).digest()
+            seed_int = int.from_bytes(seed_bytes[:8], "big")
+            rng = random.Random(seed_int)
+
+            # Precompute hue buckets
+            hue_buckets = [i / NUM_BUCKETS for i in range(NUM_BUCKETS)]
+
+            if depth > 0:
+                parent_h, _, _ = self.node_colors[node.get_parent().get_id()]
+                parent_bucket = min(
+                    range(NUM_BUCKETS),
+                    key=lambda i: abs(hue_buckets[i] - parent_h)
+                )
+                min_sep = NUM_BUCKETS // 4  # 90° separation
+                available_buckets = [
+                    b for b in range(NUM_BUCKETS)
+                    if abs(b - parent_bucket) >= min_sep and abs(b - parent_bucket) <= NUM_BUCKETS - min_sep
+                ]
+                bucket = available_buckets[seed_int % len(available_buckets)]
+            else:
+                bucket = seed_int % NUM_BUCKETS
+
+            h = hue_buckets[bucket]
+            s = rng.uniform(0.7, 1.0)
+            v = rng.uniform(0.8, 1.0)
+
+            self.node_colors[node_id] = (h % 1.0, s, v)
+
+        # Assign colors to children (each will get their own deterministic hue)
         children = sorted(node.get_children(), key=lambda c: c.get_id())
         if not children:
             return
 
-        axis = depth % 3  # 0: H, 1: S, 2: V
-        subspaces = hsv_space.split(len(children), axis)
-        for child, child_space in zip(children, subspaces):
-            self._assign_colors_recursive(child, child_space, node_colors, depth + 1)
+        for child in children:
+            self._assign_colors_recursive(child, hsv_space, depth + 1)
 
-    def update(self, root_node: GraphNode, curr_time: float, img: np.ndarray | None = None, depth_img: np.ndarray | None = None, camera_pose: np.ndarray | None = None, img_data_params: ImgDataParams | None = None, seg_img: np.ndarray | None = None, associations: list[tuple[int, int]] = []):
+    def update(self, root_node: GraphNode, curr_time: float, img: np.ndarray | None = None, depth_img: np.ndarray | None = None, camera_pose: np.ndarray | None = None, img_data_params: ImgDataParams | None = None, seg_img: np.ndarray | None = None, associations: list[tuple[int, int]] = [], node_to_obs_mapping: dict | None = None):
         """
         Args:
             nodes (GraphNode]): Takes as input the RootGraphNode.
@@ -131,8 +180,7 @@ class RerunWrapper():
 
         # Assign/refresh color intervals starting at the root.
         full_hsv = HSVSpace((0.0, 1.0), (0.2, 1.0), (0.2, 1.0))
-        node_colors: dict[int, tuple[float, float, float]] = {}
-        self._assign_colors_recursive(root_node, full_hsv, node_colors)
+        self._assign_colors_recursive(root_node, full_hsv)
 
         # Create structures to store graph information
         node_ids: list[int] = []
@@ -143,7 +191,7 @@ class RerunWrapper():
         point_colors: np.ndarray = np.zeros((0, 3), dtype=np.uint8)
 
         if seg_img is not None:
-            num_obs = seg_img.max()
+            num_obs = seg_img.shape[0]
             colormap: np.ndarray = np.full((num_obs+1, 3), 128, dtype=np.uint8)
             colormap[0] = [0, 0, 0]
 
@@ -161,7 +209,7 @@ class RerunWrapper():
                 edges.append((id, child.get_id()))
 
             # Colors
-            h, s, v = node_colors[id]
+            h, s, v = self.node_colors[id]
             color = self._hsv_to_rgb255(h, s, v)
             colors_rgb = np.concatenate((colors_rgb, color), dtype=np.uint8)
 
@@ -175,7 +223,7 @@ class RerunWrapper():
             if seg_img is not None:
                 for pair in associations:
                     if pair[1] == node.get_id():
-                        colormap[pair[0]+1] = color
+                        colormap[node_to_obs_mapping[pair[0]]+1] = color
 
         # Remove all edges related to root node, so it doesn't appear in visualization
         # node_ids.remove(root_node.get_id())
@@ -213,7 +261,7 @@ class RerunWrapper():
             box_quats.append(rr.Quaternion.identity()) 
 
             # Box colors
-            h, s, v = node_colors[node.get_id()]
+            h, s, v = self.node_colors[node.get_id()]
             color = self._hsv_to_rgb255(h, s, v)
             box_colors.append(color)
             box_ids.append(node.get_id())
@@ -260,6 +308,18 @@ class RerunWrapper():
                               principal_point=[img_data_params.K[2], img_data_params.K[5]],
                               image_plane_distance=1.0))
         if seg_img is not None:
-            color_mask = colormap[seg_img]
+            # Calculate image of masks with bools instead of per number
+            bool_img = np.zeros_like(seg_img)
+            bool_img[seg_img > 0] = 1
+
+            # Get array representing nubmer of observations in each pixel
+            obs_per_pixel = np.sum(bool_img, axis=0) + np.full(bool_img.shape[1:], 0.00001)
+            obs_per_pixel = obs_per_pixel[:,:,np.newaxis]
+            obs_per_pixel = np.repeat(obs_per_pixel, 3, axis=2)
+
+            # Calculate the color as the average of the colors divided by the number of observations
+            color_mask = np.divide(np.sum(colormap[seg_img], axis=0), obs_per_pixel).astype(np.uint8)
+            
+            # Overlay color onto the normal image
             overlay = cv2.addWeighted(img, 0.5, color_mask, 0.5, 0)
             rr.log("/world/robot/camera/segmentation", rr.Image(overlay))

@@ -356,6 +356,10 @@ class GraphNode():
 
     # ==================== Manipulators ====================
     @typechecked
+    def set_id(self, id: int) -> None:
+        self.id = id
+
+    @typechecked
     def remove_from_graph(self) -> set[GraphNode]:
         """ Does so by disconnecting self from parent both ways. Returns any remaining parents that need to be deleted now. """
         if self.is_RootGraphNode():
@@ -384,17 +388,21 @@ class GraphNode():
         self.last_updated = self.curr_time
 
     @typechecked
+    @staticmethod
+    def _intersect_rows(A, B):
+        """ Helper method to calculate points shared between two sets of points. """
+        A = np.ascontiguousarray(A)
+        B = np.ascontiguousarray(B)
+        A_view = A.view([('', A.dtype)] * A.shape[1])
+        B_view = B.view([('', B.dtype)] * B.shape[1])
+        return np.intersect1d(A_view, B_view).view(A.dtype).reshape(-1, A.shape[1])
+
+    @typechecked
     def update_point_cloud(self, new_points: np.ndarray, run_dbscan: bool = False) -> set[GraphNode]:
         """ Returns nodes that might need to be deleted due to cleanup removing points..."""
-        
-        # Helper method to calculate points shared between two sets of points
-        def intersect_rows(A, B):
-            A = np.ascontiguousarray(A)
-            B = np.ascontiguousarray(B)
-            A_view = A.view([('', A.dtype)] * A.shape[1])
-            B_view = B.view([('', B.dtype)] * B.shape[1])
-            return np.intersect1d(A_view, B_view).view(A.dtype).reshape(-1, A.shape[1])
 
+        # =========== Add to Point Cloud ============
+        
         # Skip math if no new points are included
         if new_points.shape[0] == 0: return set()
 
@@ -403,62 +411,97 @@ class GraphNode():
 
         # Append them to our point cloud
         self.point_cloud = np.concatenate((self.point_cloud, new_points), axis=0)
+        self.point_cloud = np.unique(self.point_cloud, axis=0) # Prune any duplicates
         self.last_updated = self.curr_time
 
         # =========== Clean-up Point Cloud  ============
-        # Considers child cloud as part of self for determining how to downsample, remove outliers,
-        # and cluster. Necessary to limit sizes of point clouds for computation purposes and for
-        # ensuring incoming point clouds only represent a single object.
+        # Necessary to limit sizes of point clouds for computation purposes and for ensuring incoming point clouds only represent a single object.
+        # Considers child cloud as part of self for determining how to downsample, remove outliers, and cluster. 
 
         # Define parameters that are hopefully invariant to environment size by depending on object size
-        sample_voxel_size_to_longest_line_ratio = 0.025
-        sample_epsilon_to_longest_line_ratio = 7.5 * sample_voxel_size_to_longest_line_ratio
-        cluster_percentage_of_full = 0.7 # Can't be too small or semantics might change too much
+        sample_voxel_size_to_longest_line_ratio = 0.01
+
+        # Perform DBSCAN clustering (if desired)
+        to_delete = set()
+        if run_dbscan:
+            # Remove statistical outliers first so they don't interfere with clustering
+            to_delete |= self.remove_statistical_outliers()
+
+            # Now perform clustering
+            to_delete |= self.dbscan_clustering()
+            
+        # Run a downsampling operation to keep the point clouds small enough for real-time
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(self.get_point_cloud())
+        length = self.get_longest_line_size()
+        if length > 0:
+            pcd_sampled = pcd.voxel_down_sample(length * sample_voxel_size_to_longest_line_ratio)
+        else: 
+            return to_delete
+
+        # Save the new sampled point cloud
+        self.point_cloud = GraphNode._intersect_rows(self.point_cloud, np.asarray(pcd_sampled.points))
+        self.last_updated = self.curr_time
+
+        # Reset point cloud dependent saved variables and return nodes to delete
+        logger.debug(f"update_point_cloud(): Resetting Point Cloud for Node {self.get_id()}")
+        return to_delete | self.reset_saved_vars()
+    
+    @typechecked
+    def dbscan_clustering(self) -> set[GraphNode]:
+        """ Returns nodes that might need to be deleted due to removed points..."""
+
+        # Define parameters that are hopefully invariant to environment size by depending on object size
+        sample_epsilon_to_longest_line_ratio = 0.1
+        cluster_percentage_of_full = 0.8 # Can't be too small or semantics might change too much
 
         # Convert into o3d PointCloud
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(self.get_point_cloud())
 
-        # Downsample Operation
+        # Perform clustering
         length = self.get_longest_line_size()
-        pcd_sampled = pcd.voxel_down_sample(length * sample_voxel_size_to_longest_line_ratio)
+        labels = np.array(pcd.cluster_dbscan(eps=length * sample_epsilon_to_longest_line_ratio, min_points=4))
+        max_cluster_index = labels.max()
+        if max_cluster_index == -1:
+            logger.info(f"[bright_red]WARNING[/bright_red]: All points in this node {self.get_id()} have been detected as noise!")
+
+            # Right now, lets just assume that our epsilon is off and thus every point should be kept
+            # Thus, let it continue the algorithm...
+
+        # Check size of max cluster
+        max_cluster_size = np.sum(labels == max_cluster_index)
+        cluster_size_ratio = max_cluster_size / len(pcd.points)
+        logger.debug(f"Cluster Size Ratio: {cluster_size_ratio}")
+        if cluster_size_ratio < cluster_percentage_of_full:
+
+            # Since this cluster is too small, the semantic embedding will not be 
+            # representative. Thus, we must delete this node, so wipe our point cloud.
+            self.point_cloud = np.zeros((0, 3), dtype=np.float64)
+            return self.reset_saved_vars()
+
+        # Filter out any points not belonging to max cluster
+        filtered_indices = np.asarray(labels == max_cluster_index).nonzero()
+        clustered_points = np.asarray(pcd.points)[filtered_indices]
+
+        # Save the new sampled point cloud 
+        self.point_cloud = GraphNode._intersect_rows(self.point_cloud, clustered_points)
+        self.last_updated = self.curr_time
+        return self.reset_saved_vars()
+
+    def remove_statistical_outliers(self) -> set[GraphNode]:
+        """ Returns nodes that might need to be deleted due to removed points..."""
+
+        # Convert into o3d PointCloud
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(self.get_point_cloud())
 
         # Remove statistical outliers
-        # pcd_sampled, _ = pcd_sampled.remove_statistical_outlier(10, 2.0)
+        pcd_sampled, _ = pcd.remove_statistical_outlier(30, 1.5)
 
-        # Perform DBSCAN clustering (if desired)
-        if run_dbscan:
-            labels = np.array(pcd_sampled.cluster_dbscan(eps=length * sample_epsilon_to_longest_line_ratio, min_points=4))
-            max_cluster_index = labels.max()
-            if max_cluster_index == -1:
-                logger.info(f"[bright_red]WARNING[/bright_red]: All points in this node have been detected as noise!")
-
-                # Right now, lets just assume that our epsilon is off and thus every point should be kept
-                # Thus, let it continue the algorithm...
-
-            # Check size of max cluster
-            max_cluster_size = np.sum(labels == max_cluster_index)
-            cluster_size_ratio = max_cluster_size / len(pcd_sampled.points)
-            logger.debug(f"Cluster Size Ratio: {cluster_size_ratio}")
-            if cluster_size_ratio < cluster_percentage_of_full:
-                # Since this cluster is too small, the semantic embedding will not be 
-                # representative. Thus, we must delete this node, so wipe our point cloud.
-                self.point_cloud = np.zeros((0, 3), dtype=np.float64)
-                return self.reset_saved_vars()
-
-            # Filter out any points not belonging to max cluster
-            filtered_indices = np.asarray(labels == max_cluster_index).nonzero()
-            clustered_points = np.asarray(pcd_sampled.points)[filtered_indices]
-        else:
-            clustered_points = np.asarray(pcd_sampled.points)
-
-        # Save the new sampled point cloud (while also removing duplicates)
-        intersection = intersect_rows(self.point_cloud, clustered_points)
-        self.point_cloud = np.unique(intersection, axis=0)
+        # Save the new sampled point cloud 
+        self.point_cloud = GraphNode._intersect_rows(self.point_cloud, np.asarray(pcd_sampled.points))
         self.last_updated = self.curr_time
-
-        # Reset point cloud dependent saved variables and return nodes to delete
-        logger.debug(f"update_point_cloud(): Resetting Point Cloud for Node {self.get_id()}")
         return self.reset_saved_vars()
 
     @typechecked

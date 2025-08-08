@@ -165,10 +165,10 @@ class ROMANMapRunner:
         # Create the segmentation image
         height = self.data_params.img_data_params.height
         width = self.data_params.img_data_params.width
-        seg_img = np.zeros((height, width), dtype=np.uint16)
+        seg_img = np.zeros((len(observations), height, width), dtype=np.uint16)
         for i, obs in enumerate(observations):
             mask = obs.mask
-            seg_img += np.multiply(mask.astype(np.uint16), np.full((height, width), i+1, dtype=np.uint16))
+            seg_img[i] = np.multiply(mask.astype(np.uint16), np.full((height, width), i+1, dtype=np.uint16))
 
         if len(observations) > 0:
             self.mapper.update(t, pose_odom_camera, observations, img, depth_img, self.data_params.img_data_params, seg_img)
