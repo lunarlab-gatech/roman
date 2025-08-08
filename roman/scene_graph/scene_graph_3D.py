@@ -58,8 +58,7 @@ class SceneGraph3D():
     def __init__(self, _T_camera_flu: np.ndarray, headless: bool = False):
         self.root_node = GraphNode.create_node_if_possible(0, None, [], np.zeros((0, 3), dtype=np.float64), [], 0, 0, 0, np.empty(0), np.empty(0), True)
         self.pose_FLU_wrt_Camera = _T_camera_flu
-        if not headless:
-            self.rerun_viewer = RerunWrapper()
+        self.rerun_viewer = RerunWrapper(enable=not headless)
 
     @typechecked
     def len(self) -> int:
@@ -87,35 +86,39 @@ class SceneGraph3D():
         for obs in observations:
             if obs.get_convex_hull() is not None:
                 valid_obs.append(obs)
-        logger.info(f"Called with {len(valid_obs)} valid observations")
+        logger.debug(f"Called with {len(valid_obs)} valid observations")
+
+        # Convert each observation into a node (if possible)
+        nodes = []
+        for obs in observations:
+            new_node: GraphNode | None = self.convert_observation_to_node(obs)
+            if new_node is not None:
+                nodes.append(new_node)
         
-        # Associate observations with any current object nodes
-        associated_pairs = self.hungarian_assignment(valid_obs)
+        # Associate new nodes with previous nodes in the graph
+        associated_pairs = self.hungarian_assignment(nodes)
 
         # Merge associated pairs
         if len(associated_pairs) > 0:
-            logger.info(f"[dark_blue]Association Merges[/dark_blue]: {len(associated_pairs)} observations successfully associated")
-        for i in range(len(valid_obs)):
+            logger.info(f"[dark_blue]Association Merges[/dark_blue]: {len(associated_pairs)} new nodes successfully associated")
+        for i, new_node in enumerate(nodes):
             for j, node in enumerate(self.root_node):
 
                 # See if this is a match
                 for pair in associated_pairs:
                     if i == pair[0] and node.get_id() == pair[1]:
 
-                        # If so, update node with observation
-                        node.merge_with_observation(valid_obs[i].transformed_points, valid_obs[i].clip_embedding)
+                        # If so, update node with observation information
+                        node.merge_with_observation(new_node.get_point_cloud(), new_node.get_semantic_descriptors())
         
         self.rerun_viewer.update(self.root_node, self.times[-1], img=img, seg_img=seg_img, associations=associated_pairs)
         
         # Add the remaining unassociated valid_obs as nodes to the scene graph
         associated_obs_indices = [x[0] for x in associated_pairs]
-        for i in range(len(valid_obs)):
+        for i in range(len(nodes)):
             if i not in associated_obs_indices:
-                new_id = self.add_new_observation_to_graph(valid_obs[i].transformed_points, valid_obs[i].clip_embedding)
-                if new_id is not None:
-                    associated_pairs.append((i, new_id))
-                if new_id is None:
-                    logger.info(f"[bright_red]Discard[/bright_red]: Observation {i} unable to be added as a node.")
+                new_id = self.add_new_node_to_graph(nodes[i])
+                associated_pairs.append((i, new_id))
 
         # Update the viewer
         self.rerun_viewer.update(self.root_node, self.times[-1], img=img, seg_img=seg_img, associations=associated_pairs)
@@ -133,21 +136,21 @@ class SceneGraph3D():
         self.rerun_viewer.update(self.root_node, self.times[-1], img=img, seg_img=seg_img, associations=associated_pairs)
 
     @typechecked
-    def hungarian_assignment(self, obs: list[Observation]) -> list[tuple]:
+    def hungarian_assignment(self, new_nodes: list[GraphNode]) -> list[tuple]:
         """
-        Associates observations with nodes in this scene graph by solving as a linear sum assignment problem
-        via the Hungarian method.
+        Associates new nodes with nodes in this scene graph by solving as 
+        a linear sum assignment problem via the Hungarian method.
         """
 
         # Get number of observations and nodes
-        num_obs = len(obs)
+        num_new = len(new_nodes)
         num_nodes = self.len()
 
         # Setup score matrix
-        scores = np.zeros((num_obs, num_nodes))
+        scores = np.zeros((num_new, num_nodes))
 
-        # Iterate through each observation
-        for i in range(num_obs):
+        # Iterate through each new node
+        for i, new_node in enumerate(new_nodes):
             # Calculate a similarity score for every node in the graph
             for j, node in enumerate(self.root_node):
 
@@ -157,11 +160,13 @@ class SceneGraph3D():
                     continue
                 
                 # Calculate IOU and Semantic Similarity
-                iou, _, _ = convex_hull_geometric_overlap(node.get_convex_hull(), obs[i].get_convex_hull())
-                sem_con = SceneGraph3D.semantic_consistency(node.get_weighted_semantic_descriptor(), obs[i].clip_embedding)
+                iou, _, _ = convex_hull_geometric_overlap(node.get_convex_hull(), new_node.get_convex_hull())
+                sem_con = SceneGraph3D.semantic_consistency(node.get_weighted_semantic_descriptor(), 
+                                                            new_node.get_weighted_semantic_descriptor())
 
                 # Check if it passes minimum requirements for association
                 logger.debug(f"Currently comparing Observation {i} to Node {node.get_id()}")
+                logger.debug(f"IOU: {iou}; Semantic Consistency: {sem_con}")
                 if self.pass_minimum_requirements_for_association(iou, sem_con):
                     # Negative as hungarian algorithm tries to minimize cost
                     scores[i,j] = -iou - sem_con
@@ -176,7 +181,7 @@ class SceneGraph3D():
         pairs = []
         for idx1, idx2 in zip(row_ind, col_ind):
             # state and measurement associated together
-            if idx1 < num_obs and idx2 < num_nodes:
+            if idx1 < num_new and idx2 < num_nodes:
                 pairs.append((idx1, idx2))
 
         # Convert second index from index of iteration in loop to node id
@@ -301,27 +306,21 @@ class SceneGraph3D():
                     break
     
     @typechecked
-    def add_new_observation_to_graph(self, new_pc: np.ndarray, new_descriptor: np.ndarray | None) -> int | None:
-        """
-        Args:
-            new_pc (np.ndarray): Point Cloud in shape of (N, 3) in the global frame.
-        """
+    def convert_observation_to_node(self, obs: Observation) -> GraphNode | None:
 
         # Create a new node for this observation
         new_node: GraphNode | None = GraphNode.create_node_if_possible(self.root_node.request_new_ID(), None, 
-                                        [], new_pc, [],  self.times[-1], self.times[-1], self.times[-1], 
+                                        [], obs.transformed_points, [],  self.times[-1], self.times[-1], self.times[-1], 
                                         self.poses[-1], self.poses[-1])
         if new_node is None: return None # Node creation failed
         
         # Add the descriptor to the node
-        if new_descriptor is not None:
-            new_node.add_semantic_descriptors([(new_descriptor, new_node.get_volume())])
-        
-        # Add this node to the graph
-        return self.add_new_node_to_graph(new_node, only_leaf=False)
+        if obs.clip_embedding is not None:
+            new_node.add_semantic_descriptors([(obs.clip_embedding, new_node.get_volume())])
+        return new_node
 
     @typechecked
-    def add_new_node_to_graph(self, node: GraphNode, only_leaf=False) -> int | None:
+    def add_new_node_to_graph(self, node: GraphNode, only_leaf=False) -> int:
 
         # Make sure the node passed to the graph is actually valid
         if not node._class_method_creation_success:
@@ -402,9 +401,9 @@ class SceneGraph3D():
 
         # Place our already fully formed node into its spot
         if len(new_children) > 0:
-            logger.info(f"Node {node.get_id()} added to graph as child of Node {new_parent.get_id()} and parent of Nodes {[c.get_id() for c in new_children]}")
+            logger.info(f"[cyan]Added[/cyan]: Node {node.get_id()} added to graph as child of Node {new_parent.get_id()} and parent of Nodes {[c.get_id() for c in new_children]}")
         else:
-            logger.info(f"Node {node.get_id()} added to graph as child of Node {new_parent.get_id()}")
+            logger.info(f"[cyan]Added[/cyan]: Node {node.get_id()} added to graph as child of Node {new_parent.get_id()}")
         new_parent.add_child(node)
         node.set_parent(new_parent)
         

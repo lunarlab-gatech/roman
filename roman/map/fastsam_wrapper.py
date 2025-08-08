@@ -433,14 +433,6 @@ class FastSAMWrapper():
             # ============= Remove FastSAM Detections overlapping with dynamic mask =============
             to_keep = []
             for i, mask in enumerate(masks):
-                from PIL import Image
-                im = Image.fromarray(mask.astype(np.uint8) * 255)
-                im.save("temp.jpeg")
-
-                dynamic_vis = np.zeros_like(mask, dtype=np.uint8)
-                dynamic_vis[v_valid, u_valid] = 255  # Mark dynamic regions in this mask
-                im = Image.fromarray(dynamic_vis)
-                im.save("temp2.jpg")
 
                 # Get dynamic point indices that lie within the mask
                 mask_flat = mask.astype(bool)

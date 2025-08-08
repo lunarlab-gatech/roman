@@ -413,7 +413,7 @@ class GraphNode():
         # Define parameters that are hopefully invariant to environment size by depending on object size
         sample_voxel_size_to_longest_line_ratio = 0.025
         sample_epsilon_to_longest_line_ratio = 7.5 * sample_voxel_size_to_longest_line_ratio
-        cluster_percentage_of_full = 0.7 # Can't be too small or semantics might change too mcuh
+        cluster_percentage_of_full = 0.7 # Can't be too small or semantics might change too much
 
         # Convert into o3d PointCloud
         pcd = o3d.geometry.PointCloud()
@@ -424,7 +424,7 @@ class GraphNode():
         pcd_sampled = pcd.voxel_down_sample(length * sample_voxel_size_to_longest_line_ratio)
 
         # Remove statistical outliers
-        pcd_sampled, _ = pcd_sampled.remove_statistical_outlier(10, 2.0)
+        # pcd_sampled, _ = pcd_sampled.remove_statistical_outlier(10, 2.0)
 
         # Perform DBSCAN clustering (if desired)
         if run_dbscan:
@@ -556,7 +556,7 @@ class GraphNode():
             self.parent_node.reset_saved_vars_safe()
 
     @typechecked
-    def merge_with_observation(self, new_pc: np.ndarray, new_descriptor: np.ndarray | None) -> None:
+    def merge_with_observation(self, new_pc: np.ndarray, new_descriptors: list[tuple[np.ndarray, float]] | None) -> None:
         """
         Args:
             new_pc (np.ndarray): Point Cloud in shape of (N, 3) in the global frame.
@@ -566,8 +566,8 @@ class GraphNode():
         """
 
         # Save the semantic embedding into this parent graph node
-        if new_descriptor is not None: 
-            self.add_semantic_descriptors([(new_descriptor, ConvexHull(new_pc).volume)])
+        if new_descriptors is not None: 
+            self.add_semantic_descriptors(new_descriptors)
 
         # Get convex hulls of each child
         hulls: list[trimesh.Trimesh] = []

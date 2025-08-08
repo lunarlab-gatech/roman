@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import colorsys
+import copy
 import cv2
 from dataclasses import dataclass
 from .graph_node import GraphNode
@@ -245,7 +246,9 @@ class RerunWrapper():
         if img is not None:
             rr.log("/world/robot/camera/image", rr.Image(img))
         if depth_img is not None:
-            rr.log("/world/robot/camera/depth", rr.DepthImage(depth_img, depth_range=75))
+            depth_img_vis = copy.deepcopy(depth_img)
+            depth_img_vis[depth_img_vis > 75] = 75
+            rr.log("/world/robot/camera/depth", rr.DepthImage(depth_img_vis))
         if camera_pose is not None:
             rot = R.from_matrix(camera_pose[:3,:3])
             rr.log("/world/robot/camera", rr.Transform3D(translation=camera_pose[:3,3],
