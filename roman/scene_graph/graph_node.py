@@ -428,34 +428,32 @@ class GraphNode():
         sample_voxel_size_to_longest_line_ratio = 0.01
 
         # Perform DBSCAN clustering (if desired)
-        to_delete = set()
         if run_dbscan:
             # Remove statistical outliers first so they don't interfere with clustering
-            to_delete |= self.remove_statistical_outliers()
+            self._remove_statistical_outliers()
 
             # Now perform clustering
-            to_delete |= self.dbscan_clustering()
-            
+            self._dbscan_clustering()
+
         # Run a downsampling operation to keep the point clouds small enough for real-time
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(self.get_point_cloud())
         length = self.get_longest_line_size()
         if length > 0:
             pcd_sampled = pcd.voxel_down_sample(length * sample_voxel_size_to_longest_line_ratio)
-        else: 
-            return to_delete
-
-        # Save the new sampled point cloud
+        else:
+            return self.reset_saved_vars()
+        
+        # Update the point cloud
         self.point_cloud = GraphNode._intersect_rows(self.point_cloud, np.asarray(pcd_sampled.points))
         self.last_updated = self.curr_time
 
         # Reset point cloud dependent saved variables and return nodes to delete
         logger.debug(f"update_point_cloud(): Resetting Point Cloud for Node {self.get_id()}")
-        return to_delete | self.reset_saved_vars()
+        return self.reset_saved_vars()
     
     @typechecked
-    def dbscan_clustering(self) -> set[GraphNode]:
-        """ Returns nodes that might need to be deleted due to removed points..."""
+    def _dbscan_clustering(self):
 
         # Define parameters that are hopefully invariant to environment size by depending on object size
         sample_epsilon_to_longest_line_ratio = 0.1
@@ -493,10 +491,11 @@ class GraphNode():
         # Save the new sampled point cloud 
         self.point_cloud = GraphNode._intersect_rows(self.point_cloud, clustered_points)
         self.last_updated = self.curr_time
-        return self.reset_saved_vars()
+        self.reset_saved_vars_safe()
 
-    def remove_statistical_outliers(self) -> set[GraphNode]:
-        """ Returns nodes that might need to be deleted due to removed points..."""
+        # NOTE: This actually ISN'T a safe operation, so calling method MUST call reset_saved_vars().
+
+    def _remove_statistical_outliers(self):
 
         # Convert into o3d PointCloud
         pcd = o3d.geometry.PointCloud()
@@ -508,7 +507,9 @@ class GraphNode():
         # Save the new sampled point cloud 
         self.point_cloud = GraphNode._intersect_rows(self.point_cloud, np.asarray(pcd_sampled.points))
         self.last_updated = self.curr_time
-        return self.reset_saved_vars()
+        self.reset_saved_vars_safe()
+
+        # NOTE: This actually ISN'T a safe operation, so calling method MUST call reset_saved_vars().
 
     @typechecked
     def merge_with_node(self, other: GraphNode) -> GraphNode | None:
