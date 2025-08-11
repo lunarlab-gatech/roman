@@ -327,6 +327,12 @@ class GraphNode():
     def get_children(self) -> list[GraphNode]:
         return self.child_nodes
     
+    @typechecked
+    def is_sibling(self, other: GraphNode) -> bool:
+        if self.is_RootGraphNode():
+            return False
+        return self.get_parent() == other.get_parent()
+    
     # ==================== Calculations ====================
     def calculate_weighted_semantic_descriptor(self, descriptors: list[tuple[NDArray[np.float64], float]]) -> np.ndarray | None:
         # If we have no descriptors, just return None

@@ -27,22 +27,17 @@ class SceneGraph3D():
     # Keeps track of the current pose so we know where we are
     poses: list[np.ndarray] = []
 
-    # The two requirements for an observation to be associated with a current graph node,
-    # or for two nodes to be merged.
+    # Requirement for an observation to be associated with a current graph node or for two nodes to be merged.
     min_iou_for_association = 0.6
-    min_sem_con_for_association = 0.8 # Also used for "Nearby Object Semantic Merging" and "Parent-Child Semantic Merging"
 
-    # Threshold to determine if two convex hulls are overlapping in resolve_overlapping_point_clouds()
+    # Used for "Nearby Children Semantic Merging" and "Parent-Child Semantic Merging"
+    min_sem_con_for_association = 0.9 
+
+    # Threshold to determine if two convex hulls are overlapping in resolve_overlapping_convex_hulls()
     iou_threshold_overlapping_obj = 0.2
 
-    # Ratio of distance to object volume threshold for "Nearby Object Semantic Merging"
-    ratio_dist2length_threshold_nearby_obj_semantic_merge = 0.05
-
-    # Ratio of distance to object volume threshold for "Higher Level Object Inference"
-    ratio_dist2length_threshold_higher_level_object_inference = 1.0
-
-    # Minimum semantic consistency for two objects to infer a shared parent
-    min_sem_con_for_higher_level_object_inference = 0.65
+    # Ratio of distance to object volume threshold for "Nearby Children Semantic Merging"
+    ratio_dist2length_threshold_nearby_children_semantic_merge = 0.05
 
     # TODO: Should I keep or get rid of this?
     # If a NEW node isn't seen for this time, remove from graph
@@ -123,7 +118,7 @@ class SceneGraph3D():
         self.merging_and_generation()
 
         # Resolve any overlapping point clouds
-        # self.resolve_overlapping_point_clouds()
+        self.resolve_overlapping_convex_hulls()
 
         # Run node retirement
         self.node_retirement()
@@ -155,17 +150,14 @@ class SceneGraph3D():
                     scores[i,j] = 1e9
                     continue
                 
-                # Calculate IOU and Semantic Similarity
+                # Calculate IOU
                 iou, _, _ = convex_hull_geometric_overlap(node.get_convex_hull(), new_node.get_convex_hull())
-                sem_con = SceneGraph3D.semantic_consistency(node.get_weighted_semantic_descriptor(), 
-                                                            new_node.get_weighted_semantic_descriptor())
 
                 # Check if it passes minimum requirements for association
-                logger.debug(f"Currently comparing Node {new_node.get_id()} to Node {node.get_id()}")
-                logger.debug(f"IOU: {iou}; Semantic Consistency: {sem_con}")
-                if self.pass_minimum_requirements_for_association(iou, sem_con):
+                logger.debug(f"Currently comparing Node {new_node.get_id()} to Node {node.get_id()} with IOU: {iou}")
+                if self.pass_minimum_requirements_for_association(iou):
                     # Negative as hungarian algorithm tries to minimize cost
-                    scores[i,j] = -iou - sem_con
+                    scores[i,j] = -iou
                 else:
                     # If fail (or root node), then give a very large number to practically disable association
                     scores[i,j] = 1e9
@@ -214,25 +206,18 @@ class SceneGraph3D():
         return rescaled_clamped
     
     @typechecked
-    def pass_minimum_requirements_for_association(self, iou: float, sem_con: float) ->  bool:
+    def pass_minimum_requirements_for_association(self, iou: float) ->  bool:
+        """ Currently, only use geometric information for association as drift should
+            have no negative impact in small trajectories. """
+
         # Make sure inputs are within required bounds
         SceneGraph3D.check_within_bounds(iou, (0, 1))
-        SceneGraph3D.check_within_bounds(sem_con, (0, 1))
 
         # Check if within thresholds for association
-        iou_pass: bool = bool(iou >= self.min_iou_for_association)
-        sem_pass: bool = bool(sem_con >= self.min_sem_con_for_association)
+        return bool(iou >= self.min_iou_for_association)
 
-        # Print warning if IOU overlap is high and semantic is far off.
-        # Could be indicative of underlying bug in algorithm.
-        if iou_pass and not sem_pass:
-            logger.info(f"[bright_red]WARNING[/bright_red]: IOU overlap {iou} is high enough for association, but semantic {sem_con} is too far off. This shouldn't happen!")      
-
-        # Return true if both requirements are fulfilled
-        return iou_pass and sem_pass
-    
     @typechecked
-    def resolve_overlapping_point_clouds(self):
+    def resolve_overlapping_convex_hulls(self):
         # Iterate through entire graph until no overlaps with shared points are detected
         change_occured = True
         while change_occured:
@@ -282,7 +267,9 @@ class SceneGraph3D():
                       
                                 # Try to add the new observation to the graph
                                 logger.info(f"Adding overlap region of {len(pc_overlap)} points as observation to graph...")
-                                self.add_new_observation_to_graph(pc_overlap, None)
+                                new_node: GraphNode | None  = self.convert_point_cloud_to_node(pc_overlap)
+                                if new_node is not None:
+                                    new_id = self.add_new_node_to_graph(new_node, only_leaf=True)
 
                                 # TODO: Long-term want to keep track of when images/masks correspond to which points,
                                 # so we can go back and get a clip embedding specific to this region. Will allow us
@@ -316,6 +303,16 @@ class SceneGraph3D():
         if obs.clip_embedding is not None:
             new_node.add_semantic_descriptors([(obs.clip_embedding, new_node.get_volume())])
         return new_node
+    
+    @typechecked
+    def convert_point_cloud_to_node(self, point_cloud: np.ndarray) -> GraphNode | None:
+
+        # Create a new node for this observation
+        new_node: GraphNode | None = GraphNode.create_node_if_possible(self.root_node.request_new_ID(), None, [], 
+                                        point_cloud, [],  self.times[-1], 
+                                        self.times[-1], self.times[-1], 
+                                        self.poses[-1], self.poses[-1])
+        return new_node # If it failed, we return None to signify it
 
     @typechecked
     def add_new_node_to_graph(self, node: GraphNode, only_leaf=False) -> int:
@@ -413,9 +410,6 @@ class SceneGraph3D():
         node.add_children(new_children)
         for child in new_children:
             child.set_parent(node)
-
-        # Resolve overlapping point clouds
-        # self.resolve_overlapping_point_clouds()
 
         # Return the id of the node just added
         return node.get_id()
@@ -539,10 +533,9 @@ class SceneGraph3D():
 
                         # Calculate IOU and Semantic Similarity
                         iou, _, _ = convex_hull_geometric_overlap(node_i.get_convex_hull(), node_j.get_convex_hull())
-                        sem_con = SceneGraph3D.semantic_consistency(node_i.get_weighted_semantic_descriptor(), node_j.get_weighted_semantic_descriptor())
-
+    
                         # See if they pass minimum requirements for association
-                        if self.pass_minimum_requirements_for_association(iou, sem_con):
+                        if self.pass_minimum_requirements_for_association(iou):
 
                             # If so, merge nodes in the graph
                             logger.info(f"[dark_blue]Association Merge[/dark_blue]: Merging Node {node_i.get_id()} into Node {node_j.get_id()} and popping off graph")
@@ -556,39 +549,6 @@ class SceneGraph3D():
                             merge_occured = True
                             break
                         
-                        # # ========== Nearby Object Semantic Merge ==========
-
-                        # # Get shortest distance between the nodes
-                        # dist = shortest_dist_between_convex_hulls(node_i.get_convex_hull(), node_j.get_convex_hull())
-
-                        # # Get longest line of either node
-                        # longest_line_node_i = node_i.get_longest_line_size()
-                        # longest_line_node_j = node_j.get_longest_line_size()
-                        # longest_line = max(longest_line_node_i, longest_line_node_j)
-
-                        # # Get ratio of shortest distance to longest line (in other words, dist to object length)
-                        # dist_to_object_length = dist / longest_line
-
-                        # # If ratio of shortest distance to object length is within threshold AND
-                        # # the semanatic embedding is close enough for association
-                        # if dist_to_object_length < self.ratio_dist2length_threshold_nearby_obj_semantic_merge and \
-                        #     sem_con < self.min_sem_con_for_association:
-
-                        #     # If so, merge these two nodes in the graph
-                        #     logger.info(f"[gold1]Nearby Obj Sem Merge[/gold1]: Merging Node {node_j.get_id()} into Node {node_i.get_id()} and popping off graph")
-                        #     logger.debug(f"SHORTEST DIST: {dist}")
-                        #     logger.debug(f"LONGEST LINE: {longest_line}")
-                        #     logger.debug(f"DIST TO OBJECT LENGTH: {dist_to_object_length} < {self.ratio_dist2length_threshold_nearby_obj_semantic_merge}")
-                        #     merged_node = node_i.merge_with_node(node_j)
-                        #     if merged_node is None:
-                        #         logger.info(f"[bright_red]Merge Fail[/bright_red]: Resulting Node was invalid.")
-                        #     else:
-                        #         self.add_new_node_to_graph(merged_node, only_leaf=True)
-
-                        #     # Break out of double-nested loop to reset iterators
-                        #     merge_occured = True
-                        #     break
-
                         # ========== Higher Level Object Inference ==========
 
                         # If they already have a shared parent that isn't the RootGraphNode, no point checking this...
@@ -632,45 +592,97 @@ class SceneGraph3D():
             if merge_occured:
                 continue
 
-            # # Iterate through pairs of parent-child relationships (to check if they should merge)
-            # for i, node_i in enumerate(self.root_node):
-            #     for j, node_j in enumerate(self.root_node):
-            #         if i < j and node_i.is_parent_or_child(node_j):
-              
-            #             # ========== Parent-Child Semantic Merging ==========
+            # Iterate through all pairs of children
+            for i, node_i in enumerate(self.root_node):
+                for j, node_j in enumerate(self.root_node):
+                    if i < j and node_i.is_sibling(node_j):
 
-            #             # If either is the root node, skip as this shouldn't really merge with any children
-            #             if node_i.is_RootGraphNode() or node_j.is_RootGraphNode():
-            #                 continue
+                        # ========== Nearby Children Semantic Merge ==========
 
-            #             # Calculate Semantic Similarity
-            #             sem_con = SceneGraph3D.semantic_consistency(node_i.get_weighted_semantic_descriptor(), node_j.get_weighted_semantic_descriptor())
+                        # Get shortest distance between the nodes
+                        dist = shortest_dist_between_convex_hulls(node_i.get_convex_hull(), node_j.get_convex_hull())
 
-            #             # If semantic embedding is enough for assocation, just merge the child into the parent
-            #             if sem_con > self.min_sem_con_for_association:
+                        # TODO: I wonder if using average distance would be better for 
+                        # being resistant to noise in our nearby children semantic merging. Maybe try this!
 
-            #                 # Get which node is the parent and which is the child
-            #                 if node_i.is_parent(node_j): 
-            #                     parent_node = node_i
-            #                     child_node = node_j
-            #                 else: 
-            #                     parent_node = node_j
-            #                     child_node = node_i
+                        # Get longest line of either node
+                        longest_line_node_i = node_i.get_longest_line_size()
+                        longest_line_node_j = node_j.get_longest_line_size()
+                        longest_line = np.mean([longest_line_node_i, longest_line_node_j])
 
-            #                 # Merge the child into the parent
-            #                 logger.info(f"[green1]Parent-Child Semantic Merge[/green1]: Merging Node {child_node.get_id()} into Node {parent_node.get_id()}")
-            #                 parent_node.merge_child_with_self(child_node)
+                        # Get ratio of shortest distance to longest line (in other words, dist to object length)
+                        dist_to_object_length = dist / longest_line
 
-            #                 # Make sure nothing wierd has happened to point clouds, though I don't believe this should do anything
-            #                 #self.resolve_overlapping_point_clouds()
-                        
-            #                 # Break out of double-nested loop to reset iterators
-            #                 merge_occured = True
-            #                 break
+                        # Finally, calculate semantic consistency
+                        sem_con = self.semantic_consistency(node_i.get_weighted_semantic_descriptor(),
+                                                            node_j.get_weighted_semantic_descriptor())
+
+                        # If ratio of shortest distance to object length is within threshold AND
+                        # the semanatic embedding is close enough for association
+                        if dist_to_object_length < self.ratio_dist2length_threshold_nearby_children_semantic_merge and \
+                            sem_con < self.min_sem_con_for_association:
+
+                            # If so, merge these two nodes in the graph
+                            logger.info(f"[gold1]Nearby Obj Sem Merge[/gold1]: Merging Node {node_j.get_id()} into Node {node_i.get_id()} and popping off graph")
+                            logger.debug(f"SHORTEST DIST: {dist}")
+                            logger.debug(f"LONGEST LINE: {longest_line}")
+                            logger.debug(f"DIST TO OBJECT LENGTH: {dist_to_object_length} < {self.ratio_dist2length_threshold_nearby_children_semantic_merge}")
+                            merged_node = node_i.merge_with_node(node_j)
+                            if merged_node is None:
+                                logger.info(f"[bright_red]Merge Fail[/bright_red]: Resulting Node was invalid.")
+                            else:
+                                self.add_new_node_to_graph(merged_node, only_leaf=True)
+
+                            # Break out of double-nested loop to reset iterators
+                            merge_occured = True
+                            break
                 
-            #     # If we break out of inner loop, leave outer loop too
-            #     if merge_occured:
-            #         break
+                # If we break out of inner loop, leave outer loop too
+                if merge_occured:
+                    break
+            
+            # Restart next iteration if merge already occured
+            if merge_occured:
+                continue
+
+            # Iterate through pairs of parent-child relationships (to check if they should merge)
+            for i, node_i in enumerate(self.root_node):
+                for j, node_j in enumerate(self.root_node):
+                    if i < j and node_i.is_parent_or_child(node_j):
+              
+                        # ========== Parent-Child Semantic Merging ==========
+
+                        # If either is the root node, skip as this shouldn't really merge with any children
+                        if node_i.is_RootGraphNode() or node_j.is_RootGraphNode():
+                            continue
+
+                        # Calculate Semantic Similarity
+                        sem_con = SceneGraph3D.semantic_consistency(node_i.get_weighted_semantic_descriptor(), node_j.get_weighted_semantic_descriptor())
+
+                        # If semantic embedding is enough for assocation, just merge the child into the parent
+                        if sem_con > self.min_sem_con_for_association:
+
+                            # Get which node is the parent and which is the child
+                            if node_i.is_parent(node_j): 
+                                parent_node = node_i
+                                child_node = node_j
+                            else: 
+                                parent_node = node_j
+                                child_node = node_i
+
+                            # Merge the child into the parent
+                            logger.info(f"[green1]Parent-Child Semantic Merge[/green1]: Merging Node {child_node.get_id()} into Node {parent_node.get_id()}")
+                            parent_node.merge_child_with_self(child_node)
+
+                            # Break out of double-nested loop to reset iterators
+                            merge_occured = True
+                            break
+                
+                # If we break out of inner loop, leave outer loop too
+                if merge_occured:
+                    break
+                
+
 
     def node_retirement(self):
         # Iterate only through the direct children of the root node

@@ -225,16 +225,6 @@ class RerunWrapper():
                     if pair[1] == node.get_id():
                         colormap[node_to_obs_mapping[pair[0]]+1] = color
 
-        # Remove all edges related to root node, so it doesn't appear in visualization
-        # node_ids.remove(root_node.get_id())
-        # to_remove = []
-        # for i, edge in enumerate(edges):
-        #     if edge[0] == root_node.get_id() or edge[1] == root_node.get_id():
-        #         to_remove.append(i)
-        # to_remove.sort(reverse=True)
-        # for i in to_remove:
-        #     edges.pop(i)    
-
         # Calculate bounding boxes & extract convex hulls as lines for nodes
         box_centers = []
         box_half_sizes = []
@@ -288,6 +278,9 @@ class RerunWrapper():
         rr.log("/world/points", rr.Points3D(positions=points, colors=point_colors))
         rr.log("/world/boxes", rr.Boxes3D(centers=box_centers, half_sizes=box_half_sizes,
                             quaternions=box_quats, colors=box_colors, radii=0.1, fill_mode="line",
+                            labels=None))
+        rr.log("/world/labels", rr.Boxes3D(centers=box_centers, half_sizes=box_half_sizes,
+                            quaternions=box_quats, colors=box_colors, radii=0, fill_mode="line",
                             labels=box_ids))
         rr.log("/world/meshes", rr.LineStrips3D(strips=line_ends, colors=line_colors, radii=0.1))
 

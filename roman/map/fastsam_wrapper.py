@@ -293,9 +293,12 @@ class FastSAMWrapper():
                 
                 # Remove points past max depth, downsample, and remove non-finite points
                 pcd_test.remove_non_finite_points()
-                pcd_sampled = pcd_test.voxel_down_sample(voxel_size=self.voxel_size)
-                if not pcd_sampled.is_empty():
-                    ptcld = np.asarray(pcd_sampled.points)
+
+                # Remove this, as I want to downsample related to size with Scene Graph
+                # pcd_test = pcd_test.voxel_down_sample(voxel_size=self.voxel_size)
+
+                if not pcd_test.is_empty():
+                    ptcld = np.asarray(pcd_test.points)
                     ptcld = ptcld[ptcld[:,2] <= self.max_depth]
                 if ptcld is None:
                     continue
