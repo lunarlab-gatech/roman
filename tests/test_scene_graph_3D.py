@@ -13,14 +13,10 @@ class TestSceneGraph3D(unittest.TestCase):
         graph = SceneGraph3D(np.zeros((4, 4)), headless=True)
 
         iou_pass = 0.5 * (1 + graph.min_iou_for_association)
-        sem_pass = 0.5 * (1 + graph.min_sem_con_for_association)
         iou_fail = 0.5 * graph.min_iou_for_association
-        sem_fail = 0.5 * graph.min_sem_con_for_association
 
-        np.testing.assert_equal(graph.pass_minimum_requirements_for_association(iou_pass, sem_pass), True)
-        np.testing.assert_equal(graph.pass_minimum_requirements_for_association(iou_pass, sem_fail), False)
-        np.testing.assert_equal(graph.pass_minimum_requirements_for_association(iou_fail, sem_pass), False)
-        np.testing.assert_equal(graph.pass_minimum_requirements_for_association(iou_fail, sem_fail), False)
+        np.testing.assert_equal(graph.pass_minimum_requirements_for_association(iou_pass), True)
+        np.testing.assert_equal(graph.pass_minimum_requirements_for_association(iou_fail), False)
 
 if __name__ == "__main__":
     unittest.main()

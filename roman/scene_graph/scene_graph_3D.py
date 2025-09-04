@@ -39,7 +39,7 @@ class SceneGraph3D():
     # Ratio of distance to object volume threshold for "Nearby Children Semantic Merging"
     ratio_dist2length_threshold_nearby_children_semantic_merge = 0.05
 
-    # TODO: Should I keep or get rid of this?
+    # TODO: Should I reimplement this or is it not worth the hassle?
     # If a NEW node isn't seen for this time, remove from graph
     # max_t_no_sightings_to_prune_new = 0.4 # seconds
 
@@ -682,8 +682,6 @@ class SceneGraph3D():
                 if merge_occured:
                     break
                 
-
-
     def node_retirement(self):
         # Iterate only through the direct children of the root node
         retired_ids = []
