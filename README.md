@@ -107,8 +107,7 @@ submap_align.yaml: submap_radius, submap_center_dist
 
 For reasons for changes in category 2, see the corresponding .yaml files.
 
-#### TEMP
-Profiling command:
+#### Profiling
 ```
 python3 -m cProfile -o profile.out demo/demo.py -p demo/params/hercules_AustraliaEnv -o demo_output --skip-align --skip-rpgo
 ```

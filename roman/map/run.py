@@ -69,16 +69,7 @@ class ROMANMapRunner:
 
         if verbose: print("Setting up FastSAM...")
         self.fastsam = FastSAMWrapper.from_params(self.fastsam_params, self.depth_data.camera_params)
-
-        # TODO: start here
-        if not self.mapper_params.use_3D_Scene_graph:
-            if verbose: print("Setting up ROMAN mapper...")
-            self.mapper = Mapper(self.mapper_params, self.img_data.camera_params)
-            if self.data_params.pose_data_params.T_camera_flu is not None:
-                self.mapper.set_T_camera_flu(self.data_params.pose_data_params.T_camera_flu)
-        else:
-            print("Enabling 3D Scene Graph mapper!")
-            self.mapper = SceneGraph3D(self.data_params.pose_data_params.T_camera_flu)
+        self.mapper = SceneGraph3D(self.data_params.pose_data_params.T_camera_flu)
         
         self.verbose = verbose
         self.viz_map = viz_map
@@ -146,21 +137,13 @@ class ROMANMapRunner:
         reprojected_bboxs = []
         img_ret = None
         if self.viz_observations:
-            if not self.mapper_params.use_3D_Scene_graph:
-                segment: Segment
-                for i, segment in enumerate(self.mapper.segments + self.mapper.inactive_segments):
-                    bbox = segment.reprojected_bbox(pose_odom_camera)
+            for i, node in enumerate(self.mapper.root_node):
+                if not node.is_RootGraphNode():
+                    # Get the bounding box for each object
+                    bbox = node.reprojected_bbox(pose_odom_camera, self.img_data.camera_params.K, 
+                            self.img_data.camera_params.width, self.img_data.camera_params.height)
                     if bbox is not None:
-                        reprojected_bboxs.append((segment.id, bbox))
-            else:
-                # Visualize our 3D Scene Graph nodes instead
-                for i, node in enumerate(self.mapper.root_node):
-                    if not node.is_RootGraphNode():
-                        # Get the bounding box for each object
-                        bbox = node.reprojected_bbox(pose_odom_camera, self.img_data.camera_params.K, 
-                                self.img_data.camera_params.width, self.img_data.camera_params.height)
-                        if bbox is not None:
-                            reprojected_bboxs.append((i, bbox))
+                        reprojected_bboxs.append((i, bbox))
 
         # Create the segmentation image
         height = self.data_params.img_data_params.height
@@ -170,26 +153,16 @@ class ROMANMapRunner:
             mask = obs.mask
             seg_img[i] = np.multiply(mask.astype(np.uint16), np.full((height, width), i+1, dtype=np.uint16))
 
-        if len(observations) > 0:
-            self.mapper.update(t, pose_odom_camera, observations, img, depth_img, self.data_params.img_data_params, seg_img)
-        else:
-            if not self.mapper_params.use_3D_Scene_graph:
-                self.mapper.poses_flu_history.append(pose_odom_camera @ self.mapper._T_camera_flu)
-                self.mapper.times_history.append(t)
-            else:
-                # Add the times and poses specific to our SceneGraph3D API
-                self.mapper.times.append(t)
-                self.mapper.poses.append(pose_odom_camera @ self.mapper.pose_FLU_wrt_Camera)
+        self.mapper.update(t, pose_odom_camera, observations, img, depth_img, self.data_params.img_data_params, seg_img)
 
-        if not self.mapper_params.use_3D_Scene_graph:
-            if self.viz_map or self.viz_observations or self.viz_3d:
-                img_ret = self.draw(t, img, pose_odom_camera, observations, reprojected_bboxs)
+        # if not self.mapper_params.use_3D_Scene_graph:
+        #     if self.viz_map or self.viz_observations or self.viz_3d:
+        #         img_ret = self.draw(t, img, pose_odom_camera, observations, reprojected_bboxs)
 
-            if self.save_viz:
-                self.viz_imgs.append(img_ret)
-        else:
-            if self.viz_map or self.viz_observations or self.viz_3d:
-                print("Visualization is not currently implemented for SceneGraph3D!")
+        #     if self.save_viz:
+        #         self.viz_imgs.append(img_ret)
+        if self.viz_map or self.viz_observations or self.viz_3d:
+            print("Visualization is not currently implemented for SceneGraph3D!")
 
         return img_ret
         

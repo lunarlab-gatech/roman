@@ -102,7 +102,7 @@ class TestHullMethods(unittest.TestCase):
     def test_shortest_dist_between_convex_hulls(self):
         """ Make sure the short distance calculation is reasonable. """
 
-        # TODO: This turned out to be broken, even with these tests, so add a couple more to be more thorough.
+        # TODO: This turned out to be broken previously, even with these tests, so add a couple more to be more thorough.
 
         np.testing.assert_almost_equal(shortest_dist_between_convex_hulls(self.hull_1, self.hull_2), 0, 1)
         np.testing.assert_almost_equal(shortest_dist_between_convex_hulls(self.hull_1, self.hull_3), math.sqrt(3), 1)

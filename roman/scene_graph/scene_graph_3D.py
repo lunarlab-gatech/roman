@@ -6,10 +6,10 @@ from itertools import chain, combinations
 from .logger import logger
 from ..map.observation import Observation
 import numpy as np
-import open3d as o3d
 from ..params.data_params import ImgDataParams
 from .rerun_wrapper import RerunWrapper
-from robotdatapy.transform import transform
+from roman.map.map import ROMANMap
+from roman.object.segment import Segment
 from scipy.optimize import linear_sum_assignment
 import trimesh
 from typeguard import typechecked
@@ -85,34 +85,38 @@ class SceneGraph3D():
                 nodes.append(new_node)
                 node_to_obs_mapping[new_node.get_id()] = i
         logger.info(f"Called with {len(nodes)} valid observations")
+
+        # Run operations that require at least one input node
+        associated_pairs: list[tuple] = []
+        if len(nodes) > 0:
+            
+            # Associate new nodes with previous nodes in the graph
+            associated_pairs = self.hungarian_assignment(nodes)
+
+            # Merge associated pairs
+            if len(associated_pairs) > 0:
+                logger.info(f"[dark_blue]Association Merges[/dark_blue]: {len(associated_pairs)} new nodes successfully associated")
+            for i, new_node in enumerate(nodes):
+                for j, node in enumerate(self.root_node):
+
+                    # See if this is a match
+                    for pair in associated_pairs:
+                        if new_node.get_id() == pair[0] and node.get_id() == pair[1]:
+
+                            # If so, update node with observation information
+                            node.merge_with_observation(new_node.get_point_cloud(), new_node.get_semantic_descriptors())
         
-        # Associate new nodes with previous nodes in the graph
-        associated_pairs = self.hungarian_assignment(nodes)
-
-        # Merge associated pairs
-        if len(associated_pairs) > 0:
-            logger.info(f"[dark_blue]Association Merges[/dark_blue]: {len(associated_pairs)} new nodes successfully associated")
-        for i, new_node in enumerate(nodes):
-            for j, node in enumerate(self.root_node):
-
-                # See if this is a match
-                for pair in associated_pairs:
-                    if new_node.get_id() == pair[0] and node.get_id() == pair[1]:
-
-                        # If so, update node with observation information
-                        node.merge_with_observation(new_node.get_point_cloud(), new_node.get_semantic_descriptors())
+            self.rerun_viewer.update(self.root_node, self.times[-1], img=img, seg_img=seg_img, associations=associated_pairs, node_to_obs_mapping=node_to_obs_mapping)
         
-        self.rerun_viewer.update(self.root_node, self.times[-1], img=img, seg_img=seg_img, associations=associated_pairs, node_to_obs_mapping=node_to_obs_mapping)
-        
-        # Add the remaining unassociated valid_obs as nodes to the scene graph
-        associated_obs_indices = [x[0] for x in associated_pairs]
-        for node in nodes:
-            if node.get_id() not in associated_obs_indices:
-                new_id = self.add_new_node_to_graph(node)
-                associated_pairs.append((new_id, new_id))
+            # Add the remaining unassociated valid_obs as nodes to the scene graph
+            associated_obs_indices = [x[0] for x in associated_pairs]
+            for node in nodes:
+                if node.get_id() not in associated_obs_indices:
+                    new_id = self.add_new_node_to_graph(node)
+                    associated_pairs.append((new_id, new_id))
 
-        # Update the viewer
-        self.rerun_viewer.update(self.root_node, self.times[-1], img=img, seg_img=seg_img, associations=associated_pairs, node_to_obs_mapping=node_to_obs_mapping)
+            # Update the viewer
+            self.rerun_viewer.update(self.root_node, self.times[-1], img=img, seg_img=seg_img, associations=associated_pairs, node_to_obs_mapping=node_to_obs_mapping)
 
         # Merge nodes that can be merged, and infer higher level ones
         self.merging_and_generation()
@@ -682,15 +686,16 @@ class SceneGraph3D():
                 if merge_occured:
                     break
                 
-    def node_retirement(self):
+    def node_retirement(self, retire_everything=False):
         # Iterate only through the direct children of the root node
         retired_ids = []
-        for child in self.root_node.get_children()[:]:
+        for child in self.root_node.get_children()[:]: # Create shallow copy so removing doesn't break loop
 
-            # If the time the child was first seen was too long ago OR
-            # we've move substancially since then, Inactivate this node and descendents
-            if self.times[-1] - child.get_time_first_seen() > self.max_t_active_for_node \
-                or np.linalg.norm(self.poses[-1][:3,3] - child.get_first_pose()[:3,3]) > self.max_dist_active_for_node:
+            # If the time the child was first seen was too long ago OR we've move substancially since then 
+            # OR we are retiring everything, Inactivate this node and descendents
+            if self.times[-1] - child.get_time_first_seen_recursive() > self.max_t_active_for_node \
+                or np.linalg.norm(self.poses[-1][:3,3] - child.get_first_pose_recursive()[:3,3]) > self.max_dist_active_for_node \
+                or retire_everything:
 
                 # Pop this child off of the root node and put in our inactive nodes
                 retired_ids += [child.get_id()]
@@ -699,3 +704,23 @@ class SceneGraph3D():
 
         if len(retired_ids) > 0:
             logger.info(f"[dark_magenta]Node Retirement[/dark_magenta]: {len(retired_ids)} nodes retired, including {retired_ids}.")
+
+    def get_roman_map(self) -> ROMANMap:
+        """
+        Convert this SceneGraph3D into a ROMANMap of seperate object segments (no meronomy) to see how ROMAN's alignment
+        algorithm works with our objects that have had extra merging operations performed between them.
+        """
+
+        # Convert all graph nodes to segments
+        segment_map: list[Segment] = []
+        for top_node in self.inactive_nodes:
+            for node in top_node:
+                segment_map.append(node.to_segment())
+
+        # Return the ROMANMap
+        return ROMANMap(
+            segments=segment_map,
+            trajectory=self.poses,
+            times=self.times,
+            poses_are_flu=True
+        )

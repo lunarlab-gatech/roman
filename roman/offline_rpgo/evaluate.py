@@ -62,8 +62,8 @@ def draw_plot_with_robot_trajectories_different_colors(traj_est_aligned_copies, 
     axs.set_title("Ground Truth vs. ROMAN Estimated Trajectories (Aligned)")
     axs.set_xlabel("X (meters)")
     axs.set_ylabel("Y (meters)")
-    axs.set_xlim([-250, 250])
-    axs.set_ylim([-250, 250])
+    # axs.set_xlim([-250, 250])
+    # axs.set_ylim([-250, 250])
     axs.legend()
     plt.savefig(file_path, dpi=300)
 

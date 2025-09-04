@@ -539,7 +539,7 @@ class FastSAMWrapper():
                             (np.sum(mask[:edge_width,:]) > 0 and not self.allow_tblr_edges[0]) or (np.sum(mask[-edge_width:, :]) > 0 and not self.allow_tblr_edges[1])
         return np.delete(segmask, contains_edge, axis=0)
 
-    def _process_img(self, image_bgr, ignore_mask=None, keep_mask=None):
+    def _process_img(self, image_bgr, ignore_mask=None, keep_mask=None) -> np.ndarray:
         """Process FastSAM on image, returns segment masks and center points from results
 
         Args:
@@ -616,7 +616,8 @@ class FastSAMWrapper():
             segmask = np.delete(segmask, to_delete, axis=0)
 
         else: 
-            return []
+            h, w, _ = image_bgr.shape
+            return np.zeros((0, h, w), dtype=bool)
 
         return segmask
     

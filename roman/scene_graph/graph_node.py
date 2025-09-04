@@ -7,11 +7,14 @@ from numpy.typing import NDArray
 import open3d as o3d
 from robotdatapy.camera import xyz_2_pixel
 from robotdatapy.transform import transform
+from roman.map.observation import Observation
+from roman.object.segment import Segment
 import trimesh
 from typing import Iterator
 from scipy.spatial import ConvexHull
 from typeguard import typechecked
 
+@typechecked
 class GraphNode():
     # ================== Attributes ==================
     # Node ID
@@ -58,7 +61,6 @@ class GraphNode():
     _class_method_creation_success: bool = True
 
     # ================ Initialization =================
-    @typechecked
     def __init__(self, id: int, parent_node: GraphNode | None, semantic_descriptors: list[tuple[np.ndarray, float]], 
                  point_cloud: np.ndarray, child_nodes: list[GraphNode], first_seen: float, last_updated: float, 
                  curr_time: float, first_pose: np.ndarray, curr_pose: np.ndarray, run_dbscan: bool = True, is_RootGraphNode: bool = False):
@@ -134,11 +136,9 @@ class GraphNode():
             f"  Current Pose: {np.array2string(self.curr_pose, precision=2, separator=', ')}\n"
             f")")
 
-    @typechecked
     def get_id(self) -> int:
         return self.id
 
-    @typechecked
     def get_parent(self) -> GraphNode:
         if self.is_RootGraphNode():
             return RuntimeError("get_parent() should not be called on the RootGraphNode!")
@@ -148,19 +148,16 @@ class GraphNode():
         """ Returns true if self is the parent or child of other. """
         return self.is_parent(other) or self.is_child(other)
     
-    @typechecked
     def is_parent(self, other: GraphNode) -> bool:
         """ Returns True if self is the parent of other. """
         if other in self.get_children():
             return True
         return False
     
-    @typechecked
     def is_child(self, other: GraphNode) -> bool:
         """ Returns True if self is the child of other. """
         return other.is_parent(self)
     
-    @typechecked
     def get_convex_hull(self)-> trimesh.Trimesh | None:
         if self.is_RootGraphNode():
             return None
@@ -168,37 +165,59 @@ class GraphNode():
             self._convex_hull = get_convex_hull_from_point_cloud(self.get_point_cloud())
         return self._convex_hull
     
-    @typechecked
     def get_weighted_semantic_descriptor(self) -> np.ndarray | None:
         return self.calculate_weighted_semantic_descriptor(self.get_semantic_descriptors())
     
-    @typechecked
     def is_descendent_or_ascendent(self, other) -> bool:
         """ Returns True if this node is a descendent or ascendent of other."""
         return self.is_descendent(other) or self.is_ascendent(other)
     
-    @typechecked
     def is_descendent(self, other: GraphNode) -> bool:
         """ Returns True if self is an descendent of other."""
         return other.is_ascendent(self)
     
-    @typechecked
     def is_RootGraphNode(self) -> bool:
         return self.is_root
 
-    @typechecked
     def get_time_first_seen(self) -> float:
         return self.first_seen
     
-    @typechecked
+    def get_time_first_seen_recursive(self) -> float:
+        """ Gets the earliest first seen time for self and descendents. """
+        most_early_seen = self.get_time_first_seen()
+        for child in self.get_children():
+            child_first_seen = child.get_time_first_seen_recursive()
+            if child_first_seen < most_early_seen:
+                most_early_seen = child_first_seen
+        return most_early_seen
+    
     def get_time_last_updated(self) -> float:
         return self.last_updated
     
-    @typechecked
+    def get_time_last_updated_recursive(self) -> float:
+        """ Gets the most recent last updated time for self and descendents. """
+        most_recent_update = self.get_time_last_updated()
+        for child in self.get_children():
+            child_last_updated = child.get_time_last_updated_recursive()
+            if most_recent_update < child_last_updated:
+                most_recent_update = child_last_updated
+        return most_recent_update
+
     def get_first_pose(self) -> np.ndarray:
         return self.first_pose
     
-    @typechecked
+    def get_first_pose_recursive(self) -> np.ndarray:
+        """ Gets the earliest first pose for self and descendents. """
+        most_early_seen = self.get_time_first_seen()
+        most_early_pose = self.get_first_pose()
+        for child in self.get_children():
+            child_first_seen = child.get_time_first_seen_recursive()
+            child_first_pose = child.get_first_pose_recursive()
+            if child_first_seen < most_early_seen:
+                most_early_seen = child_first_seen
+                most_early_pose = child_first_pose
+        return most_early_pose
+    
     def reprojected_bbox(self, pose: np.ndarray, K: np.ndarray, width: int, height: int) -> tuple[int, int] | None:
         """Calculates the bounding box for a graph node given camera extrinsics & intrinsics"""
 
@@ -228,7 +247,6 @@ class GraphNode():
         # Return the bounding box corners
         return upper_left, lower_right
     
-    @typechecked
     def request_new_ID(self) -> int:
         if self.is_RootGraphNode():
             new_id = self._next_id
@@ -237,7 +255,6 @@ class GraphNode():
         else:
             return self.parent_node.request_new_ID()
     
-    @typechecked
     def get_longest_line_size(self) -> float | None:
         if self.is_RootGraphNode():
             return None
@@ -245,7 +262,6 @@ class GraphNode():
             self._longest_line_size = longest_line_of_point_cloud(self.get_point_cloud())
         return self._longest_line_size
     
-    @typechecked
     def get_centroid(self) -> np.ndarray[float] | None:
         if self.is_RootGraphNode():
             return None
@@ -253,7 +269,6 @@ class GraphNode():
             self._centroid = np.mean(self.get_point_cloud(), axis=0)
         return self._centroid
     
-    @typechecked
     def get_volume(self) -> float:
         if self.get_convex_hull() is None:
             raise RuntimeError(f"Trying to get volume of ConvexHull for Node {self.get_id()}, but there isn't a valid ConvexHull!")
@@ -261,17 +276,6 @@ class GraphNode():
             raise RuntimeError(f"Trying to get volume of ConvexHull for Node {self.get_id()}, but its not watertight!")
         return self.get_convex_hull().volume
     
-    @typechecked
-    def get_time_last_updated_recursive(self) -> float:
-        """ Gets the most recent last updated time for self and descendents. """
-        most_recent_update = self.last_updated
-        for child in self.get_children():
-            child_last_updated = child.get_time_last_updated_recursive()
-            if most_recent_update < child_last_updated:
-                most_recent_update = child_last_updated
-        return most_recent_update
-
-    @typechecked
     def get_point_cloud(self) -> np.ndarray:
         if self.is_RootGraphNode():
             raise RuntimeError("get_point_cloud() should not be called on RootGraphNode!")
@@ -288,7 +292,6 @@ class GraphNode():
                 logger.debug(f"[bright_yellow]UPDATE[/bright_yellow]: Current point cloud is {num_points} for Node {self.get_id()}")
         return self._point_cloud
     
-    @typechecked
     def get_semantic_descriptors(self) -> list[tuple[np.ndarray, float]]:
         if self.is_RootGraphNode():
             raise RuntimeError("get_semantic_descriptors() should not be called on RootGraphNode!")
@@ -299,14 +302,12 @@ class GraphNode():
         descriptors += self.semantic_descriptors
         return descriptors
     
-    @typechecked
     def get_number_of_nodes(self) -> int:
         num = 1
         for child in self.get_children():
             num += child.get_number_of_nodes()
         return num
     
-    @typechecked
     def is_ascendent(self, other: GraphNode) -> bool:
         """ Returns True if self is an ascendent of other."""
 
@@ -323,16 +324,32 @@ class GraphNode():
         # Otherwise, we aren't
         return False
     
-    @typechecked
     def get_children(self) -> list[GraphNode]:
         return self.child_nodes
     
-    @typechecked
     def is_sibling(self, other: GraphNode) -> bool:
         if self.is_RootGraphNode():
             return False
         return self.get_parent() == other.get_parent()
     
+    def to_segment(self) -> Segment:
+        """Returns a segment representation of this graph node"""
+
+        # Create a Segment
+        obs = Observation(self.get_time_first_seen_recursive(), 
+                          self.get_first_pose_recursive(), None, 
+                          None, None, None, None, None, None)
+        seg = Segment(obs, None, self.get_id(), None)
+
+        # Update internal values of Segment so it matches Graph Node
+        seg.last_seen = self.get_time_last_updated_recursive()
+        seg.num_sightings = None
+        seg.points = self.get_point_cloud()
+        seg.semantic_descriptor = self.get_weighted_semantic_descriptor()
+        seg.semantic_descriptor_cnt = None
+
+        return seg
+
     # ==================== Calculations ====================
     def calculate_weighted_semantic_descriptor(self, descriptors: list[tuple[NDArray[np.float64], float]]) -> np.ndarray | None:
         # If we have no descriptors, just return None
@@ -354,18 +371,15 @@ class GraphNode():
         return semantic_descriptor
 
     # ==================== Setters ====================
-    @typechecked
     def set_parent(self, node: GraphNode | None) -> None:
         if self.is_RootGraphNode():
             raise RuntimeError("Calling set_parent() on RootGraphNode, which should never happen!")
         self.parent_node = node
 
     # ==================== Manipulators ====================
-    @typechecked
     def set_id(self, id: int) -> None:
         self.id = id
 
-    @typechecked
     def remove_from_graph(self) -> set[GraphNode]:
         """ Does so by disconnecting self from parent both ways. Returns any remaining parents that need to be deleted now. """
         if self.is_RootGraphNode():
@@ -375,7 +389,6 @@ class GraphNode():
         self.set_parent(None)
         return to_delete
     
-    @typechecked
     def remove_from_graph_complete(self) -> list[int]:
         """ Does so by disconnecting self from parent both ways. Also immediately deletes any parent nodes that are now invalid. 
             Returns any additional nodes that were also retired (not including self). """
@@ -388,12 +401,10 @@ class GraphNode():
             to_delete.update(to_delete.pop().remove_from_graph())
         return deleted_ids
 
-    @typechecked
     def add_semantic_descriptors(self, descriptors: list[tuple[np.ndarray, float]]) -> None:
         self.semantic_descriptors += descriptors
         self.last_updated = self.curr_time
 
-    @typechecked
     @staticmethod
     def _intersect_rows(A, B):
         """ Helper method to calculate points shared between two sets of points. """
@@ -403,7 +414,6 @@ class GraphNode():
         B_view = B.view([('', B.dtype)] * B.shape[1])
         return np.intersect1d(A_view, B_view).view(A.dtype).reshape(-1, A.shape[1])
 
-    @typechecked
     def update_point_cloud(self, new_points: np.ndarray, run_dbscan: bool = False) -> set[GraphNode]:
         """ Returns nodes that might need to be deleted due to cleanup removing points..."""
 
@@ -454,7 +464,6 @@ class GraphNode():
         logger.debug(f"update_point_cloud(): Resetting Point Cloud for Node {self.get_id()}")
         return self.reset_saved_vars()
     
-    @typechecked
     def _dbscan_clustering(self):
 
         # Define parameters that are hopefully invariant to environment size by depending on object size
@@ -513,7 +522,6 @@ class GraphNode():
 
         # NOTE: This actually ISN'T a safe operation, so calling method MUST call reset_saved_vars().
 
-    @typechecked
     def merge_with_node(self, other: GraphNode) -> GraphNode | None:
         """
         As opposed to merge_with_observation (which can just be called), this method 
@@ -590,7 +598,7 @@ class GraphNode():
         # Return nodes that need to be deleted
         return to_delete
     
-    def reset_saved_vars_safe(self) -> set[GraphNode]:
+    def reset_saved_vars_safe(self) -> None:
         """ 
         Similar to reset_saved_vars(), but called if points were only
         possibly added to a node. Thus, no need to check node validity
@@ -607,7 +615,6 @@ class GraphNode():
         if self.parent_node is not None:
             self.parent_node.reset_saved_vars_safe()
 
-    @typechecked
     def merge_with_observation(self, new_pc: np.ndarray, new_descriptors: list[tuple[np.ndarray, float]] | None) -> None:
         """
         Args:
@@ -645,7 +652,6 @@ class GraphNode():
             if len(to_delete) > 0:
                 raise RuntimeError(f"Cannot merge_with_observation; Node {self.get_id()}'s point cloud invalid after adding additional points, which should never happen!")
 
-    @typechecked
     def merge_child_with_self(self, other: GraphNode) -> None:
         # Make sure other is a child of self
         if not self.is_parent(other) or not other in self.get_children():
@@ -668,7 +674,6 @@ class GraphNode():
         other.remove_from_graph_complete()
         logger.debug(f"[bright_blue]Parent-Child Merge[/bright_blue]: Merged Node {other.get_id()} into Parent Node {self.get_id()}")
 
-    @typechecked
     def remove_points_from_self(self, pc_to_remove: np.ndarray) -> set[GraphNode]:
         """ Returns any nodes to delete if they are invalidated by this remove. """
         # Create views for efficiency
@@ -690,7 +695,6 @@ class GraphNode():
         # Otherwise, we don't want to be deleted
         return set()
 
-    @typechecked
     def remove_points(self, pc_to_remove: np.ndarray) -> set[GraphNode]:
         """ Returns all nodes that are no longer valid after their points are removed. """
         nodes_to_delete = set()
@@ -703,14 +707,12 @@ class GraphNode():
         nodes_to_delete.update(self.remove_points_from_self(pc_to_remove))
         return nodes_to_delete
     
-    @typechecked
     def remove_points_complete(self, pc_to_remove: np.ndarray) -> None:
         """ Remove points and then delete any nodes that are no longer valid. """
         to_delete = self.remove_points(pc_to_remove)
         while to_delete:
             to_delete.update(to_delete.pop().remove_from_graph())
 
-    @typechecked
     def add_child(self, new_child: GraphNode) -> None:
         if new_child in self.child_nodes:
             raise ValueError("Tried to add a child node that is already a child of this GraphNode!")
@@ -718,12 +720,10 @@ class GraphNode():
         logger.debug(f"add_child(): Resetting Point Cloud for Node {self.get_id()}")
         self.reset_saved_vars_safe()
 
-    @typechecked
     def add_children(self, new_children: list[GraphNode]) -> None:
         for new_child in new_children:
             self.add_child(new_child)
     
-    @typechecked
     def remove_child(self, child: GraphNode) -> set[GraphNode]:
         if child in self.child_nodes:
             self.child_nodes.remove(child)
@@ -732,13 +732,11 @@ class GraphNode():
         else:
             raise ValueError(f"Tried to remove {child} from {self}, but {child} not in self.child_nodes: {self.child_nodes}")
         
-    @typechecked
     def update_curr_time(self, curr_time: float):
         self.curr_time = curr_time
         for child in self.get_children():
             child.update_curr_time(curr_time)
 
-    @typechecked
     def update_curr_pose(self, curr_pose: np.ndarray):
         self.curr_pose = curr_pose
         for child in self.get_children():
