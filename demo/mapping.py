@@ -115,7 +115,7 @@ def run(
         if vid and img_t is not None:
             video.write(img_t)
         bar.update()
-        if bar.n > 100:
+        if bar.n > 200:
             break
             
     if vid:

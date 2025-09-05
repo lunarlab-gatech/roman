@@ -9,6 +9,41 @@ from typeguard import typechecked
 """ Methods for interacting with Convex Hulls and Point Clouds. """
 
 @typechecked
+def fix_winding_and_calculate_normals(point_cloud: np.ndarray, faces: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """ 
+    Fixes winding of faces and calculates outward facing normals so results
+    can be used to calculate a valid volume with trimesh.Trimesh. Replaces
+    trimesh.Trimesh.fix_volume(), mainly for speed reasons. 
+
+    Arguments:
+        point_cloud - Point cloud passed to scipy.spatial.ConvexHull
+        faces - Simplicies of the scipy.spatial.ConvexHull
+
+    Returns:
+        faces - Same as input argument, but with order rearranged to fix winding.
+        face_normals - Outward facing normals.
+    """
+
+    # Extract the vertices of each face
+    v0 = point_cloud[faces[:, 0]]
+    v1 = point_cloud[faces[:, 1]]
+    v2 = point_cloud[faces[:, 2]]
+
+    # Calculate the normals
+    face_normals = np.cross(v1 - v0, v2 - v0)
+    face_normals /= np.linalg.norm(face_normals, axis=1, keepdims=True)
+
+    # Flip normals that point inward & correct winding
+    centroid = point_cloud.mean(axis=0)
+    face_centers = (v0 + v1 + v2) / 3
+    direction = face_centers - centroid
+    flip = np.einsum('ij,ij->i', face_normals, direction) < 0
+    face_normals[flip] *= -1
+    faces[flip] = faces[flip][:, [0, 2, 1]]  # flip winding
+
+    return faces, face_normals
+
+@typechecked
 def get_convex_hull_from_point_cloud(point_cloud: np.ndarray) -> trimesh.Trimesh | None:
     # If there are no points passed, return none
     if point_cloud.shape[0] == 0:
@@ -17,9 +52,9 @@ def get_convex_hull_from_point_cloud(point_cloud: np.ndarray) -> trimesh.Trimesh
     # Calculate the convex hull
     try:  
         hull = ConvexHull(point_cloud, qhull_options='Qx')
-        mesh = trimesh.Trimesh(vertices=point_cloud, faces=hull.simplices, process=True)
-        if not mesh.is_volume:
-            mesh.fix_normals()
+        faces, face_normals = fix_winding_and_calculate_normals(point_cloud, hull.simplices)
+        mesh = trimesh.Trimesh(vertices=point_cloud, faces=faces, face_normals=face_normals, process=False)
+        assert mesh.is_volume
         return mesh
     
     except scipy.spatial._qhull.QhullError as e: 

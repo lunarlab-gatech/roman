@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from .graph_node import GraphNode
 from .hull_methods import find_point_overlap_with_hulls, convex_hull_geometric_overlap, shortest_dist_between_convex_hulls
 from itertools import chain, combinations
 from .logger import logger
 from ..map.observation import Observation
+import multiprocessing
 import numpy as np
+import os
 from ..params.data_params import ImgDataParams
 from .rerun_wrapper import RerunWrapper
 from roman.map.map import ROMANMap
@@ -13,6 +16,8 @@ from roman.object.segment import Segment
 from scipy.optimize import linear_sum_assignment
 import trimesh
 from typeguard import typechecked
+
+multiprocessing.set_start_method("spawn", force=True)
 
 class SceneGraph3D():
     # Node that connects all highest-level objects together for implementation purposes
@@ -50,7 +55,7 @@ class SceneGraph3D():
     max_dist_active_for_node = 10 # meters
 
     @typechecked
-    def __init__(self, _T_camera_flu: np.ndarray, headless: bool = False):
+    def __init__(self, _T_camera_flu: np.ndarray, headless: bool = True):
         self.root_node = GraphNode.create_node_if_possible(0, None, [], np.zeros((0, 3), dtype=np.float64), [], 0, 0, 0, np.empty(0), np.empty(0), True)
         self.pose_FLU_wrt_Camera = _T_camera_flu
         self.rerun_viewer = RerunWrapper(enable=not headless)
@@ -79,11 +84,18 @@ class SceneGraph3D():
         # Convert each observation into a node (if possible)
         nodes = []
         node_to_obs_mapping = {}
-        for i, obs in enumerate(observations):
-            new_node: GraphNode | None = self.convert_observation_to_node(obs)
-            if new_node is not None:
-                nodes.append(new_node)
-                node_to_obs_mapping[new_node.get_id()] = i
+        with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
+            futures = {}
+            for i, obs in enumerate(observations):
+                futures[executor.submit(SceneGraph3D.convert_observation_to_node, i, self.root_node.request_new_ID(), obs, self.times[-1], self.poses[-1])] = i
+
+            for future in as_completed(futures):
+                result = future.result()
+                if result:
+                    new_node, i = result
+                    nodes.append(new_node)
+                    node_to_obs_mapping[new_node.get_id()] = i
+
         logger.info(f"Called with {len(nodes)} valid observations")
 
         # Run operations that require at least one input node
@@ -294,21 +306,6 @@ class SceneGraph3D():
                     break
     
     @typechecked
-    def convert_observation_to_node(self, obs: Observation) -> GraphNode | None:
-
-        # Create a new node for this observation
-        new_node: GraphNode | None = GraphNode.create_node_if_possible(self.root_node.request_new_ID(), None, [], 
-                                        obs.transformed_points, [],  self.times[-1], 
-                                        self.times[-1], self.times[-1], 
-                                        self.poses[-1], self.poses[-1])
-        if new_node is None: return None # Node creation failed
-
-        # Add the descriptor to the node
-        if obs.clip_embedding is not None:
-            new_node.add_semantic_descriptors([(obs.clip_embedding, new_node.get_volume())])
-        return new_node
-    
-    @typechecked
     def convert_point_cloud_to_node(self, point_cloud: np.ndarray) -> GraphNode | None:
 
         # Create a new node for this observation
@@ -317,6 +314,20 @@ class SceneGraph3D():
                                         self.times[-1], self.times[-1], 
                                         self.poses[-1], self.poses[-1])
         return new_node # If it failed, we return None to signify it
+    
+    @typechecked
+    def convert_observation_to_node(obs_idx: int, new_ID: int, obs: Observation, time: float, pose: np.ndarray) -> tuple[GraphNode, int] | None:
+        """Attempts to create a node from an observation, returns None if it fails."""
+
+        # Create a new node for this observation
+        new_node: GraphNode | None = GraphNode.create_node_if_possible(new_ID, None, [], 
+                        obs.transformed_points, [], time, time, time, pose, pose)
+        if new_node is None: return None # Node creation failed
+
+        # Add the descriptor to the node
+        if obs.clip_embedding is not None:
+            new_node.add_semantic_descriptors([(obs.clip_embedding, new_node.get_volume())])
+        return new_node, obs_idx # Returns node and observation idx
 
     @typechecked
     def add_new_node_to_graph(self, node: GraphNode, only_leaf=False) -> int:
@@ -382,8 +393,8 @@ class SceneGraph3D():
                 parent_sem_sim = 0.5
 
             # Calculate the final likelihood score
-            score, subset = self.calculate_best_likelihood_score(children_iou, children_enclosure, children_sem_sim, children_volumes,
-                                                                 parent_iou, parent_encompassment, parent_sem_sim, only_leaf=only_leaf)
+            score, subset = self.calculate_best_likelihood_score(node, pos_parent_node.get_children(), children_iou, children_enclosure, 
+                                children_sem_sim, children_volumes, parent_iou, parent_encompassment, parent_sem_sim, only_leaf=only_leaf)
             
             # If this is the best score so far, keep it
             logger.debug(f"Best Likelihood for Node {pos_parent_node.get_id()}: {score}, with children {subset}")
@@ -419,9 +430,9 @@ class SceneGraph3D():
         return node.get_id()
 
     @typechecked
-    def calculate_best_likelihood_score(self, children_iou: list[float], children_enclosure: list[float], children_sem_sim: list[float],
-                                    children_volumes: list[float], parent_iou: float, parent_encompassment: float, parent_sem_sim: float,
-                                    only_leaf: bool) -> tuple[float, tuple[int, ...]]:
+    def calculate_best_likelihood_score(self, node: GraphNode, children_nodes: list[GraphNode], children_iou: list[float], children_enclosure: list[float], 
+                                        children_sem_sim: list[float], children_volumes: list[float], parent_iou: float, 
+                                        parent_encompassment: float, parent_sem_sim: float, only_leaf: bool) -> tuple[float, tuple[int, ...]]:
 
         # Assert each array is of the same length
         expected_len = len(children_iou)
@@ -444,20 +455,28 @@ class SceneGraph3D():
         best_subset = None
         
         # Create powerset of all possible children combinations in the current node
+        not_nearby: list[int] = []
         if not only_leaf:
             num_children = len(children_iou)
 
-            # TODO: Only consider children here that we are somewhat nearby (for speed)
-            # Powerset is slowing us down significantly.
-
             powerset = chain.from_iterable(combinations(range(num_children), r) for r in range(num_children + 1))
+
+            # Calculate children that we are not nearby to (for skipping subsets later)
+            for i, child in enumerate(children_nodes):
+                if not SceneGraph3D.check_if_nodes_are_somewhat_nearby(node, child):
+                    not_nearby.append(i)             
         else:
             # Only consider the possiblity that we are a leaf node of this node
             powerset = [()]
 
         # Iterate through each subset of child combinations and create a dummy node with those children
         for subset in powerset:
-            
+
+            # For speed, skip this subset if it contains any children not nearby
+            for child_index in not_nearby:
+                if child_index in subset:
+                    continue
+        
             # Calculate children weighted IOU, enclosure, and semantic similarity
             if len(subset) == 0:
                 # No children selected, put netural likelihoods

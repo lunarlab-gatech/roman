@@ -19,6 +19,7 @@ import numpy as np
 import open3d as o3d
 import random
 import torch
+from torch.amp import autocast
 from yolov7_package import Yolov7Detector
 from PIL import Image
 from fastsam import FastSAMPrompt
@@ -111,6 +112,7 @@ class FastSAMWrapper():
         # member variables
         self.observations = []
         self.model = FastSAM(weights)
+
         # setup default filtering
         self.setup_filtering()
 
@@ -181,10 +183,14 @@ class FastSAMWrapper():
         self.area_bounds = area_bounds
         self.allow_tblr_edges= allow_tblr_edges
         self.keep_mask_minimal_intersection = keep_mask_minimal_intersection
-        self.run_yolo = len(ignore_labels) > 0 or use_keep_labels
+
+        # Permanently disable YOLO as we detect dynamic objects with Scene Flow
+        self.run_yolo = False
+        
         self.clip_embedding = clip_embedding
         if clip_embedding:
             self.clip_model, self.clip_preprocess = clip.load(clip_model, device=self.device)
+            self.clip_model.eval()
         if triangle_ignore_masks is not None:
             self.constant_ignore_mask = np.zeros((self.depth_cam_params.height, self.depth_cam_params.width), dtype=np.uint8)
             for triangle in triangle_ignore_masks:
@@ -237,7 +243,7 @@ class FastSAMWrapper():
     def run(self, t: np.longdouble, pose: np.ndarray, img: np.ndarray, img_depth: np.ndarray[float] = None) -> list[Observation]:
         """ Takes an image and returns filtered FastSAM masks as Observations. """
 
-        self.observations = []
+        self.observations: list[Observation] = []
         
         # rotate image
         img_orig = img
@@ -316,7 +322,6 @@ class FastSAMWrapper():
                     except:
                         continue
   
-
             # Generate downsampled mask
             mask_downsampled = np.array(cv.resize(
                 mask,
@@ -324,33 +329,37 @@ class FastSAMWrapper():
                 interpolation=cv.INTER_NEAREST
             )).astype('uint8')
 
-            if self.clip_embedding:
-                ### Use masked image
-                # print("Img size: ", img.shape)
-                # print("Mask shape: ", mask.shape)
-                # # print("Masked image: ", cv.bitwise_and(img, img, mask = mask.astype('uint8')).shape)
-                # pre_processed_img = self.clip_preprocess(Image.fromarray(cv.bitwise_and(img, img, mask = mask.astype('uint8')))).to(self.device)
-                # clip_embedding = self.clip_model.encode_image(pre_processed_img.unsqueeze(dim=0))
-                # print("Clip embedding shape: ", clip_embedding.shape)
-                # clip_embedding = clip_embedding.squeeze().cpu().detach().numpy()
+            # Save the observation
+            self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld))
 
-                ### Use bounding box
-                bbox = mask_bounding_box(mask.astype('uint8'))
-                if bbox is None:
-                    assert False, "Bounding box is None."
-                    self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld))
-                else:
-                    min_col, min_row, max_col, max_row = bbox
-                    img_bbox = self.apply_rotation(img_orig[min_row:max_row, min_col:max_col])
-                    img_bbox = cv.cvtColor(img_bbox, cv.COLOR_BGR2RGB)
-                    processed_img = self.clip_preprocess(Image.fromarray(img_bbox, mode='RGB')).to(self.device)
-                    clip_embedding = self.clip_model.encode_image(processed_img.unsqueeze(dim=0))
-                    clip_embedding = clip_embedding.squeeze().cpu().detach().numpy()
-                    self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld, clip_embedding=clip_embedding))
-                
-            else:
-                self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld))
-                
+        # ===== Generate CLIP embeddings for remaining observations in a single batch =====
+        if self.clip_embedding:
+
+            # Get processed mask images
+            processed_imgs_list = []
+            for i, obs in enumerate(self.observations):
+
+                # Calculate bounding box around mask
+                bbox = mask_bounding_box(obs.mask.astype('uint8'))
+                if bbox is None: raise RuntimeError("Bounding Box is None")
+
+                # Get processed image of this mask
+                min_col, min_row, max_col, max_row = bbox
+                img_bbox = self.apply_rotation(img_orig[min_row:max_row, min_col:max_col])
+                img_bbox = cv.cvtColor(img_bbox, cv.COLOR_BGR2RGB)
+                processed_imgs_list.append(self.clip_preprocess(Image.fromarray(img_bbox, mode='RGB')))
+            processed_imgs = torch.stack(processed_imgs_list).to(self.device)
+            
+            # Calculate CLIP embeddings
+            clip_embeddings: np.ndarray | None = None
+            with torch.no_grad():
+                with autocast(device_type='cuda', dtype=torch.float16):
+                    clip_embeddings = self.clip_model.encode_image(processed_imgs).cpu().detach().numpy()  
+
+            # Assign embeddings to observations
+            for i, obs in enumerate(self.observations):
+                obs.clip_embedding = clip_embeddings[i]
+
         return self.observations
     
     @typechecked
@@ -559,16 +568,17 @@ class FastSAMWrapper():
         # OpenCV uses BGR images, but FastSAM and Matplotlib require an RGB image, so convert.
         image = cv.cvtColor(image_bgr, cv.COLOR_BGR2RGB)
 
-
         # Run FastSAM
-        everything_results = self.model(image, 
-                                        retina_masks=True, 
-                                        device=self.device, 
-                                        imgsz=self.imgsz, 
-                                        conf=self.conf, 
-                                        iou=self.iou)
-        prompt_process = FastSAMPrompt(image, everything_results, device=self.device)
-        segmask = prompt_process.everything_prompt()
+        with torch.no_grad():
+             with autocast(device_type='cuda', dtype=torch.float16):
+                everything_results = self.model(image, 
+                                                retina_masks=True, 
+                                                device=self.device, 
+                                                imgsz=self.imgsz, 
+                                                conf=self.conf, 
+                                                iou=self.iou)
+                prompt_process = FastSAMPrompt(image, everything_results, device=self.device)
+                segmask = prompt_process.everything_prompt()
 
         # If there were segmentations detected by FastSAM, transfer them from GPU to CPU and convert to Numpy arrays
         if (len(segmask) > 0):

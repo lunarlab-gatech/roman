@@ -1,7 +1,5 @@
 import math
 import numpy as np
-import os
-from pathlib import Path
 from roman.scene_graph.hull_methods import *
 import trimesh
 import unittest
@@ -112,6 +110,35 @@ class TestHullMethods(unittest.TestCase):
 
         np.testing.assert_almost_equal(longest_line_of_point_cloud(self.cube_1), math.sqrt(3), 1)
         np.testing.assert_almost_equal(longest_line_of_point_cloud(self.cube_4), 3 * math.sqrt(3) - 0.1, 1)
+
+    def test_fix_winding_and_calculate_normals(self):
+        """ Ensure windings are properly flipped and normals calculated correctly. """
+
+        # Define simple point cloud for a regular tetrahedron
+        pc = np.array([[  0,                0,            0],
+                       [  1,                0,            0],
+                       [0.5, 1/(2*np.sqrt(3)), np.sqrt(2/3)],
+                       [0.5,     3/np.sqrt(2),            0]])
+        faces = np.array([[0, 1, 2], [1, 2, 3], [0, 2, 3], [0, 1, 3]])
+
+        # This shouldn't be a volume
+        mesh = trimesh.Trimesh(vertices=pc, faces=faces)
+        np.testing.assert_equal(mesh.is_volume, False)
+
+        # Call our method to fix the winding and normals
+        faces, face_normals = fix_winding_and_calculate_normals(pc, faces)
+
+        # Try again to create a trimesh, this should be a volume
+        mesh = trimesh.Trimesh(vertices=pc, faces=faces, face_normals=face_normals)
+        np.testing.assert_equal(mesh.is_volume, True)
+
+        # Check that (some of) the calculated values match those calculated by hand
+        des_faces = np.array([[0, 1, 2], [1, 3, 2]])
+        des_normals_unnormalized = np.array([[0, -np.sqrt(2/3),  1/(2*np.sqrt(3))],
+                                             [1.7321, 0.40825, 0.91632]])
+        des_normals = des_normals_unnormalized / np.linalg.norm(des_normals_unnormalized, axis=1, keepdims=True)
+        np.testing.assert_array_equal(faces[0:2], des_faces)
+        np.testing.assert_array_almost_equal(face_normals[0:2], des_normals, decimal=5)
 
 if __name__ == "__main__":
     unittest.main()
