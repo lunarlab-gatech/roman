@@ -1,7 +1,7 @@
 from scipy.spatial import KDTree
 import numpy as np
 import scipy
-from scipy.spatial import ConvexHull
+from scipy.spatial import ConvexHull, Delaunay
 from scipy.spatial.distance import pdist
 import trimesh
 from typeguard import typechecked
@@ -60,6 +60,12 @@ def get_convex_hull_from_point_cloud(point_cloud: np.ndarray) -> trimesh.Trimesh
     except scipy.spatial._qhull.QhullError as e: 
         # If not possible to form a hull, return None. 
         return None
+    
+@typechecked
+def find_point_in_hull(points: np.ndarray, hull: trimesh.Trimesh) -> np.ndarray:
+    """ Faster Delaunay check if points are inside a convex hull """
+    delaunay = Delaunay(hull.vertices)
+    return delaunay.find_simplex(points) >= 0
         
 @typechecked
 def find_point_overlap_with_hulls(pc: np.ndarray, hulls: list[trimesh.Trimesh | None], fail_on_multi_assign: bool = False) -> np.ndarray:  
@@ -71,9 +77,8 @@ def find_point_overlap_with_hulls(pc: np.ndarray, hulls: list[trimesh.Trimesh | 
 
     # Find which points fall into which Convex hulls
     contain_masks = np.zeros((len(hulls), len(pc)), dtype=int)
-    for i, hull in enumerate(hulls):
-        if i in valid_hulls_indices:
-            contain_masks[i] = np.array(hull.contains(pc), dtype=int)
+    for i in valid_hulls_indices:
+        contain_masks[i] = find_point_in_hull(pc, hulls[i]).astype(int)
 
     # If fail_on_multi_assign, throw an error if some points fall into multiple hulls
     if fail_on_multi_assign:
@@ -144,6 +149,6 @@ def shortest_dist_between_point_clouds(a: np.ndarray, b: np.ndarray):
     return np.array(distances).min()
 
 @typechecked
-def longest_line_of_point_cloud(a: np.ndarray[np.float64]):
+def longest_line_of_point_cloud(a: np.ndarray[np.float64]) -> float:
     if a.shape[0] == 0: return 0.0
     return pdist(a).max()

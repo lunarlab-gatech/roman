@@ -50,16 +50,16 @@ class TestHullMethods(unittest.TestCase):
     def test_get_convex_hull_from_point_cloud(self):
         """ Make sure Convex Hull properly returns None when point cloud is invalid. """
 
-        test_pc1 = np.random.randint(0, 10, (1, 3))
+        test_pc1 = np.random.randint(0, 10, (1, 3)).astype(float)
         np.testing.assert_equal(get_convex_hull_from_point_cloud(test_pc1), None)
 
-        test_pc2 = np.random.randint(0, 10, (3, 3))
+        test_pc2 = np.random.randint(0, 10, (3, 3)).astype(float)
         np.testing.assert_equal(get_convex_hull_from_point_cloud(test_pc2), None)
 
-        test_pc3 = np.random.randint(0, 10, (4, 3))
+        test_pc3 = np.random.randint(0, 10, (4, 3)).astype(float)
         self.assertIsInstance(get_convex_hull_from_point_cloud(test_pc3), trimesh.Trimesh)
 
-        test_pc4 = np.random.randint(0, 10, (400, 3))
+        test_pc4 = np.random.randint(0, 10, (400, 3)).astype(float)
         self.assertIsInstance(get_convex_hull_from_point_cloud(test_pc4), trimesh.Trimesh)
 
     def test_find_point_overlap_with_hulls(self):
