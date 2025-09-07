@@ -417,8 +417,6 @@ class GraphNode():
     def update_point_cloud(self, new_points: np.ndarray, run_dbscan: bool = False) -> set[GraphNode]:
         """ Returns nodes that might need to be deleted due to cleanup removing points..."""
 
-        # TODO: Make sure this actually updates the point cloud, as I don't see it updating in Rerun.
-
         # =========== Add to Point Cloud ============
         
         # Skip math if no new points are included
@@ -431,6 +429,7 @@ class GraphNode():
         self.point_cloud = np.concatenate((self.point_cloud, new_points), axis=0)
         self.point_cloud = np.unique(self.point_cloud, axis=0) # Prune any duplicates
         self.last_updated = self.curr_time
+        self.reset_saved_vars_safe() # Wipe saved point cloud for next steps
 
         # =========== Clean-up Point Cloud  ============
         # Necessary to limit sizes of point clouds for computation purposes and for ensuring incoming point clouds only represent a single object.

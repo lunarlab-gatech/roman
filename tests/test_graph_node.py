@@ -1,3 +1,4 @@
+import copy
 import numpy as np
 from pathlib import Path
 import unittest
@@ -39,6 +40,31 @@ class TestGraphNode(unittest.TestCase):
         np.testing.assert_array_almost_equal(child1_node.get_weighted_semantic_descriptor(), [0.263969542944024, 0.909079489470806, 0.322326794141320], 15)
         np.testing.assert_array_almost_equal(parent_node.get_weighted_semantic_descriptor(), [0.329206024579985, 0.877329854506504, -0.349164316292257], 15)
 
+    def test_update_point_cloud(self):
+        """ Make sure the point cloud is actually changed by this method. """
+
+        # TODO: Add tests to ensure the functionality actually works fully.
+
+        # Create a random point cloud w/outliers
+        points = np.random.uniform(low=0, high=1, size=(1000, 3))
+        outliers = np.random.uniform(low=8, high=12, size=(3, 3))
+        point_cloud = np.vstack([points, outliers])
+
+        # Generate a graph node with point cloud (runs update_point_cloud)
+        node = GraphNode.create_node_if_possible(0, None, [], point_cloud.copy(), [], 0, 0, 0, np.empty(0), np.empty(0), False)
+        curr_cloud = node.get_point_cloud().copy()
+
+        # Make sure that at least the outliers have been pruned
+        self.assertNotEqual(curr_cloud.shape[0], point_cloud.shape[0])
+        self.assertTrue((point_cloud.shape[0] - curr_cloud.shape[0]) > 0)
+
+        # Generate another cloud and update
+        new_points = np.random.normal(loc=5, scale=1, size=(1000, 3))
+        node.update_point_cloud(new_points, False)
+        newest_cloud = node.get_point_cloud().copy()
+
+        # Make sure the cloud has changed
+        self.assertNotEqual(curr_cloud.shape[0], newest_cloud.shape[0])
 
 if __name__ == "__main__":
     unittest.main()

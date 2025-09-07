@@ -44,10 +44,6 @@ class SceneGraph3D():
     # Ratio of distance to object volume threshold for "Nearby Children Semantic Merging"
     ratio_dist2length_threshold_nearby_children_semantic_merge = 0.05
 
-    # TODO: Should I reimplement this or is it not worth the hassle?
-    # If a NEW node isn't seen for this time, remove from graph
-    # max_t_no_sightings_to_prune_new = 0.4 # seconds
-
     # If a high-level node goes this long since it was first seen, inactivate
     max_t_active_for_node = 15 # seconds
 
@@ -55,7 +51,7 @@ class SceneGraph3D():
     max_dist_active_for_node = 10 # meters
 
     @typechecked
-    def __init__(self, _T_camera_flu: np.ndarray, headless: bool = True):
+    def __init__(self, _T_camera_flu: np.ndarray, headless: bool = False):
         self.root_node = GraphNode.create_node_if_possible(0, None, [], np.zeros((0, 3), dtype=np.float64), [], 0, 0, 0, np.empty(0), np.empty(0), True)
         self.pose_FLU_wrt_Camera = _T_camera_flu
         self.rerun_viewer = RerunWrapper(enable=not headless)
@@ -77,9 +73,6 @@ class SceneGraph3D():
         # Set the current pose (in FLU frame) in all nodes and self
         self.poses.append(pose @ self.pose_FLU_wrt_Camera)
         self.root_node.update_curr_pose(self.poses[-1])
-
-        # Update the viewer
-        # self.rerun_viewer.update(self.root_node, self.times[-1], img, depth_img, pose, img_data_params, seg_img, [])
 
         # Convert each observation into a node (if possible)
         nodes: list[GraphNode] = []
@@ -134,8 +127,6 @@ class SceneGraph3D():
                     new_id = self.add_new_node_to_graph(node)
                     associated_pairs.append((new_id, new_id))
 
-            # Update the viewer
-            #self.rerun_viewer.update(self.root_node, self.times[-1], img=img, seg_img=seg_img, associations=associated_pairs,  node_to_obs_mapping=node_to_obs_mapping)
 
         # Merge nodes that can be merged, and infer higher level ones
         self.merging_and_generation()
@@ -147,7 +138,8 @@ class SceneGraph3D():
         self.node_retirement()
 
         # Update the viewer
-        self.rerun_viewer.update(self.root_node, self.times[-1], img=img, seg_img=seg_img, associations=associated_pairs, node_to_obs_mapping=node_to_obs_mapping)
+        self.rerun_viewer.update(self.root_node, self.times[-1], img=img, depth_img=depth_img, camera_pose=pose, img_data_params=img_data_params,
+                                 seg_img=seg_img, associations=associated_pairs, node_to_obs_mapping=node_to_obs_mapping)
 
     @typechecked
     def hungarian_assignment(self, new_nodes: list[GraphNode]) -> list[tuple]:
@@ -242,7 +234,6 @@ class SceneGraph3D():
         # Iterate through entire graph until no overlaps with shared points are detected
         change_occured = True
         while change_occured:
-            self.rerun_viewer.update(self.root_node, self.times[-1])
 
             # Track if we need to loop again
             change_occured =  False
@@ -546,9 +537,6 @@ class SceneGraph3D():
         merge_occured = True
         while merge_occured:
             merge_occured = False
-
-            # Update the viewer
-            self.rerun_viewer.update(self.root_node, self.times[-1])
 
             # Iterate through each pair of nodes 
             for i, node_i in enumerate(self.root_node):

@@ -99,21 +99,6 @@ class RerunWrapper():
         r, g, b = colorsys.hsv_to_rgb(clamp(h), clamp(s), clamp(v))
         return np.array([[int(round(r * 255)), int(round(g * 255)), int(round(b * 255))]], dtype=np.uint8)
 
-    # def _assign_colors_recursive(self, node: GraphNode, hsv_space: HSVSpace,
-    #     node_colors: dict[int, tuple[float, float, float]], depth: int = 0) -> None:
-
-    #     node_id = node.get_id()
-    #     node_colors[node_id] = hsv_space.center()
-
-    #     children = sorted(node.get_children(), key=lambda c: c.get_id())
-    #     if not children:
-    #         return
-
-    #     axis = depth % 3  # 0: H, 1: S, 2: V
-    #     subspaces = hsv_space.split(len(children), axis)
-    #     for child, child_space in zip(children, subspaces):
-    #         self._assign_colors_recursive(child, child_space, node_colors, depth + 1)
-
     def _assign_colors_recursive(self, node: GraphNode, hsv_space: HSVSpace, depth: int = 0) -> None:
 
         NUM_BUCKETS = 20
