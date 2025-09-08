@@ -6,7 +6,7 @@ cd $ROMAN_DIR
 pip install gdown
 
 # For GitHub Actions, set directory as safe so submodule update works
-if [ "$GITHUB_ACTIONS" = "true" ]; then
+if [ "$GITHUB_ACTIONS" = "True" ]; then
   git config --global --add safe.directory "$ROMAN_DIR"
 fi
 
