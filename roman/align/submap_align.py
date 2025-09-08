@@ -17,6 +17,7 @@ import yaml
 from robotdatapy.data.pose_data import PoseData
 from robotdatapy.transform import transform_to_xytheta, transform_to_xyz_quat, \
     transform_to_xyzrpy
+from robotdatapy.transform import transform
 
 from roman.map.map import Submap, SubmapParams, submaps_from_roman_map, load_roman_map
 from roman.align.object_registration import InsufficientAssociationsException
@@ -24,6 +25,22 @@ from roman.align.dist_reg_with_pruning import GravityConstraintError
 from roman.utils import object_list_bounds, transform_rm_roll_pitch, expandvars_recursive
 from roman.params.submap_align_params import SubmapAlignParams, SubmapAlignInputOutput
 from roman.align.results import save_submap_align_results, SubmapAlignResults
+from roman.object.segment import Segment
+
+import rerun as rr
+import rerun.blueprint as rrb
+
+def visualize_submap(map: Submap, name: str, color: np.ndarray):
+    # For each object in submap
+    T_odom_center = map.pose_gravity_aligned
+    all_points = np.zeros((0, 3), dtype=np.float64)
+    for j, obj in enumerate(map.segments):
+        # Send to Rerun
+        colors = np.full((len(obj.points), 3), color)
+        points_wrt_world = transform(T_odom_center, obj.points, axis=0)
+        all_points = np.concatenate((all_points, points_wrt_world), axis=0)
+    rr.log('/world/points/' + name, 
+            rr.Points3D(positions=all_points, colors=colors))
 
 def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
     """
@@ -37,6 +54,14 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
     assert sm_io.input_type_json != sm_io.input_type_pkl, "Only one input type allowed"
     
     gt_pose_data = [None, None]
+
+    # Setup a Rerun visualization so we can see each submap
+    visualize = False
+    if visualize:
+        blueprint = rrb.Blueprint(
+                        rrb.Spatial3DView(name="World", origin='/world')
+                    )
+        rr.init("ROMAN: Submap Align Visualization", spawn=True, default_blueprint=blueprint)
     
     # load ground truth pose data
     for i, yaml_file in enumerate(sm_io.input_gt_pose_yaml):
@@ -67,7 +92,7 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
         submap_params = SubmapParams.from_submap_align_params(sm_params)
         submap_params.use_minimal_data = True
         roman_maps = [load_roman_map(sm_io.inputs[i]) for i in range(2)]
-        submaps = [submaps_from_roman_map(
+        submaps: list[Submap] = [submaps_from_roman_map(
             roman_maps[i], submap_params, gt_pose_data[i]) for i in range(2)]
         print("Total Number of Submaps-  ROBOT1: ", len(submaps[0]), " ROBOT2: ", len(submaps[1]))
     elif sm_io.input_type_json: # TODO: re-implement support for json files
@@ -94,8 +119,15 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
     registration = sm_params.get_object_registration()
 
     # iterate over pairs of submaps and create registration results
+    update_frame = 0
     for i in tqdm(range(len(submaps[0]))):
         for j in (range(len(submaps[1]))):
+            
+            if visualize:
+                rr.set_time("update_frame_tick", sequence=update_frame)
+                visualize_submap(submaps[0][i], "Submap0", np.array([220,20,60]))
+                visualize_submap(submaps[1][j], "Submap1", np.array([20,64,239]))
+                update_frame += 1
             
             if submaps[0][i].has_gt and submaps[1][j].has_gt:
                 submap_distance = norm(submaps[0][i].position_gt - submaps[1][j].position_gt)

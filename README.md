@@ -42,7 +42,7 @@ Next, install ROMAN by running the following command from the root folder of thi
 ```
 
 Note that if you needed to make a new Docker container but kept the repository, you should instead run `reinstall.sh` instead of `install.sh`.
-```
+
 
 Finally, run the following to fix `Could not load the Qt platform plug "xcb"` bug:
 ```
@@ -50,6 +50,16 @@ mv ~/.local/lib/python3.10/site-packages/cv2/qt ~/.local/lib/python3.10/site-pac
 ```
 
 ## Run algorithm
+### Kimera-Multi-Data Demo
+
+Run the following commands:
+```
+export YOLO_VERBOSE=False
+python3 demo/demo.py -p demo/params/demo -o demo_output/demo --skip-align --skip-rpgo
+python3 demo/demo.py -p demo/params/demo -o demo_output/demo --skip-map --skip-rpgo
+python3 demo/demo.py -p demo/params/demo -o demo_output/demo --skip-map --skip-align
+```
+
 ### HERCULES (Australia Environment)
 
 Run the following command to run this demo:

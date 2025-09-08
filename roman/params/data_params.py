@@ -26,7 +26,7 @@ class ImgDataParams:
     
     type: str
     path: str
-    path_times: str
+    path_times: Optional[str] = None
     topic: Optional[str] = None
     camera_info_topic: Optional[str] = None
     compressed: bool = True
