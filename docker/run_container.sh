@@ -18,6 +18,7 @@ docker run -it \
     --volume="/home/$USER/.bash_aliases:/home/$USER/.bash_aliases" \
     --volume="/home/$USER/.ssh:/home/$USER/.ssh:ro" \
     --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
+    --volume /tmp/runtime-$USER:/tmp/runtime-$USER \
     --volume="$XAUTHORITY:/tmp/.Xauthority:ro" \
     roman_baseline \
     /bin/bash
