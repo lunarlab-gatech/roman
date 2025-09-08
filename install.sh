@@ -1,4 +1,10 @@
 #!/bin/bash
+
+# Make script exit on first failure
+set -euo pipefail
+set -x   # show each command and its expanded args
+
+# Navigate into the directory
 ROMAN_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 cd $ROMAN_DIR
 echo "HELLO"

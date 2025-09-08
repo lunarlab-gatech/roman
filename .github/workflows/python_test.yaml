@@ -12,6 +12,8 @@ jobs:
     container:
       image: dlittleman/roman_baseline:v1.0.1
       options: --user root  # optional, helps avoid permission issue
+      env:
+        GITHUB_ACTIONS: true
 
     steps:
       - uses: actions/checkout@v3
