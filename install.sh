@@ -5,6 +5,11 @@ cd $ROMAN_DIR
 # Install gdown if not already installed
 pip install gdown
 
+# For GitHub Actions, set directory as safe so submodule update works
+if [ "$GITHUB_ACTIONS" = "true" ]; then
+  git config --global --add safe.directory "$ROMAN_DIR"
+fi
+
 # Install CLIPPER
 git submodule update --init --recursive
 mkdir dependencies/clipper/build
