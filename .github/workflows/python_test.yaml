@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v3
       - name: Install dependencies 
         run: |
-          sudo ./install.sh
+          ./install.sh
       - name: Run tests
         run: |
           python3 -m coverage run --source roman -m unittest discover tests/ -v
