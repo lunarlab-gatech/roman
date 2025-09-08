@@ -240,7 +240,7 @@ class FastSAMWrapper():
         self.plane_filter_params = plane_filter_params
 
     @typechecked
-    def run(self, t: np.longdouble, pose: np.ndarray, img: np.ndarray, img_depth: np.ndarray[float] = None) -> list[Observation]:
+    def run(self, t: float, pose: np.ndarray, img: np.ndarray, img_depth: np.ndarray[float] = None) -> list[Observation]:
         """ Takes an image and returns filtered FastSAM masks as Observations. """
 
         self.observations: list[Observation] = []
@@ -333,7 +333,7 @@ class FastSAMWrapper():
             self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld))
 
         # ===== Generate CLIP embeddings for remaining observations in a single batch =====
-        if self.clip_embedding:
+        if self.clip_embedding and len(self.observations) > 0:
 
             # Get processed mask images
             processed_imgs_list = []
