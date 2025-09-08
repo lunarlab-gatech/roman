@@ -14,9 +14,9 @@ echo $ROMAN_DIR
 pip install gdown
 
 echo "WHAT"
-echo $GITHUB_ACTIONS
+echo $CI_TESTS
 # For GitHub Actions, set directory as safe so submodule update works
-if [ "$GITHUB_ACTIONS" = "true" ]; then
+if [ "$CI_TESTS" = "true" ]; then
   git config --global --add safe.directory "$ROMAN_DIR"
   echo "ACTION RAN"
 fi
