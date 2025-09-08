@@ -1,13 +1,16 @@
 #!/bin/bash
 ROMAN_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 cd $ROMAN_DIR
+echo $ROMAN_DIR
 
 # Install gdown if not already installed
 pip install gdown
 
+echo $GITHUB_ACTIONS
 # For GitHub Actions, set directory as safe so submodule update works
 if [ "$GITHUB_ACTIONS" = "True" ]; then
   git config --global --add safe.directory "$ROMAN_DIR"
+  echo "ACTION RAN"
 fi
 
 # Install CLIPPER
