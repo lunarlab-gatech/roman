@@ -121,6 +121,7 @@ For reasons for changes in category 2, see the corresponding .yaml files.
 
 #### Profiling
 ```
+python3 -m cProfile -o profile.out demo/demo.py -p demo/params/demo -o demo_output/demo --skip-align --skip-rpgo
 python3 -m cProfile -o profile.out demo/demo.py -p demo/params/hercules_AustraliaEnv -o demo_output --skip-align --skip-rpgo
 ```
 

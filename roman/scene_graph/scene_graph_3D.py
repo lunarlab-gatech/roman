@@ -13,6 +13,7 @@ from ..params.data_params import ImgDataParams
 from .rerun_wrapper import RerunWrapper
 from roman.map.map import ROMANMap
 from roman.object.segment import Segment
+from roman.params.fastsam_params import FastSAMParams
 from scipy.optimize import linear_sum_assignment
 import trimesh
 from typeguard import typechecked
@@ -51,10 +52,12 @@ class SceneGraph3D():
     max_dist_active_for_node = 10 # meters
 
     @typechecked
-    def __init__(self, _T_camera_flu: np.ndarray, headless: bool = False):
+    def __init__(self, _T_camera_flu: np.ndarray, fastsam_params: FastSAMParams, headless: bool = True):
         self.root_node = GraphNode.create_node_if_possible(0, None, [], np.zeros((0, 3), dtype=np.float64), [], 0, 0, 0, np.empty(0), np.empty(0), True)
         self.pose_FLU_wrt_Camera = _T_camera_flu
-        self.rerun_viewer = RerunWrapper(enable=not headless)
+        self.rerun_viewer = RerunWrapper(enable=not headless, fastsam_params=fastsam_params)
+
+        # TODO: Debug issue where certain segments just completely disappear from Rerun... why is this happening?
 
     @typechecked
     def len(self) -> int:
@@ -63,6 +66,8 @@ class SceneGraph3D():
     @typechecked
     def update(self, time: float | np.longdouble, pose: np.ndarray, observations: list[Observation], img: np.ndarray, depth_img: np.ndarray, img_data_params: ImgDataParams, seg_img: np.ndarray):
         
+        logger.debug(f"SceneGraph3D update called with {len(observations)} observations")
+
         # Make sure that time ends up as a float
         time = float(time)
 
@@ -445,9 +450,17 @@ class SceneGraph3D():
         SceneGraph3D.check_within_bounds(parent_encompassment, (0, 1))
         SceneGraph3D.check_within_bounds(parent_sem_sim, (0, 1))
 
+        # Convert arrays to numpy 
+        children_iou: np.ndarray = np.array(children_iou, dtype=np.float32)
+        children_enclosure: np.ndarray = np.array(children_enclosure, dtype=np.float32)
+        children_sem_sim: np.ndarray = np.array(children_sem_sim, dtype=np.float32)
+        children_volumes: np.ndarray = np.array(children_volumes, dtype=np.float32)
+
         # Keep track of the best score and subset
         best_score = -np.inf
         best_subset = None
+
+        # TODO: Skip children if IOU is zero, this apparently happens alot
         
         # Create powerset of all possible children combinations in the current node
         not_nearby: list[int] = []
@@ -465,12 +478,17 @@ class SceneGraph3D():
             powerset = [()]
 
         # Iterate through each subset of child combinations and create a dummy node with those children
+        powerset_len = 0
         for subset in powerset:
+            powerset_len += 1
 
             # For speed, skip this subset if it contains any children not nearby
             for child_index in not_nearby:
                 if child_index in subset:
                     continue
+
+            # Convert subset to numpy array
+            subset_idx = np.array(subset, dtype=int)
         
             # Calculate children weighted IOU, enclosure, and semantic similarity
             if len(subset) == 0:
@@ -480,15 +498,15 @@ class SceneGraph3D():
                 temp_child_sem_sim = 0.5
             else:
                 # Get the values for this specific combination of children
-                rel_child_iou = [children_iou[i] for i in subset]
-                rel_child_enc = [children_enclosure[i] for i in subset]
-                rel_child_sem_sim = [children_sem_sim[i] for i in subset]
-                rel_volumes = [children_volumes[i] for i in subset]
+                rel_child_iou = children_iou[subset_idx]
+                rel_child_enc = children_enclosure[subset_idx]
+                rel_child_sem_sim = children_sem_sim[subset_idx]
+                rel_volumes = children_volumes[subset_idx]
 
                 # Get a weighted average of them based on each childs volume
-                temp_child_iou = np.average(rel_child_iou, axis=0, weights=rel_volumes)
-                temp_child_enc = np.average(rel_child_enc, axis=0, weights=rel_volumes)
-                temp_child_sem_sim = np.average(rel_child_sem_sim, axis=0, weights=rel_volumes)
+                features = np.vstack([rel_child_iou, rel_child_enc, rel_child_sem_sim])
+                weighted_means = np.sum(features * rel_volumes, axis=1) / np.sum(rel_volumes)
+                temp_child_iou, temp_child_enc, temp_child_sem_sim = weighted_means
 
             # Calculate the final score
             score = temp_child_iou + temp_child_enc + temp_child_sem_sim + parent_iou + parent_encompassment + parent_sem_sim
@@ -499,6 +517,8 @@ class SceneGraph3D():
                 best_score = score
                 best_subset = subset
         
+        logger.debug(f"Powerset length: {powerset_len}; Not nearby length: {len(not_nearby)}")
+
         # Return the result of the best child combination score
         return best_score, best_subset
     

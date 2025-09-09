@@ -15,4 +15,5 @@ plane_filter_params: [3.0, 1.0, 0.2]
 clip: True
 yolo_imgsz: [256, 256]
 depth_scale: 1000.0
+depth_data_type: uint16
 max_depth: 7.5

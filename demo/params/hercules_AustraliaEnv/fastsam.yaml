@@ -48,6 +48,7 @@ yolo_imgsz: [256, 256]
 # Used to convert depth in passed depth imagery to metric depth.
 # For Hercules Dataset, image has raw depth values in meters.
 depth_scale: 1 
+depth_data_type: float32
 
 # If 25% of point cloud of detected observation is not within max_depth, 
 # then observation is rejected.

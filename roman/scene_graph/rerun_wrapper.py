@@ -12,6 +12,7 @@ from ..params.data_params import ImgDataParams
 import random
 import rerun as rr
 import rerun.blueprint as rrb
+from roman.params.fastsam_params import FastSAMParams
 from scipy.spatial.transform import Rotation as R
 from typeguard import typechecked
 
@@ -54,7 +55,10 @@ class HSVSpace:
 class RerunWrapper():
     """ Wrapper for spawning and visualizing using Rerun. """
 
-    def __init__(self, enable=True):
+    def __init__(self,  fastsam_params: FastSAMParams, enable=True):
+
+        # Save parameters
+        self.fastsam_params = fastsam_params
 
         # If not enabled, don't actually send any data
         self.enable = enable
@@ -266,14 +270,15 @@ class RerunWrapper():
                             labels=None))
         rr.log("/world/labels", rr.Boxes3D(centers=box_centers, half_sizes=box_half_sizes,
                             quaternions=box_quats, colors=box_colors, radii=0, fill_mode="line",
-                            labels=box_ids))
+                            labels=box_ids)) #TODO: Can label size change?
         rr.log("/world/meshes", rr.LineStrips3D(strips=line_ends, colors=line_colors, radii=0.1))
 
         if img is not None:
-            rr.log("/world/robot/camera/image", rr.Image(img))
+            rr.log("/world/robot/camera/image", rr.Image(img, color_model="BGR"))
         if depth_img is not None:
-            depth_img_vis = copy.deepcopy(depth_img)
-            depth_img_vis[depth_img_vis > 75] = 75
+            depth_img_vis = copy.deepcopy(depth_img).astype(np.float32)
+            depth_img_vis /= self.fastsam_params.depth_scale
+            depth_img_vis[depth_img_vis > self.fastsam_params.max_depth] = self.fastsam_params.max_depth
             rr.log("/world/robot/camera/depth", rr.DepthImage(depth_img_vis))
         if camera_pose is not None:
             rot = R.from_matrix(camera_pose[:3,:3])
@@ -300,4 +305,4 @@ class RerunWrapper():
             
             # Overlay color onto the normal image
             overlay = cv2.addWeighted(img, 0.5, color_mask, 0.5, 0)
-            rr.log("/world/robot/camera/segmentation", rr.Image(overlay))
+            rr.log("/world/robot/camera/segmentation", rr.Image(overlay, color_model="BGR"))

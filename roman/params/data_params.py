@@ -36,6 +36,7 @@ class ImgDataParams:
     D: Optional[list] = None
     width: int = None
     height: int = None
+    encoding: str = None
     
     @classmethod
     def from_dict(cls, params_dict: dict):
@@ -242,6 +243,7 @@ class DataParams:
                 path_times=times_file_path,
                 K=img_data_params.K,
                 D=img_data_params.D,
+                encoding=img_data_params.encoding,
                 width=img_data_params.width,
                 height=img_data_params.height, 
                 time_tol=self.dt / 2.0

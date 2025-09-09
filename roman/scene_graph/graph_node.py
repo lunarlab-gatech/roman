@@ -90,6 +90,10 @@ class GraphNode():
             hull = self.get_convex_hull()
             if hull is None:
                 self._class_method_creation_success = False
+            # else:
+            #     # Check if node longest size is big enough for us to care about (1 foot for now)
+            #     if self.get_longest_line_size() < 0.3048:
+            #         self._class_method_creation_success = False
 
         # If we are RootGraphNode, creation is always successful as we don't 
         # ever use our ConvexHull or Point Cloud
@@ -428,6 +432,7 @@ class GraphNode():
         # Append them to our point cloud
         self.point_cloud = np.concatenate((self.point_cloud, new_points), axis=0)
         self.point_cloud = np.unique(self.point_cloud, axis=0) # Prune any duplicates
+        logger.debug(f"Point Cloud size after appending: {self.point_cloud.shape[0]}")
         self.last_updated = self.curr_time
         self.reset_saved_vars_safe() # Wipe saved point cloud for next steps
 
@@ -457,6 +462,7 @@ class GraphNode():
         
         # Update the point cloud
         self.point_cloud = GraphNode._intersect_rows(self.point_cloud, np.asarray(pcd_sampled.points))
+        logger.debug(f"Point Cloud size after downsampling: {self.point_cloud.shape[0]}")
         self.last_updated = self.curr_time
 
         # Reset point cloud dependent saved variables and return nodes to delete
@@ -492,6 +498,7 @@ class GraphNode():
             # Since this cluster is too small, the semantic embedding will not be 
             # representative. Thus, we must delete this node, so wipe our point cloud.
             self.point_cloud = np.zeros((0, 3), dtype=np.float64)
+            logger.debug(f"Cluster size too small, rejecting...")
             return self.reset_saved_vars()
 
         # Filter out any points not belonging to max cluster
@@ -500,6 +507,7 @@ class GraphNode():
 
         # Save the new sampled point cloud 
         self.point_cloud = GraphNode._intersect_rows(self.point_cloud, clustered_points)
+        logger.debug(f"Point Cloud size after DBScan: {self.point_cloud.shape[0]}")
         self.last_updated = self.curr_time
         self.reset_saved_vars_safe()
 
@@ -516,6 +524,7 @@ class GraphNode():
 
         # Save the new sampled point cloud 
         self.point_cloud = GraphNode._intersect_rows(self.point_cloud, np.asarray(pcd_sampled.points))
+        logger.debug(f"Point Cloud size after remove statistical outliers: {self.point_cloud.shape[0]}")
         self.last_updated = self.curr_time
         self.reset_saved_vars_safe()
 

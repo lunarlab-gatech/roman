@@ -69,7 +69,7 @@ class ROMANMapRunner:
 
         if verbose: print("Setting up FastSAM...")
         self.fastsam = FastSAMWrapper.from_params(self.fastsam_params, self.depth_data.camera_params)
-        self.mapper = SceneGraph3D(self.data_params.pose_data_params.T_camera_flu)
+        self.mapper = SceneGraph3D(self.data_params.pose_data_params.T_camera_flu, self.fastsam_params)
         
         self.verbose = verbose
         self.viz_map = viz_map
@@ -128,7 +128,7 @@ class ROMANMapRunner:
             logger.info(f"[red]NoDataNearTimeException[/red]: No pose data within threshold of time {img_t}.")
             return None, None, None, None, None
            
-        observations = self.fastsam.run(img_t, pose_odom_camera, img, img_depth=img_depth)
+        observations = self.fastsam.run(float(img_t), pose_odom_camera, img, img_depth=img_depth)
         return img_t, observations, pose_odom_camera, img, img_depth
 
     def update_segment_track(self, t, observations, pose_odom_camera, img, depth_img): 

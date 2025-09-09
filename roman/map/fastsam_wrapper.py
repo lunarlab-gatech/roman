@@ -133,6 +133,7 @@ class FastSAMWrapper():
             depth_cam_params=depth_cam_params, 
             max_depth=params.max_depth,
             depth_scale=params.depth_scale,
+            depth_data_type=params.depth_data_type,
             voxel_size=params.voxel_size,
             erosion_size=params.erosion_size,
             plane_filter_params=params.plane_filter_params
@@ -203,7 +204,7 @@ class FastSAMWrapper():
         else:
             self.constant_ignore_mask = None
             
-    def setup_rgbd_params(self, depth_cam_params: CameraParams, max_depth: float, depth_scale: float = 1e3, voxel_size: float = 0.05, 
+    def setup_rgbd_params(self, depth_cam_params: CameraParams, max_depth: float, depth_data_type: str, depth_scale: float = 1e3, voxel_size: float = 0.05, 
         within_depth_frac: float = 0.25, pcd_stride: int = 4, erosion_size = 0, plane_filter_params = None) -> None:
         """Setup params for processing RGB-D depth measurements
 
@@ -220,6 +221,7 @@ class FastSAMWrapper():
         self.max_depth = max_depth
         self.within_depth_frac = within_depth_frac
         self.depth_scale = depth_scale
+        self.depth_data_type = getattr(np, depth_data_type)
         self.depth_cam_intrinsics = o3d.camera.PinholeCameraIntrinsic(
             width=int(depth_cam_params.width),
             height=int(depth_cam_params.height),
@@ -261,7 +263,7 @@ class FastSAMWrapper():
         
         # Run FastSAM
         masks: np.ndarray = self._process_img(img, ignore_mask=ignore_mask, keep_mask=keep_mask)
-
+        
         # Remove masks corresponding to dynamic objects
         masks = self.remove_dynamic_object_masks(masks, img_depth, pose)
 
@@ -284,7 +286,7 @@ class FastSAMWrapper():
                 # Extract point cloud without truncation to heuristically check if enough of the object
                 # is within the max depth
                 pcd_test = o3d.geometry.PointCloud.create_from_depth_image(
-                    o3d.geometry.Image(np.ascontiguousarray(depth_obj).astype(np.float32)),
+                    o3d.geometry.Image(np.ascontiguousarray(depth_obj).astype(self.depth_data_type)),
                     self.depth_cam_intrinsics,
                     depth_scale=self.depth_scale,
                     stride=self.pcd_stride,
