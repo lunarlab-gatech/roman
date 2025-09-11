@@ -18,6 +18,7 @@ setup(
     packages=find_packages(),
     install_requires=[
         'coverage',
+        'cupy-cuda12x',
         'fastsam @ git+https://github.com/CASIA-IVA-Lab/FastSAM.git@4d153e9',
         'gdown',
         'gtsam',

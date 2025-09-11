@@ -184,9 +184,7 @@ class FastSAMWrapper():
         self.area_bounds = area_bounds
         self.allow_tblr_edges= allow_tblr_edges
         self.keep_mask_minimal_intersection = keep_mask_minimal_intersection
-
-        # Permanently disable YOLO as we detect dynamic objects with Scene Flow
-        self.run_yolo = False
+        self.run_yolo = len(ignore_labels) > 0 or use_keep_labels
         
         self.clip_embedding = clip_embedding
         if clip_embedding:
@@ -205,7 +203,7 @@ class FastSAMWrapper():
             self.constant_ignore_mask = None
             
     def setup_rgbd_params(self, depth_cam_params: CameraParams, max_depth: float, depth_data_type: str, depth_scale: float = 1e3, voxel_size: float = 0.05, 
-        within_depth_frac: float = 0.25, pcd_stride: int = 4, erosion_size = 0, plane_filter_params = None) -> None:
+        within_depth_frac: float = 0.5, pcd_stride: int = 4, erosion_size = 0, plane_filter_params = None) -> None:
         """Setup params for processing RGB-D depth measurements
 
         Args:

@@ -1,5 +1,6 @@
 import numpy as np
 from pathlib import Path
+from roman.params.fastsam_params import FastSAMParams
 from roman.scene_graph.scene_graph_3D import SceneGraph3D
 import unittest
 from typeguard import typechecked
@@ -10,7 +11,8 @@ class TestSceneGraph3D(unittest.TestCase):
     def test_pass_minimum_requirements_for_association(self):
         """ Make sure that our logic is sound for association requirements. """
 
-        graph = SceneGraph3D(np.zeros((4, 4)), headless=True)
+        params = FastSAMParams()
+        graph = SceneGraph3D(np.zeros((4, 4)), headless=True, fastsam_params=params)
 
         iou_pass = 0.5 * (1 + graph.min_iou_for_association)
         iou_fail = 0.5 * graph.min_iou_for_association

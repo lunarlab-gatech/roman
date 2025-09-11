@@ -56,6 +56,8 @@ class RerunWrapper():
     """ Wrapper for spawning and visualizing using Rerun. """
 
     def __init__(self,  fastsam_params: FastSAMParams, enable=True):
+        
+        # TODO: Make line sizes of labels, meshes, and boxes scale based on object size.
 
         # Save parameters
         self.fastsam_params = fastsam_params
@@ -102,6 +104,9 @@ class RerunWrapper():
 
         r, g, b = colorsys.hsv_to_rgb(clamp(h), clamp(s), clamp(v))
         return np.array([[int(round(r * 255)), int(round(g * 255)), int(round(b * 255))]], dtype=np.uint8)
+    
+    def _rgb255_to_bgr255(self, rgb: np.ndarray[np.uint8]) -> np.ndarray[np.uint8]:
+        return rgb[:, ::-1]
 
     def _assign_colors_recursive(self, node: GraphNode, hsv_space: HSVSpace, depth: int = 0) -> None:
 
@@ -212,7 +217,7 @@ class RerunWrapper():
             if seg_img is not None:
                 for pair in associations:
                     if pair[1] == node.get_id():
-                        colormap[node_to_obs_mapping[pair[0]]+1] = color
+                        colormap[node_to_obs_mapping[pair[0]]+1] = self._rgb255_to_bgr255(color)
 
         # Calculate bounding boxes & extract convex hulls as lines for nodes
         box_centers = []
@@ -220,6 +225,7 @@ class RerunWrapper():
         box_quats = []
         box_colors = []
         box_ids = []
+        box_words = []
         line_ends = []
         line_colors = []
 
@@ -244,6 +250,7 @@ class RerunWrapper():
             color = self._hsv_to_rgb255(h, s, v)
             box_colors.append(color)
             box_ids.append(node.get_id())
+            box_words.append(node.get_word())
 
             # Line segments
             mesh = node.get_convex_hull()
@@ -266,12 +273,15 @@ class RerunWrapper():
                         rr.GraphEdges(edges=edges, graph_type="directed"))
         rr.log("/world/points", rr.Points3D(positions=points, colors=point_colors))
         rr.log("/world/boxes", rr.Boxes3D(centers=box_centers, half_sizes=box_half_sizes,
-                            quaternions=box_quats, colors=box_colors, radii=0.1, fill_mode="line",
+                            quaternions=box_quats, colors=box_colors, radii=0.01, fill_mode="line",
                             labels=None))
         rr.log("/world/labels", rr.Boxes3D(centers=box_centers, half_sizes=box_half_sizes,
                             quaternions=box_quats, colors=box_colors, radii=0, fill_mode="line",
                             labels=box_ids)) #TODO: Can label size change?
-        rr.log("/world/meshes", rr.LineStrips3D(strips=line_ends, colors=line_colors, radii=0.1))
+        rr.log("/world/words", rr.Boxes3D(centers=box_centers, half_sizes=box_half_sizes,
+                            quaternions=box_quats, colors=box_colors, radii=0, fill_mode="line",
+                            labels=box_words))
+        rr.log("/world/meshes", rr.LineStrips3D(strips=line_ends, colors=line_colors, radii=0.01))
 
         if img is not None:
             rr.log("/world/robot/camera/image", rr.Image(img, color_model="BGR"))

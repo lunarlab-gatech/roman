@@ -62,6 +62,11 @@ python3 demo/demo.py -p demo/params/demo -o demo_output/demo --skip-map --skip-r
 python3 demo/demo.py -p demo/params/demo -o demo_output/demo --skip-map --skip-align
 ```
 
+For faster processing, run the following command first:
+```
+export TYPEGUARD_DISABLE=1
+```
+
 ### HERCULES (Australia Environment)
 
 Run the following command to run this demo:

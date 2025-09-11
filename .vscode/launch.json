@@ -10,8 +10,8 @@
             "request": "launch",
             "program": "${workspaceFolder}/demo/demo.py",
             "args": [
-              "-p", "demo/params/hercules_AustraliaEnv", 
-              "-o", "demo_output", 
+              "-p", "demo/params/demo", 
+              "-o", "demo_output/demo", 
               "--skip-align",
                "--skip-rpgo"
               
