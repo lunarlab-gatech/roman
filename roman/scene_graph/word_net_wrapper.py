@@ -177,7 +177,7 @@ class WordWrapper():
 class WordNetWrapper():
 
     def __init__(self):
-        self.wordnet_emb_path = Path('/home/dbutterfield3/roman/weights/word_features.npy')
+        self.wordnet_emb_path = Path(__file__).resolve().parent / "files" / "word_features.npy"
         self._calculate_wordnet_embeddings()
         
     def _calculate_wordnet_embeddings(self):
