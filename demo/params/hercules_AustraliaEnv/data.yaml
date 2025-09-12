@@ -21,6 +21,7 @@ img_data:
   D: [ 0, 0, 0, 0]
   width: 752
   height: 480
+  encoding: rgb8
 
 depth_data:
   type: "npy"
@@ -32,6 +33,7 @@ depth_data:
   D: [ 0, 0, 0, 0]
   width: 752
   height: 480
+  encoding: 32FC1
 
 pose_data:
   # Load from csv to avoid expensive rosbag search

@@ -120,6 +120,7 @@ class FastSAMWrapper():
             depth_cam_params=depth_cam_params, 
             max_depth=params.max_depth,
             depth_scale=params.depth_scale,
+            depth_data_type=params.depth_data_type,
             voxel_size=params.voxel_size,
             erosion_size=params.erosion_size,
             plane_filter_params=params.plane_filter_params
@@ -201,6 +202,7 @@ class FastSAMWrapper():
         self, 
         depth_cam_params, 
         max_depth, 
+        depth_data_type: str,
         depth_scale=1e3,
         voxel_size=0.05, 
         within_depth_frac=0.25, 
@@ -223,6 +225,7 @@ class FastSAMWrapper():
         self.max_depth = max_depth
         self.within_depth_frac = within_depth_frac
         self.depth_scale = depth_scale
+        self.depth_data_type = getattr(np, depth_data_type)
         self.depth_cam_intrinsics = o3d.camera.PinholeCameraIntrinsic(
             width=int(depth_cam_params.width),
             height=int(depth_cam_params.height),
@@ -290,7 +293,7 @@ class FastSAMWrapper():
                 # Extract point cloud without truncation to heuristically check if enough of the object
                 # is within the max depth
                 pcd_test = o3d.geometry.PointCloud.create_from_depth_image(
-                    o3d.geometry.Image(np.ascontiguousarray(depth_obj).astype(np.uint16)),
+                    o3d.geometry.Image(np.ascontiguousarray(depth_obj).astype(self.depth_data_type)),
                     self.depth_cam_intrinsics,
                     depth_scale=self.depth_scale,
                     # depth_trunc=self.max_depth,
@@ -305,13 +308,20 @@ class FastSAMWrapper():
                     continue
                 
                 pcd = o3d.geometry.PointCloud.create_from_depth_image(
-                    o3d.geometry.Image(np.ascontiguousarray(depth_obj).astype(np.uint16)),
+                    o3d.geometry.Image(np.ascontiguousarray(depth_obj).astype(self.depth_data_type)),
                     self.depth_cam_intrinsics,
                     depth_scale=self.depth_scale,
                     depth_trunc=self.max_depth,
                     stride=self.pcd_stride,
                     project_valid_depth_only=True
                 )
+
+                # Depth_trunc doesn't work if self.depth_data_type is float, so fix here
+                pcd_array = np.asarray(pcd.points)
+                pcd_array = pcd_array[pcd_array[:,2] < self.max_depth]
+                pcd = o3d.geometry.PointCloud()
+                pcd.points = o3d.utility.Vector3dVector(pcd_array)
+
                 pcd.remove_non_finite_points()
                 pcd_sampled = pcd.voxel_down_sample(voxel_size=self.voxel_size)
                 if not pcd_sampled.is_empty():

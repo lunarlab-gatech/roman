@@ -71,6 +71,7 @@ class FastSAMParams:
     clip: bool = True
     yolo_imgsz: Tuple[int, int] = (256, 256)
     depth_scale: float = 1e3
+    depth_data_type: str = "uint16"
     max_depth: float = 7.5
     triangle_ignore_masks: List[Tuple[Tuple[int,int], Tuple[int,int], Tuple[int,int]]] = None
     

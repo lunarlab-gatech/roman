@@ -25,6 +25,7 @@ setup(
         'scikit-image',
         'open3d>=0.18.0',
         'yolov7-package',
+        'rerun-sdk',
         'shapely',
         'opencv-python>=4.6.0',
         'pyyaml',

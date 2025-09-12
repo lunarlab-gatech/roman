@@ -11,6 +11,7 @@ docker run -it \
     --env="DISPLAY=$DISPLAY" \
     --env="QT_X11_NO_MITSHM=1" \
     --env="XAUTHORITY=/tmp/.Xauthority" \
+    --env="XDG_RUNTIME_DIR=/tmp/runtime-$USER" \
     --env="USER_ID=$(id -u)" \
     --env="GROUP_ID=$(id -g)" \
     --volume="$REPO_DIR:/home/$USER/roman" \

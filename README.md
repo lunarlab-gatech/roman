@@ -59,6 +59,11 @@ python3 demo/demo.py -p demo/params/demo -o demo_output/demo --skip-map --skip-r
 python3 demo/demo.py -p demo/params/demo -o demo_output/demo --skip-map --skip-align
 ```
 
+For faster processing, run the following command first:
+```
+export TYPEGUARD_DISABLE=1
+```
+
 ### HERCULES (Australia Environment)
 
 Run the following command to run this demo:
@@ -115,6 +120,12 @@ submap_align.yaml: submap_radius, submap_center_dist
 ```
 
 For reasons for changes in category 2, see the corresponding .yaml files.
+
+#### Profiling
+```
+python3 -m cProfile -o profile.out demo/demo.py -p demo/params/demo -o demo_output/demo --skip-align --skip-rpgo
+python3 -m cProfile -o profile.out demo/demo.py -p demo/params/hercules_AustraliaEnv -o demo_output --skip-align --skip-rpgo
+```
 
 ### GRaCo (Ground-04)
 
