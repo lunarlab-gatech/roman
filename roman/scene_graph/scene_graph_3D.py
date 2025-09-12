@@ -20,17 +20,6 @@ from typeguard import typechecked
 multiprocessing.set_start_method("spawn", force=True)
 
 class SceneGraph3D():
-    # Node that connects all highest-level objects together for implementation purposes
-    root_node: GraphNode
-
-    # List of high-level nodes that have been inactivated
-    inactive_nodes: list[GraphNode] = []
-
-    # Keeps track of current time so we can keep track of when we are updated.
-    times: list[float] = []
-
-    # Keeps track of the current pose so we know where we are
-    poses: list[np.ndarray] = []
 
     # Requirement for an observation to be associated with a current graph node or for two nodes to be merged.
     min_iou_for_association = 0.6
@@ -51,15 +40,31 @@ class SceneGraph3D():
     # If we travel a significant distance from the first camera pose where this object was seen, inactivate
     max_dist_active_for_node = 10 # meters
 
-    # Dictionaries to cache results of calculations for speed
-    overlap_dict: defaultdict = defaultdict(lambda: defaultdict(lambda: None))
-    shortest_dist_dist: defaultdict = defaultdict(lambda: defaultdict(lambda: None))
-
     @typechecked
     def __init__(self, _T_camera_flu: np.ndarray, fastsam_params: FastSAMParams, headless: bool = True):
-        self.root_node = GraphNode.create_node_if_possible(0, None, [], np.zeros((0, 3), dtype=np.float64), [], 0, 0, 0, np.empty(0), np.empty(0), is_RootGraphNode=True)
+
+        # Node that connects all highest-level objects together for implementation purposes
+        self.root_node: GraphNode = GraphNode.create_node_if_possible(0, None, [], np.zeros((0, 3), dtype=np.float64), 
+                                                                      [], 0, 0, 0, np.empty(0), np.empty(0), is_RootGraphNode=True)
+        
+        # List of high-level nodes that have been inactivated
+        self.inactive_nodes: list[GraphNode] = []
+
+        # Keeps track of current time so we can keep track of when we are updated.
+        self.times: list[float] = []
+
+        # Keeps track of the current pose so we know where we are
+        self.poses: list[np.ndarray] = []
+
+        # Track FLU pose wrt camera frame
         self.pose_FLU_wrt_Camera = _T_camera_flu
+
+        # Create the visualization
         self.rerun_viewer = RerunWrapper(enable=not headless, fastsam_params=fastsam_params)
+
+        # Dictionaries to cache results of calculations for speed
+        self.overlap_dict: defaultdict = defaultdict(lambda: defaultdict(lambda: None))
+        self.shortest_dist_dist: defaultdict = defaultdict(lambda: defaultdict(lambda: None))
 
         # TODO: Also, maybe use words during semantic merging?
 

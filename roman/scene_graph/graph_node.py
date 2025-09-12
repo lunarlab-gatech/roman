@@ -20,55 +20,6 @@ wordnetWrapper = WordNetWrapper()
 
 @typechecked
 class GraphNode():
-    # ================== Attributes ==================
-    # Node ID
-    id: int
-
-    # Information tracking if we are the RootGraphNode
-    is_root: bool
-    _next_id: int # RootGraphNode handles id assignments
-
-    # The parent node to this node.
-    parent_node: GraphNode | None
-
-    # Any child nodes we might have
-    child_nodes: list[GraphNode]
-
-    # As Clip embeddings can't be split and passed to children,
-    # track embeddings specific to each node. Will be combined
-    # with child embeddings before returning the final embedding.
-    semantic_descriptors: list[tuple[np.ndarray, float]] = []
-
-    # Points that relate only to this object and not any children.
-    point_cloud: np.ndarray = np.zeros((0, 3), dtype=np.float64)
-
-    # Keeps track of time this node (not any children) was seen. Note 
-    # that last_updated just keeps track of when point cloud or semantic 
-    # descriptors was changed, nothing else.
-    first_seen: float
-    last_updated: float
-
-    # Keeps track of current time & pose
-    curr_time: float
-    curr_pose: np.ndarray
-
-    # Keeps track of the first pose associated with this node (not any descendents)
-    first_pose: np.ndarray
-
-    # Holds values for reuse to avoid recalculating them
-    _convex_hull: trimesh.Trimesh = None
-    _point_cloud: np.ndarray = None
-    _longest_line_size: float = None
-    _centroid: np.ndarray = None
-    _weighted_semantic_descriptor: np.ndarray = None
-    _word: str = None
-
-    # Tracks if SceneGraph3D needs to redo a calculation or not
-    _redo_convex_hull_geometric_overlap: bool = True
-    _redo_shortest_dist_between_convex_hulls: bool = True
-
-    # Track if creating the node succeeded with create_node_if_possible()
-    _class_method_creation_success: bool = True
 
     # ================ Initialization =================
     def __init__(self, id: int, parent_node: GraphNode | None, semantic_descriptors: list[tuple[np.ndarray, float]], 
@@ -79,18 +30,57 @@ class GraphNode():
         as node can be invalid after creation.
         """
         
-        self.id = id
-        self._next_id = id + 1
-        self.parent_node = parent_node
-        self.semantic_descriptors = semantic_descriptors
-        self.child_nodes = child_nodes
-        self.first_seen = first_seen
-        self.last_updated = last_updated
-        self.curr_time = curr_time
-        self.first_pose = first_pose
-        self.curr_pose = curr_pose
-        self.is_root = is_RootGraphNode
+        # Node ID
+        self.id: int = id            
+
+        # RootGraphNode handles id assignments, but all nodes have this        
+        self._next_id: int = id + 1
+
+        # The parent node to this node.
+        self.parent_node: GraphNode | None = parent_node
+
+        # Any child nodes we might have
+        self.child_nodes: list[GraphNode] = child_nodes
         
+        # As Clip embeddings can't be split and passed to children,
+        # track embeddings specific to each node. Will be combined
+        # with child embeddings before returning the final embedding.
+        self.semantic_descriptors: list[tuple[np.ndarray, float]]  = semantic_descriptors
+
+        # Keeps track of time this node (not any children) was seen. Note 
+        # that last_updated just keeps track of when point cloud or semantic 
+        # descriptors was changed, nothing else.
+        self.first_seen: float = first_seen
+        self.last_updated: float = last_updated
+
+        # Keeps track of current time & pose
+        self.curr_time: float = curr_time
+        self.curr_pose: np.ndarray = curr_pose
+
+        # Keeps track of the first pose associated with this node (not any descendents)
+        self.first_pose: np.ndarray = first_pose
+
+        # Information tracking if we are the RootGraphNode
+        self.is_root = is_RootGraphNode
+
+        # Points that relate only to this object and not any children.
+        self.point_cloud: np.ndarray = np.zeros((0, 3), dtype=np.float64)
+
+        # Holds values for reuse to avoid recalculating them
+        self._convex_hull: trimesh.Trimesh = None
+        self._point_cloud: np.ndarray = None
+        self._longest_line_size: float = None
+        self._centroid: np.ndarray = None
+        self._weighted_semantic_descriptor: np.ndarray = None
+        self._word: str = None
+
+        # Tracks if SceneGraph3D needs to redo a calculation or not
+        self._redo_convex_hull_geometric_overlap: bool = True
+        self._redo_shortest_dist_between_convex_hulls: bool = True
+
+        # Track if creating the node succeeded with create_node_if_possible()
+        self._class_method_creation_success: bool = True
+
         # Update point cloud and check that the cloud is good
         to_delete = self.update_point_cloud(point_cloud, run_dbscan=run_dbscan)
         if len(to_delete) > 0:
