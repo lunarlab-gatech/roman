@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from .hull_methods import get_convex_hull_from_point_cloud, find_point_overlap_with_hulls, longest_line_of_point_cloud
 from .logger import logger
 import numpy as np
@@ -13,13 +14,33 @@ import trimesh
 from typing import Iterator
 from scipy.spatial import ConvexHull
 from typeguard import typechecked
-from .word_net_wrapper import WordNetWrapper
+from .word_net_wrapper import WordNetWrapper, WordListWrapper
 
 # Initialize a WordNetWrapper for use by GraphNodes
-wordnetWrapper = WordNetWrapper()
+wordnetWrapper = WordNetWrapper(["curb", "tree", "garbage can", "door", "window", "pole", "street lamp", "trunk", "wall", "sign", "crosswalk", "sidewalk", "mulch", "leaves", "grass", "retaining wall", "railing", "curbstone", "bush", "hedge" "floor marking", "stairs", "column", "car", "wheel", "bike", "street", "manhole", "parking meter", "tree pit", "fire hydrant", "road marking", "zebra strips"])
 
 @typechecked
 class GraphNode():
+
+    # If using wordnet for semantic merging, number of words to simulatneously consider ourselves as
+    num_words_to_consider_ourselves = 1
+
+    # Voxel size set for downsampling relative to the longest line of node
+    sample_voxel_size_to_longest_line_ratio = 0.01
+
+    # ===== DBSCAN Parameters ===== 
+    # Epsilon set relative to longest line of point cloud
+    sample_epsilon_to_longest_line_ratio = 0.1
+
+    # Required percentage size of cluster relative to full cloud to consider keeping node
+    cluster_percentage_of_full = 0.8
+
+    # ===== Statistical Outlier Removal Parameters =====
+    # Number of neighbors to calculate average distance for a point
+    stat_out_num_neighbors = 30
+    
+    # STD ratio for thresholding
+    std_ratio = 1.5
 
     # ================ Initialization =================
     def __init__(self, id: int, parent_node: GraphNode | None, semantic_descriptors: list[tuple[np.ndarray, float]], 
@@ -39,7 +60,7 @@ class GraphNode():
         # The parent node to this node.
         self.parent_node: GraphNode | None = parent_node
 
-        # Any child nodes we might have
+        # Any child nodes we might have. TODO: Make it a set, so duplicate children can't occur.
         self.child_nodes: list[GraphNode] = child_nodes
         
         # As Clip embeddings can't be split and passed to children,
@@ -72,11 +93,16 @@ class GraphNode():
         self._longest_line_size: float = None
         self._centroid: np.ndarray = None
         self._weighted_semantic_descriptor: np.ndarray = None
-        self._word: str = None
+        self._words: WordListWrapper = None
+        self._meronyms: dict[int, set[str]] = defaultdict(lambda: None)
+        self._holonyms: dict[int, set[str]] = defaultdict(lambda: None)
+        self._holonyms_pure: dict[int, set[str]] = defaultdict(lambda: None)
+        self._descendents: list[GraphNode] = None
 
         # Tracks if SceneGraph3D needs to redo a calculation or not
         self._redo_convex_hull_geometric_overlap: bool = True
         self._redo_shortest_dist_between_convex_hulls: bool = True
+        self._redo_word_comparisons: bool = True
 
         # Track if creating the node succeeded with create_node_if_possible()
         self._class_method_creation_success: bool = True
@@ -143,7 +169,7 @@ class GraphNode():
 
     def get_parent(self) -> GraphNode:
         if self.is_RootGraphNode():
-            return RuntimeError("get_parent() should not be called on the RootGraphNode!")
+            raise RuntimeError("get_parent() should not be called on the RootGraphNode!")
         return self.parent_node
     
     def is_parent_or_child(self, other: GraphNode) -> bool:
@@ -172,19 +198,46 @@ class GraphNode():
             self._weighted_semantic_descriptor = self.calculate_weighted_semantic_descriptor(self.get_semantic_descriptors())
         return self._weighted_semantic_descriptor
     
-    def get_word(self) -> str:
-        if self._word is None:
+    def get_words(self) -> WordListWrapper:
+        if self._words is None:
             descriptor = self.get_weighted_semantic_descriptor()
-            self._word = wordnetWrapper.map_embedding_to_word(descriptor)
-        return self._word
+            self._words = WordListWrapper.from_words(wordnetWrapper.map_embedding_to_words(descriptor, self.num_words_to_consider_ourselves))
+        return self._words
     
-    def is_descendent_or_ascendent(self, other) -> bool:
+    def get_all_meronyms(self, meronym_level: int = 1) -> set[str]:
+        if self._meronyms[meronym_level] is None:
+            self._meronyms[meronym_level] = self.get_words().words[0].get_all_meronyms(True, meronym_level)
+        return self._meronyms[meronym_level]
+    
+    def get_all_holonyms(self, include_hypernyms: bool, holonym_level: int = 1) -> set[str]:
+        if include_hypernyms:
+            if self._holonyms[holonym_level] is None:
+                self._holonyms[holonym_level] = self.get_words().words[0].get_all_holonyms(True, holonym_level)
+            return self._holonyms[holonym_level]
+        else:
+            if self._holonyms_pure[holonym_level] is None:
+                self._holonyms_pure[holonym_level] = self.get_words().words[0].get_all_holonyms(False, holonym_level)
+            return self._holonyms_pure[holonym_level]
+    
+    def is_descendent_or_ascendent(self, other: GraphNode) -> bool:
         """ Returns True if this node is a descendent or ascendent of other."""
-        return self.is_descendent(other) or self.is_ascendent(other)
+        return other.is_ascendent(self) or self.is_ascendent(other)
     
-    def is_descendent(self, other: GraphNode) -> bool:
-        """ Returns True if self is an descendent of other."""
-        return other.is_ascendent(self)
+    def is_ascendent(self, other: GraphNode) -> bool:
+        """ Returns True if self is an ascendent of other."""
+
+        if self is other: return False
+        descendents: list[GraphNode] = self.get_descendents()
+        if other in descendents: return True
+        else: return False
+    
+    def get_descendents(self) -> list[GraphNode]:
+        if self._descendents is None:
+            self._descendents = []
+            self._descendents += self.get_children()
+            for child in self.get_children():
+                self._descendents += child.get_descendents()
+        return self._descendents
     
     def is_RootGraphNode(self) -> bool:
         return self.is_root
@@ -312,28 +365,17 @@ class GraphNode():
         descriptors += self.semantic_descriptors
         return descriptors
     
+    def get_total_weight_of_semantic_descriptors(self) -> float:
+        descriptors: list[tuple[np.ndarray, float]] = self.get_semantic_descriptors()
+        weights = np.array([w for _, w in descriptors])
+        return weights.sum()
+    
     def get_number_of_nodes(self) -> int:
         num = 1
         for child in self.get_children():
             num += child.get_number_of_nodes()
         return num
-    
-    def is_ascendent(self, other: GraphNode) -> bool:
-        """ Returns True if self is an ascendent of other."""
-
-        # Check if we are directly their parent
-        for child in self.get_children():
-            if child is other:
-                return True
-
-        # If not, see if we are a grandparent or higher up
-        for child in self.get_children():
-            if child.is_ascendent(other):
-                return True    
-
-        # Otherwise, we aren't
-        return False
-    
+        
     def get_children(self) -> list[GraphNode]:
         return self.child_nodes
     
@@ -401,7 +443,7 @@ class GraphNode():
     
     def remove_from_graph_complete(self) -> list[int]:
         """ Does so by disconnecting self from parent both ways. Also immediately deletes any parent nodes that are now invalid. 
-            Returns any additional nodes that were also retired (not including self). """
+            Returns ids of additional nodes that were also retired (not including self). """
 
         deleted_ids = []
         to_delete = self.remove_from_graph()
@@ -455,6 +497,7 @@ class GraphNode():
             self.child_nodes.remove(child)
             logger.debug(f"remove_child(): Resetting Point Cloud for Node {self.get_id()}")
             self.reset_saved_descriptor_vars()
+            self.reset_saved_inheritance_vars()
             return self.reset_saved_point_vars()
         else:
             raise ValueError(f"Tried to remove {child} from {self}, but {child} not in self.child_nodes: {self.child_nodes}")
@@ -472,10 +515,11 @@ class GraphNode():
 
     def add_child(self, new_child: GraphNode) -> None:
         if new_child in self.child_nodes:
-            raise ValueError("Tried to add a child node that is already a child of this GraphNode!")
+            return # Shouldn't add children more than once
         self.child_nodes.append(new_child)
         logger.debug(f"add_child(): Resetting Point Cloud for Node {self.get_id()}")
         self.reset_saved_descriptor_vars()
+        self.reset_saved_inheritance_vars()
         self.reset_saved_point_vars_safe()
 
     def add_children(self, new_children: list[GraphNode]) -> None:
@@ -518,9 +562,6 @@ class GraphNode():
         # Necessary to limit sizes of point clouds for computation purposes and for ensuring incoming point clouds only represent a single object.
         # Considers child cloud as part of self for determining how to downsample, remove outliers, and cluster. 
 
-        # Define parameters that are hopefully invariant to environment size by depending on object size
-        sample_voxel_size_to_longest_line_ratio = 0.01
-
         # Perform DBSCAN clustering (if desired)
         if run_dbscan:
             # Remove statistical outliers first so they don't interfere with clustering
@@ -534,7 +575,7 @@ class GraphNode():
         pcd.points = o3d.utility.Vector3dVector(self.get_point_cloud())
         length = self.get_longest_line_size()
         if length > 0:
-            pcd_sampled = pcd.voxel_down_sample(length * sample_voxel_size_to_longest_line_ratio)
+            pcd_sampled = pcd.voxel_down_sample(length * self.sample_voxel_size_to_longest_line_ratio)
         else:
             return self.reset_saved_point_vars()
         
@@ -549,17 +590,13 @@ class GraphNode():
 
     def _dbscan_clustering(self) -> None:
 
-        # Define parameters that are hopefully invariant to environment size by depending on object size
-        sample_epsilon_to_longest_line_ratio = 0.1
-        cluster_percentage_of_full = 0.8 # Can't be too small or semantics might change too much
-
         # Convert into o3d PointCloud
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(self.get_point_cloud())
 
         # Perform clustering
         length = self.get_longest_line_size()
-        labels = np.array(pcd.cluster_dbscan(eps=length * sample_epsilon_to_longest_line_ratio, min_points=4))
+        labels = np.array(pcd.cluster_dbscan(eps=length * self.sample_epsilon_to_longest_line_ratio, min_points=4))
         max_cluster_index = labels.max()
         if max_cluster_index == -1:
             logger.info(f"[bright_red]WARNING[/bright_red]: All points in this node {self.get_id()} have been detected as noise!")
@@ -571,7 +608,7 @@ class GraphNode():
         max_cluster_size = np.sum(labels == max_cluster_index)
         cluster_size_ratio = max_cluster_size / len(pcd.points)
         logger.debug(f"Cluster Size Ratio: {cluster_size_ratio}")
-        if cluster_size_ratio < cluster_percentage_of_full:
+        if cluster_size_ratio < self.cluster_percentage_of_full:
 
             # Since this cluster is too small, the semantic embedding will not be 
             # representative. Thus, we must delete this node, so wipe our point cloud.
@@ -599,7 +636,7 @@ class GraphNode():
         pcd.points = o3d.utility.Vector3dVector(self.get_point_cloud())
 
         # Remove statistical outliers
-        pcd_sampled, _ = pcd.remove_statistical_outlier(30, 1.5)
+        pcd_sampled, _ = pcd.remove_statistical_outlier(self.stat_out_num_neighbors, self.std_ratio)
 
         # Save the new sampled point cloud 
         self.point_cloud = GraphNode._intersect_rows(self.point_cloud, np.asarray(pcd_sampled.points))
@@ -777,12 +814,38 @@ class GraphNode():
     def reset_saved_descriptor_vars(self) -> None:
         """ Wipes saved descriptor variables as they need to be recalculated """
 
+        # Track the previous word to see if it changed
+        prev_word = None
+        if self._words is not None:
+            prev_word = self._words.words[0]
+
         # Wipe variables
         self._weighted_semantic_descriptor = None
+        self._words = None
+
+        # Get the new word and see if it changed
+        if prev_word is None or not self.get_words().words[0] == prev_word:
+
+            # Reset all our meronyms & holonyms since it changed            
+            self._meronyms = defaultdict(lambda: None)
+            self._holonyms = defaultdict(lambda: None)
+            self._holonyms_pure = defaultdict(lambda: None)
+
+            # Also let the scene graph know that some word comparisons will need rechecking
+            self._redo_word_comparisons = True
 
         # Do the same in parents
         if self.parent_node is not None:
             self.parent_node.reset_saved_descriptor_vars()
+
+    def reset_saved_inheritance_vars(self) -> None:
+
+        # Wipe variables
+        self._descendents = None
+
+        # Also wipe this in parents
+        if self.parent_node is not None:
+            self.parent_node.reset_saved_inheritance_vars()
 
     # ==================== Iterator ====================
     def __iter__(self) -> Iterator[GraphNode]:

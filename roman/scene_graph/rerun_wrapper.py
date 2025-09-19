@@ -250,7 +250,7 @@ class RerunWrapper():
             color = self._hsv_to_rgb255(h, s, v)
             box_colors.append(color)
             box_ids.append(node.get_id())
-            box_words.append(node.get_word())
+            box_words.append(node.get_words().to_list())
 
             # Line segments
             mesh = node.get_convex_hull()

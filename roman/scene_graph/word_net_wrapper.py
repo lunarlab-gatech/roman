@@ -44,23 +44,42 @@ class SynsetWrapper():
         synset_str: str = self.synset.name()
         return synset_str.split('.')[0].replace("_", " ")
     
-    def get_all_meronyms(self, upwards: bool) -> list[Synset]:
-        meronyms = self.synset.part_meronyms()
-        meronyms += self.synset.substance_meronyms()
-        meronyms += self.synset.member_meronyms()
-        if upwards:
+    def get_all_meronyms(self, include_meronyms: bool, meronym_levels: int = 1) -> list[Synset]:
+        meronyms = []
+
+        if meronym_levels > 0:
+            meronyms = self.synset.part_meronyms()
+            meronyms += self.synset.substance_meronyms()
+            meronyms += self.synset.member_meronyms()
+
+        lower_level_meronyms = []
+        for meronym in meronyms:
+            lower_level_meronyms += SynsetWrapper(meronym).get_all_meronyms(include_meronyms, meronym_levels-1)
+        meronyms += lower_level_meronyms
+
+        if include_meronyms:
             for hypernym in self.synset.hypernyms():
-                meronyms += SynsetWrapper(hypernym).get_all_meronyms(upwards)
+                meronyms += SynsetWrapper(hypernym).get_all_meronyms(False, meronym_levels)
         return meronyms
     
-    def get_all_holonyms(self, upwards: bool) -> list[Synset]:
-        holonyms = self.synset.part_holonyms()
-        holonyms += self.synset.substance_holonyms()
-        holonyms += self.synset.member_holonyms()
-        if upwards:
+    def get_all_holonyms(self, include_hypernyms: bool, holonym_levels: int = 1) -> list[Synset]:
+        holonyms = []
+
+        if holonym_levels > 0:
+            holonyms = self.synset.part_holonyms()
+            holonyms += self.synset.substance_holonyms()
+            holonyms += self.synset.member_holonyms()
+
+        higher_level_holonyms = []
+        for holonym in holonyms:
+            higher_level_holonyms += SynsetWrapper(holonym).get_all_holonyms(include_hypernyms, holonym_levels-1)
+        holonyms += higher_level_holonyms
+
+        if include_hypernyms:
             for hypernym in self.synset.hypernyms():
-                holonyms += SynsetWrapper(hypernym).get_all_holonyms(upwards)
+                holonyms += SynsetWrapper(hypernym).get_all_holonyms(False, holonym_levels)
         return holonyms
+
 
     @staticmethod
     def synsets_as_strings(synsets: list[Synset], max_len: int = 7) -> list[str]:
@@ -72,7 +91,16 @@ class SynsetWrapper():
             return strings
         
     @staticmethod
-    def all_words_in_synsets(synsets: list[Synset]) -> set[str]:
+    def all_words_in_synsets(synsets: list[Synset] | list[SynsetWrapper]) -> set[str]:
+        if len(synsets) == 0:
+            return set()
+        
+        if isinstance(synsets[0], SynsetWrapper):
+            temp = []
+            for synset in synsets:
+                temp.append(synset.synset)
+            synsets = temp
+
         all_words: set[str] = set()
         for synset in synsets:
             lemmas: list[LemmaWrapper] = [LemmaWrapper(x) for x in synset.lemmas()]
@@ -113,8 +141,8 @@ class SynsetWrapper():
                 str_rep += f"{method_str}: {SynsetWrapper.synsets_as_strings(synsets)}\n"
 
         # Print Upwards Meronyms & Holonyms
-        meronyms_upwards = self.get_all_meronyms(upwards=True)
-        holonyms_upwards = self.get_all_holonyms(upwards=True)
+        meronyms_upwards = self.get_all_meronyms(True)
+        holonyms_upwards = self.get_all_holonyms(True)
         if len(meronyms_upwards) > 0:
             str_rep += f"Upwards Meronyms: {SynsetWrapper.synsets_as_strings(meronyms_upwards, 20)}\n"
         if len(holonyms_upwards) > 0:
@@ -135,10 +163,24 @@ class WordWrapper():
     """Wrapper for a specific word"""
 
     def __init__(self, word: str, synsets: list[SynsetWrapper]):
-        self.word = word
+        self.word: str = word
 
         # Synset: a set of synonyms that share a common meaning.
         self.synsets: list[SynsetWrapper] = synsets
+
+        # Calculate shared lemmas (words which could mean the exact same thing)
+        self.shared_lemmas: set[str] = SynsetWrapper.all_words_in_synsets(self.synsets)
+
+    def __eq__(self, other: WordWrapper):
+        if self.word == other.word:
+            return True
+        
+        if other.word in self.shared_lemmas:
+            return True
+        if self.word in other.shared_lemmas:
+            return True
+        
+        return False
 
     @classmethod
     def from_word(cls, word: str) -> WordWrapper:
@@ -162,34 +204,100 @@ class WordWrapper():
             str_rep += f"{syn}"
         return str_rep
     
-    def get_all_meronyms(self, upwards: bool) -> set[str]:
+    def get_all_meronyms(self, include_hypernyms: bool, meronym_levels: int = 1) -> set[str]:
         meronyms: list[Synset] = []
         for synset in self.synsets:
-            meronyms += synset.get_all_meronyms(upwards)
+            meronyms += synset.get_all_meronyms(include_hypernyms, meronym_levels)
         return SynsetWrapper.all_words_in_synsets(meronyms)
     
-    def get_all_holonyms(self, upwards: bool) -> set[str]:
+    def get_all_holonyms(self, include_hypernyms: bool, holonym_levels: int = 1) -> set[str]:
         holonyms: list[Synset] = []
         for synset in self.synsets:
-            holonyms += synset.get_all_holonyms(upwards)
+            holonyms += synset.get_all_holonyms(include_hypernyms, holonym_levels)
+        return SynsetWrapper.all_words_in_synsets(holonyms)
+
+    
+class WordListWrapper():
+    """ 
+    Wrapper around a list of words; considered equal if any of
+    its words are the same as any of another word list's words.
+    """
+
+    def __init__(self, words: list[WordWrapper]):
+        self.words: list[WordWrapper] = words
+
+    def __eq__(self, other: WordListWrapper):
+        for word_self in self.words:
+            for word_other in other.words:
+                if word_self == word_other:
+                    return True
+        return False
+    
+    def __str__(self) -> str:
+        str_rep = "{"
+        for i, word in enumerate(self.words):
+            str_rep += f"{word.word}"
+            if i + 1 < len(self.words):
+                str_rep += ", "
+        return str_rep + "}"
+
+    @classmethod
+    def from_words(cls, words: list[str]) -> WordListWrapper:
+        words_wrapped: list[WordWrapper] = []
+        for word in words:
+            words_wrapped.append(WordWrapper.from_word(word))
+        return cls(words_wrapped)
+    
+    def to_list(self) -> list[str]:
+        word_list: list[str] = []
+        for word in self.words:
+            word_list.append(word.word)
+        return word_list
+    
+    def get_all_meronyms(self, include_hypernyms: bool, meronym_levels: int = 1) -> set[str]:
+        meronyms: list[Synset] = []
+        for word in self.words:
+            meronyms += word.get_all_meronyms(include_hypernyms, meronym_levels)
+        return SynsetWrapper.all_words_in_synsets(meronyms)
+    
+    def get_all_holonyms(self, include_hypernyms: bool, holonym_levels: int = 1) -> set[str]:
+        holonyms: list[Synset] = []
+        for word in self.words:
+            holonyms += word.get_all_holonyms(include_hypernyms, holonym_levels)
         return SynsetWrapper.all_words_in_synsets(holonyms)
     
 class WordNetWrapper():
 
-    def __init__(self):
-        self.wordnet_emb_path = Path(__file__).resolve().parent / "files" / "word_features.npy"
-        self._calculate_wordnet_embeddings()
-        
-    def _calculate_wordnet_embeddings(self):
-        """ Convert WordNet words into CLIP embeddings """
+    def __init__(self, word_list: list[str] | None):
 
-        # Get all synsets in wordnet, and then extract all words as the lemmas of the synsets
-        all_synsets: list[Synset] = list(wn.all_synsets(pos=wn.NOUN))
-        self.word_list: list[str] = list(SynsetWrapper.all_words_in_synsets(all_synsets))
+        self.wordnet_emb_path = Path(__file__).resolve().parent / "files" / "word_features.npy"
+        logger.info(f"WordNet Embeddings Path: {self.wordnet_emb_path}")
+
+        if word_list is None:
+            # Get all synsets in wordnet, and then extract all words as the lemmas of the synsets
+            all_synsets: list[Synset] = list(wn.all_synsets(pos=wn.NOUN))
+            self.word_list: list[str] = list(SynsetWrapper.all_words_in_synsets(all_synsets))
+        else:
+            # Get meronyms and holonyms for each word and append to list
+            word_list_initial: set[str] = set(word_list)
+            word_list_final: set[str] = set()
+            for word in word_list_initial:
+                wrapped = WordWrapper.from_word(word)
+                meronyms = wrapped.get_all_meronyms(True, 2)
+                holonyms = wrapped.get_all_holonyms(True, 2)
+                word_list_final.update(meronyms)
+                word_list_final.update(holonyms)
+            self.word_list = list(word_list_final)
+
         self.word_list.sort()
+        self.num_of_words: int = len(self.word_list)
         logger.debug(f"{self.word_list}")
-        num_of_words: int = len(self.word_list)
         logger.info(f"Number of Words in dictionary: {len(self.word_list)}")
+
+        self._calculate_word_embeddings()
+            
+    def _calculate_word_embeddings(self):
+        """ Convert WordNet words into CLIP embeddings """
 
         # Check if we've already calculated these embeddings
         if self.wordnet_emb_path.exists():
@@ -204,8 +312,8 @@ class WordNetWrapper():
             batch_size = 1000
 
             # Get CLIP features
-            self.word_features = np.zeros((num_of_words, 768), dtype=np.float16)
-            for i in range(int(np.ceil(num_of_words / batch_size))):
+            self.word_features = np.zeros((self.num_of_words, 768), dtype=np.float16)
+            for i in range(int(np.ceil(self.num_of_words / batch_size))):
                 # Tokenize the words
                 word_batch = self.word_list[i*batch_size:(i+1)*batch_size]
                 tokens = clip.tokenize(word_batch).to(device)
@@ -223,15 +331,31 @@ class WordNetWrapper():
         # Save word features into CuPy array
         self.word_features_cupy = cp.asarray(self.word_features)
     
-    def map_embedding_to_word(self, emb: np.ndarray):
-        similarities = self.word_features_cupy @ cp.asarray(emb)
-        best_idxs_gpu = cp.argsort(similarities)[:-5][::-1]
+    def map_embedding_to_words(self, emb: np.ndarray, k: int = 5) -> list[str]:
+        """ Returns the top-k words that match, with first word being most likely. """
 
+        assert k <= self.num_of_words
+
+        if k == 1: top_k = k + 1
+        else: top_k = k
+
+        similarities = self.word_features_cupy @ cp.asarray(emb)
+        best_idxs_gpu = cp.argsort(similarities)[-top_k:][::-1]
         best_idxs = best_idxs_gpu.get()
         best_words = [self.word_list[i] for i in best_idxs]
-        return best_words[0]
+        if k == 1:
+            return [best_words[0]]
+        else:
+            return best_words
+        
+    def get_embedding_for_word(self, word: str) -> np.ndarray:
+        if not word in self.word_list:
+            raise RuntimeError(f"Trying to get embedding for word ({word}) not in our dictionary!")
+
+        return self.word_features[self.word_list.index(word)]
     
 def main():
+
     words = ["shoebird"]
     for word in words:
         print(WordWrapper.from_word(word))
