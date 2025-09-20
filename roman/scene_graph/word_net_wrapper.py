@@ -8,6 +8,7 @@ nltk.download('wordnet')
 from nltk.corpus import wordnet as wn
 from nltk.corpus.reader.wordnet import Synset, Lemma
 import numpy as np
+import os
 from pathlib import Path
 from PIL import Image  # Required by clip.load, even if not used
 import torch
@@ -326,6 +327,7 @@ class WordNetWrapper():
             logger.info(f"CLIP Features encoded successfully for dictionary")
 
             # Finally, save this on the comptuer
+            os.makedirs(os.path.dirname(self.wordnet_emb_path), exist_ok=True)
             np.save(str(self.wordnet_emb_path), self.word_features)
 
         # Save word features into CuPy array
