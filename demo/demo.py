@@ -62,7 +62,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    # setup params
+    # Setup parameters
     params_dir = args.params
     submap_align_params_path = os.path.join(args.params, f"submap_align.yaml")
     submap_align_params = SubmapAlignParams.from_yaml(submap_align_params_path) \
@@ -74,7 +74,7 @@ if __name__ == '__main__':
     if args.runs is not None:
         data_params.runs = args.runs
             
-    # ground truth pose files
+    # Load the ground truth pose file
     if os.path.exists(os.path.join(params_dir, "gt_pose.yaml")):
         has_gt = True
         gt_files = [os.path.join(params_dir, "gt_pose.yaml") for _ in range(len(data_params.runs))]
@@ -123,15 +123,20 @@ if __name__ == '__main__':
         # TODO: support ground truth pose file for validation
             
         for i in range(len(data_params.runs)):
+
+            # See if either of the compared runs are supposed to be skipped
             if args.skip_indices and i in args.skip_indices:
                 continue
             for j in range(i, len(data_params.runs)):
                 if args.skip_indices and j in args.skip_indices:
                     continue
                 
+                # Make the output directory to store the alignment results
                 output_dir = os.path.join(args.output_dir, "align", f"{data_params.runs[i]}_{data_params.runs[j]}")
                 os.makedirs(output_dir, exist_ok=True)
-                input_files = [os.path.join(args.output_dir, "map", f"{data_params.runs[i]}.pkl"),
+
+                # Load the two pickle files containing the maps from the first step
+                input_files: list[str] = [os.path.join(args.output_dir, "map", f"{data_params.runs[i]}.pkl"),
                             os.path.join(args.output_dir, "map", f"{data_params.runs[j]}.pkl")]
 
                 # Create the Input/Output parameters
@@ -146,7 +151,7 @@ if __name__ == '__main__':
                 )
 
                 # If the same robot is being aligned to itself, enable single_robot_lc.
-                # This avoids doing loop closures nearby in time with itself.
+                # This avoids doing loop closures with itself, not sure why they do this.
                 submap_align_params.single_robot_lc = (i == j)
 
                 # Run the alignment process

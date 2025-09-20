@@ -20,11 +20,21 @@ class ObjectRegistration():
         self.dim = dim
 
     def register(self, map1: List[Object], map2: List[Object]):
+
+        # If either map has no objects, return no associations
         if len(map1) == 0 or len(map2) == 0:
             return np.array([[]])
+        
+        # Initialize classes
         clipper = self._setup_clipper()
+
+        # Calculate consistency scores
         clipper, A_init = self._clipper_score_all_to_all(clipper, map1, map2)
+
+        # Solve for the maximum clique
         clipper.solve()
+
+        # Return the associations
         Ain = clipper.get_selected_associations()
         return Ain
     

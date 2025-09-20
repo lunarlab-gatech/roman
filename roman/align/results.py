@@ -49,6 +49,8 @@ def time_to_secs_nsecs(t, as_dict=False):
         return {'seconds': seconds, 'nanoseconds': nanoseconds}
 
 def plot_align_results(results: SubmapAlignResults, dpi=500):
+    # TODO: Update this to solve issues with overlapping portions, maybe seperate figures?
+
     # Create plots
     fig, ax = plt.subplots(1, 5, figsize=(20, 5), dpi=dpi)
     fig.subplots_adjust(wspace=.3)

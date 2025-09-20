@@ -15,8 +15,7 @@ from copy import deepcopy
 import yaml
 
 from robotdatapy.data.pose_data import PoseData
-from robotdatapy.transform import transform_to_xytheta, transform_to_xyz_quat, \
-    transform_to_xyzrpy
+from robotdatapy.transform import transform_to_xytheta, transform_to_xyzrpy
 from robotdatapy.transform import transform
 
 from roman.map.map import Submap, SubmapParams, submaps_from_roman_map, load_roman_map
@@ -50,6 +49,9 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
         sm_params (SubmapAlignParams): Aignment (loop closure) params.
         sm_io (SubmapAlignInputOutput): Input/output specifications.
     """
+
+    # TODO: Might need to drop mindist restrictions to small nearby objects in our meronomy can still be properly associated.
+
     assert sm_io.input_type_json or sm_io.input_type_pkl, "Invalid input type"
     assert sm_io.input_type_json != sm_io.input_type_pkl, "Only one input type allowed"
     
@@ -63,7 +65,7 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
                     )
         rr.init("ROMAN: Submap Align Visualization", spawn=True, default_blueprint=blueprint)
     
-    # load ground truth pose data
+    # Load ground truth pose data
     for i, yaml_file in enumerate(sm_io.input_gt_pose_yaml):
         if yaml_file is not None:
             # set environment variable so an individual param file is not needed
@@ -106,7 +108,7 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
     clipper_angle_mat = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
     clipper_dist_mat = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
     clipper_num_associations = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
-    robots_nearby_mat = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
+    robots_nearby_mat = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan  # Tracks the distance between robots for these submaps
     clipper_percent_associations = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
     submap_yaw_diff_mat = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
     timing_list = []
@@ -122,23 +124,32 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
     update_frame = 0
     for i in tqdm(range(len(submaps[0]))):
         for j in (range(len(submaps[1]))):
-            
+
+            # Visualize submaps if desired
             if visualize:
                 rr.set_time("update_frame_tick", sequence=update_frame)
                 visualize_submap(submaps[0][i], "Submap0", np.array([220,20,60]))
                 visualize_submap(submaps[1][j], "Submap1", np.array([20,64,239]))
                 update_frame += 1
             
+            # Calculate distances between robots when at the respective submaps (using GT if available)
             if submaps[0][i].has_gt and submaps[1][j].has_gt:
                 submap_distance = norm(submaps[0][i].position_gt - submaps[1][j].position_gt)
             else:
                 submap_distance = norm(submaps[0][i].position - submaps[1][j].position)
+
+            # If there is any potential overlap between submaps, track their distances for visualization later
             if submap_distance < sm_params.submap_radius*2:
                 robots_nearby_mat[i, j] = submap_distance
 
+            # Make a deep copy of the submaps
             submap_i = deepcopy(submaps[0][i])
             submap_j = deepcopy(submaps[1][j])
-            if sm_params.single_robot_lc: # self loop closures
+
+            # If single_robot_lc, then delete segments from submaps that are shared between them?
+            # I think single_robot_lc means that it will try to avoid doing loop closures at all for a single robot with itself.
+            # TODO: Ask advisors why would they do this?
+            if sm_params.single_robot_lc:
                 ids_i = set([seg.id for seg in submap_i.segments])
                 ids_j = set([seg.id for seg in submap_j.segments])
                 common_ids = ids_i.intersection(ids_j)
@@ -147,21 +158,28 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
                     for seg in to_rm:
                         sm.segments.remove(seg)
 
-            # determine correct T_ij
+            # Extract poses of robots with respect to the world (removing roll & pitch), using GT if available
             if gt_pose_data[0] is not None:
-                T_wi = submaps[0][i].pose_gravity_aligned_gt
+                H_i_wrt_w = submaps[0][i].pose_gravity_aligned_gt
             else:
-                T_wi = submaps[0][i].pose_gravity_aligned
+                H_i_wrt_w = submaps[0][i].pose_gravity_aligned
+
             if gt_pose_data[1] is not None:
-                T_wj = submaps[1][j].pose_gravity_aligned_gt
+                H_j_wrt_w = submaps[1][j].pose_gravity_aligned_gt
             else:
-                T_wj = submaps[1][j].pose_gravity_aligned
-            T_ij = np.linalg.inv(T_wi) @ T_wj
+                H_j_wrt_w = submaps[1][j].pose_gravity_aligned
+
+            # Calculate the Pose of robot j with respect to robot i
+            H_j_wrt_i = np.linalg.inv(H_i_wrt_w) @ H_j_wrt_w
+
+            # If there is overlap between these submaps...
             if not np.isnan(robots_nearby_mat[i, j]):
-                relative_yaw_angle = transform_to_xyzrpy(T_ij)[5]
+
+                # Get the absolute difference in yaw and record for visualization later
+                relative_yaw_angle = transform_to_xyzrpy(H_j_wrt_i)[5]
                 submap_yaw_diff_mat[i, j] = np.abs(np.rad2deg(relative_yaw_angle))
                 
-            # register the submaps
+            # Register the submaps 
             try:
                 start_t = time.time()
                 associations = registration.register(submap_i.segments, submap_j.segments)
@@ -169,7 +187,7 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
                 
                 if sm_params.dim == 2:
                     T_ij_hat = registration.T_align(submap_i.segments, submap_j.segments, associations)
-                    T_error = np.linalg.inv(T_ij_hat) @ T_ij
+                    T_error = np.linalg.inv(T_ij_hat) @ H_j_wrt_i
                     _, _, theta = transform_to_xytheta(T_error)
                     dist = np.linalg.norm(T_error[:sm_params.dim, 3])
 
@@ -181,7 +199,7 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
                             raise GravityConstraintError
                     if sm_params.force_rm_lc_roll_pitch:
                         T_ij_hat = transform_rm_roll_pitch(T_ij_hat)
-                    T_error = np.linalg.inv(T_ij_hat) @ T_ij
+                    T_error = np.linalg.inv(T_ij_hat) @ H_j_wrt_i
                     theta = Rot.from_matrix(T_error[:3, :3]).magnitude()
                     dist = np.linalg.norm(T_error[:sm_params.dim, 3])
                 else:
@@ -206,7 +224,7 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
                 print("# of associations: ", len(associations))
             clipper_percent_associations[i, j] = len(associations) / np.mean([len(submap_i), len(submap_j)])
             
-            T_ij_mat[i, j] = T_ij
+            T_ij_mat[i, j] = H_j_wrt_i
             T_ij_hat_mat[i, j] = T_ij_hat
             associated_objs_mat[i][j] = associations
 

@@ -47,7 +47,7 @@ class SceneGraph3D():
     max_dist_active_for_node = 10 # meters
 
     @typechecked
-    def __init__(self, _T_camera_flu: np.ndarray, fastsam_params: FastSAMParams, headless: bool = False):
+    def __init__(self, _T_camera_flu: np.ndarray, fastsam_params: FastSAMParams, headless: bool = True):
 
         # Node that connects all highest-level objects together for implementation purposes
         self.root_node: GraphNode = GraphNode.create_node_if_possible(0, None, [], np.zeros((0, 3), dtype=np.float64), 
