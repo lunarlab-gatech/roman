@@ -1,7 +1,7 @@
 [submodule "dependencies/clipper"]
 	path = dependencies/clipper
-	url = https://github.com/mit-acl/clipper
-	branch = roman
+	url = https://github.com/lunarlab-gatech/clipper
+	branch = meronomy
 [submodule "dependencies/Kimera-RPGO"]
 	path = dependencies/Kimera-RPGO
 	url = https://github.com/MIT-SPARK/Kimera-RPGO.git
