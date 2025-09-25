@@ -7,11 +7,11 @@ import argparse
 
 def load_gt_csv(gt_csv):
     df = pd.read_csv(gt_csv)
-    df["timestamp"] = df["timestamp"].astype(float)
+    df["timestamp"] = df["#timestamp_kf"] / 1e9
     df.set_index("timestamp", inplace=True)
     return df
 
-def get_gt_pose(df, timestamp, tolerance=1e-3):
+def get_gt_pose(df, timestamp, tolerance=1e-1):
     if timestamp in df.index:
         row = df.loc[timestamp]
     else:
