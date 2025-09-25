@@ -161,28 +161,28 @@ class SceneGraph3D():
         # Update the viewer
         # self.rerun_viewer.update(self.root_node, self.times[-1], img=img, depth_img=depth_img, camera_pose=pose, img_data_params=img_data_params, seg_img=seg_img, associations=associated_pairs, node_to_obs_mapping=node_to_obs_mapping)
 
-        self.parent_child_semantic_merges(use_wordnet=True)
+        # self.parent_child_semantic_merges(use_wordnet=True)
 
         # Update the viewer
         # self.rerun_viewer.update(self.root_node, self.times[-1], img=img, depth_img=depth_img, camera_pose=pose, img_data_params=img_data_params, seg_img=seg_img, associations=associated_pairs, node_to_obs_mapping=node_to_obs_mapping)
 
-        self.nearby_node_semantic_merges(use_wordnet=True)
+        # self.nearby_node_semantic_merges(use_wordnet=True)
 
         # Update the viewer
         # self.rerun_viewer.update(self.root_node, self.times[-1], img=img, depth_img=depth_img, camera_pose=pose, img_data_params=img_data_params, seg_img=seg_img, associations=associated_pairs, node_to_obs_mapping=node_to_obs_mapping)
 
-        self.holonym_meronym_relationship_inference()
+        # self.holonym_meronym_relationship_inference()
         
         # Update the viewer
         # self.rerun_viewer.update(self.root_node, self.times[-1], img=img, depth_img=depth_img, camera_pose=pose, img_data_params=img_data_params, seg_img=seg_img, associations=associated_pairs, node_to_obs_mapping=node_to_obs_mapping)
 
-        self.shared_holonym_relationship_inference()
+        # self.shared_holonym_relationship_inference()
 
         # TODO: After merging, update the associations and node_to_obs mapping so colors carry over
 
         # Resolve any overlapping point clouds (TODO: Do we even need this?)
         # TODO: This seems to be causing bugs currently
-        self.resolve_overlapping_convex_hulls()
+        # self.resolve_overlapping_convex_hulls()
 
         # Run node retirement
         self.node_retirement()
@@ -686,8 +686,8 @@ class SceneGraph3D():
                             dist_to_object_length = dist / longest_line
 
                             # Finally, calculate semantic consistency
-                            sem_con = self.semantic_consistency(node_i.get_weighted_semantic_descriptor(),
-                                                                node_j.get_weighted_semantic_descriptor())
+                            sem_con = self.semantic_consistency(node_i.get_semantic_descriptor(),
+                                                                node_j.get_semantic_descriptor())
 
                             # If ratio of shortest distance to object length is within threshold AND
                             # the semanatic embedding is close enough for association
@@ -712,7 +712,7 @@ class SceneGraph3D():
                             words_j = node_j.get_words()
 
                             # Calculate Semantic Similarity
-                            sem_con = SceneGraph3D.semantic_consistency(node_i.get_weighted_semantic_descriptor(), node_j.get_weighted_semantic_descriptor())
+                            sem_con = SceneGraph3D.semantic_consistency(node_i.get_semantic_descriptor(), node_j.get_semantic_descriptor())
 
                             # If any of the words are the same word, check geometric info
                             if words_i == words_j or sem_con > self.min_sem_con_for_association:
@@ -767,7 +767,7 @@ class SceneGraph3D():
                             
                         if not use_wordnet:
                             # Calculate Semantic Similarity
-                            sem_con = SceneGraph3D.semantic_consistency(node_i.get_weighted_semantic_descriptor(), node_j.get_weighted_semantic_descriptor())
+                            sem_con = SceneGraph3D.semantic_consistency(node_i.get_semantic_descriptor(), node_j.get_semantic_descriptor())
 
                             # If semantic embedding is enough for assocation, just merge the child into the parent
                             if sem_con > self.min_sem_con_for_association:
@@ -793,7 +793,7 @@ class SceneGraph3D():
                             words_j = node_j.get_words()
 
                             # Calculate Semantic Similarity
-                            sem_con = SceneGraph3D.semantic_consistency(node_i.get_weighted_semantic_descriptor(), node_j.get_weighted_semantic_descriptor())
+                            sem_con = SceneGraph3D.semantic_consistency(node_i.get_semantic_descriptor(), node_j.get_semantic_descriptor())
 
                             # If any of the words are the same word, merge them
                             if words_i == words_j or sem_con > self.min_sem_con_for_association:
@@ -983,7 +983,7 @@ class SceneGraph3D():
                 if merge_occured:
                     break
     
-    def node_retirement(self, retire_everything=False):
+    def node_retirement(self, retire_everything=False, delete_only_seen_once=False):
         # Iterate only through the direct children of the root node
         retired_ids = []
         for child in self.root_node.get_children()[:]: # Create shallow copy so removing doesn't break loop
@@ -999,8 +999,20 @@ class SceneGraph3D():
                 retired_ids += child.remove_from_graph_complete()
                 self.inactive_nodes.append(child)
 
+        # Delete nodes that were seen last frame but not this one
+        deleted_ids = []
+        if delete_only_seen_once:
+            for node in self.root_node:
+                if node.get_num_sightings() == 1:
+                    if node.get_time_first_seen() != self.times[-1]:
+
+                        # Pop just this node off the graph, reconnect children back to our parent
+                        deleted_ids += node.remove_from_graph_complete(keep_children=False)
+
         if len(retired_ids) > 0:
             logger.info(f"[dark_magenta]Node Retirement[/dark_magenta]: {len(retired_ids)} nodes retired, including {retired_ids}.")
+        if len(deleted_ids) > 0:
+            logger.info(f"[magenta]Node Deletion[/magenta]: {len(deleted_ids)} nodes deleted after being seen only once, including {retired_ids}.")
 
     def get_roman_map(self) -> ROMANMap:
         """

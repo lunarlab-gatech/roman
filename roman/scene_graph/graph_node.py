@@ -87,12 +87,15 @@ class GraphNode():
         # Points that relate only to this object and not any children.
         self.point_cloud: np.ndarray = np.zeros((0, 3), dtype=np.float64)
 
+        # Tracks number of times we've been sighted
+        self.num_sightings = 1
+
         # Holds values for reuse to avoid recalculating them
         self._convex_hull: trimesh.Trimesh = None
         self._point_cloud: np.ndarray = None
         self._longest_line_size: float = None
         self._centroid: np.ndarray = None
-        self._weighted_semantic_descriptor: np.ndarray = None
+        self._semantic_descriptor: np.ndarray = None
         self._words: WordListWrapper = None
         self._meronyms: dict[int, set[str]] = defaultdict(lambda: None)
         self._holonyms: dict[int, set[str]] = defaultdict(lambda: None)
@@ -193,14 +196,14 @@ class GraphNode():
             self._convex_hull = get_convex_hull_from_point_cloud(self.get_point_cloud())
         return self._convex_hull
     
-    def get_weighted_semantic_descriptor(self) -> np.ndarray | None:
-        if self._weighted_semantic_descriptor is None:
-            self._weighted_semantic_descriptor = self.calculate_weighted_semantic_descriptor(self.get_semantic_descriptors())
-        return self._weighted_semantic_descriptor
+    def get_semantic_descriptor(self) -> np.ndarray | None:
+        if self._semantic_descriptor is None:
+            self._semantic_descriptor = self.calculate_semantic_descriptor(self.get_semantic_descriptors())
+        return self._semantic_descriptor
     
     def get_words(self) -> WordListWrapper:
         if self._words is None:
-            descriptor = self.get_weighted_semantic_descriptor()
+            descriptor = self.get_semantic_descriptor()
             self._words = WordListWrapper.from_words(wordnetWrapper.map_embedding_to_words(descriptor, self.num_words_to_consider_ourselves))
         return self._words
     
@@ -339,29 +342,33 @@ class GraphNode():
             raise RuntimeError(f"Trying to get volume of ConvexHull for Node {self.get_id()}, but its not watertight!")
         return self.get_convex_hull().volume
     
-    def get_point_cloud(self) -> np.ndarray:
+    def get_point_cloud(self, recursive: bool = True) -> np.ndarray:
         if self.is_RootGraphNode():
             raise RuntimeError("get_point_cloud() should not be called on RootGraphNode!")
 
         if self._point_cloud is None:
-            full_pc = np.zeros((0, 3), dtype=np.float64)
-            for child in self.get_children():
-                full_pc = np.concatenate((full_pc, child.get_point_cloud()), dtype=np.float64)
-            self._point_cloud = np.concatenate((full_pc, self.point_cloud), dtype=np.float64)
-            num_points = self._point_cloud.shape[0]
-            if num_points < 4:
-                logger.debug(f"[bright_red]WARNING[/bright_red]: Current point cloud is {num_points} for Node {self.get_id()}")
+            if recursive:
+                full_pc = np.zeros((0, 3), dtype=np.float64)
+                for child in self.get_children():
+                    full_pc = np.concatenate((full_pc, child.get_point_cloud()), dtype=np.float64)
+                self._point_cloud = np.concatenate((full_pc, self.point_cloud), dtype=np.float64)
+                num_points = self._point_cloud.shape[0]
+                if num_points < 4:
+                    logger.debug(f"[bright_red]WARNING[/bright_red]: Current point cloud is {num_points} for Node {self.get_id()}")
+                else:
+                    logger.debug(f"[bright_yellow]UPDATE[/bright_yellow]: Current point cloud is {num_points} for Node {self.get_id()}")
             else:
-                logger.debug(f"[bright_yellow]UPDATE[/bright_yellow]: Current point cloud is {num_points} for Node {self.get_id()}")
+                self._point_cloud = self.point_cloud.copy()
         return self._point_cloud
     
-    def get_semantic_descriptors(self) -> list[tuple[np.ndarray, float]]:
+    def get_semantic_descriptors(self, recursive: bool = True) -> list[tuple[np.ndarray, float]]:
         if self.is_RootGraphNode():
             raise RuntimeError("get_semantic_descriptors() should not be called on RootGraphNode!")
 
         descriptors = []
-        for child in self.get_children():
-            descriptors += child.get_semantic_descriptors()
+        if recursive:
+            for child in self.get_children():
+                descriptors += child.get_semantic_descriptors()
         descriptors += self.semantic_descriptors
         return descriptors
     
@@ -378,6 +385,9 @@ class GraphNode():
         
     def get_children(self) -> list[GraphNode]:
         return self.child_nodes
+    
+    def get_num_sightings(self) -> int:
+        return self.num_sightings
     
     def is_sibling(self, other: GraphNode) -> bool:
         if self.is_RootGraphNode():
@@ -397,13 +407,13 @@ class GraphNode():
         seg.last_seen = self.get_time_last_updated_recursive()
         seg.num_sightings = None
         seg.points = self.get_point_cloud()
-        seg.semantic_descriptor = self.get_weighted_semantic_descriptor()
+        seg.semantic_descriptor = self.get_semantic_descriptor()
         seg.semantic_descriptor_cnt = None
 
         return seg
 
     # ==================== Calculations ====================
-    def calculate_weighted_semantic_descriptor(self, descriptors: list[tuple[NDArray[np.float64], float]]) -> np.ndarray | None:
+    def calculate_semantic_descriptor(self, descriptors: list[tuple[NDArray[np.float64], float]], method: str = "weighted average") -> np.ndarray | None:
         # If we have no descriptors, just return None
         if len(descriptors) == 0:
             return None
@@ -417,8 +427,11 @@ class GraphNode():
         for i in range(embeddings.shape[0]):
             embeddings[i] = embeddings[i] / np.linalg.norm(embeddings[i])
 
-        # Calculate the new final semantic descriptor as weighted average
-        semantic_descriptor = np.average(embeddings, axis=0, weights=weights)
+        # Calculate the new final semantic descriptor
+        if method == "weighted average":
+            semantic_descriptor = np.average(embeddings, axis=0, weights=weights)
+        elif method == "average":
+            semantic_descriptor = np.mean(embeddings, axis=0)
         semantic_descriptor /= np.linalg.norm(semantic_descriptor)
         return semantic_descriptor
 
@@ -432,25 +445,35 @@ class GraphNode():
         self.id = id
 
     # ==================== Removal ====================
-    def remove_from_graph(self) -> set[GraphNode]:
+    def remove_from_graph(self, keep_children: bool = True) -> set[GraphNode]:
         """ Does so by disconnecting self from parent both ways. Returns any remaining parents that need to be deleted now. """
         if self.is_RootGraphNode():
             raise RuntimeError("Can't call remove_from_graph() on RootGraphNode!")
 
-        to_delete = self.get_parent().remove_child(self)
+        # Add children to our parent (removing from self) if requested
+        to_delete = set()
+        if not keep_children:
+            self.get_parent().add_children(self.get_children())
+            for child in self.get_children():
+                child.set_parent(self.get_parent())
+            to_delete.update(self.remove_children(self.get_children()))
+
+        # Disconnect ourselves from our parent both ways
+        to_delete.update(self.get_parent().remove_child(self))
         self.set_parent(None)
+        
         return to_delete
     
-    def remove_from_graph_complete(self) -> list[int]:
+    def remove_from_graph_complete(self, keep_children: bool = True) -> list[int]:
         """ Does so by disconnecting self from parent both ways. Also immediately deletes any parent nodes that are now invalid. 
             Returns ids of additional nodes that were also retired (not including self). """
 
         deleted_ids = []
-        to_delete = self.remove_from_graph()
+        to_delete = self.remove_from_graph(keep_children)
         while to_delete:
             for node in to_delete:
                 deleted_ids.append(node.get_id())
-            to_delete.update(to_delete.pop().remove_from_graph())
+            to_delete.update(to_delete.pop().remove_from_graph(keep_children))
         return deleted_ids
 
     def remove_points_from_self(self, pc_to_remove: np.ndarray) -> set[GraphNode]:
@@ -501,6 +524,12 @@ class GraphNode():
             return self.reset_saved_point_vars()
         else:
             raise ValueError(f"Tried to remove {child} from {self}, but {child} not in self.child_nodes: {self.child_nodes}")
+        
+    def remove_children(self, children: list[GraphNode]) -> set[GraphNode]:
+        nodes_to_delete = set()
+        for child in children:
+            nodes_to_delete.update(self.remove_child(child))
+        return nodes_to_delete
 
     # ==================== Updating / Adding ====================
     def update_curr_time(self, curr_time: float):
@@ -684,6 +713,10 @@ class GraphNode():
                         first_pose, self.curr_pose, run_dbscan=False)
         if new_node is None:
             return None
+        
+        # Update the number of sightings
+        total_sightings = self.get_num_sightings() + other.get_num_sightings()
+        new_node.num_sightings = total_sightings
             
         # Tell our children who their new parent is
         for child in combined_children:
@@ -728,6 +761,9 @@ class GraphNode():
             to_delete = self.update_point_cloud(orphan_pc)
             if len(to_delete) > 0:
                 raise RuntimeError(f"Cannot merge_with_observation; Node {self.get_id()}'s point cloud invalid after adding additional points, which should never happen!")
+            
+        # Increase our sightings
+        self.num_sightings += 1
 
     def merge_child_with_self(self, other: GraphNode) -> None:
         # Make sure other is a child of self
@@ -820,7 +856,7 @@ class GraphNode():
             prev_word = self._words.words[0]
 
         # Wipe variables
-        self._weighted_semantic_descriptor = None
+        self._semantic_descriptor = None
         self._words = None
 
         # Get the new word and see if it changed
