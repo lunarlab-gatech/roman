@@ -84,3 +84,6 @@ RUN pip install rerun-sdk && \
 # Add user to proper groups so Rerun has permission to access GPU
 RUN sudo usermod -aG input ${USERNAME} && \
     sudo usermod -aG video ${USERNAME}
+
+# Uninstall matplotlib installed by OS package manager as it conflicts with pip installed version
+RUN sudo apt remove python3-matplotlib

@@ -238,7 +238,7 @@ if __name__ == '__main__':
         rpgo_read_g2o_executable = \
             f"{roman_path}/dependencies/Kimera-RPGO/build/RpgoReadG2o"
         rpgo_command = f"{rpgo_read_g2o_executable} 3d {final_g2o_file}" \
-            + f" -1.0 -1.0 0.9 {os.path.join(args.output_dir, 'offline_rpgo')} v"
+            + f" -1.0 -1.0 {offline_rpgo_params.gnc_inlier_threshold} {os.path.join(args.output_dir, 'offline_rpgo')} v"
         os.system(rpgo_command)
         # os.system(ros_launch_command)
         

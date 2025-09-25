@@ -90,6 +90,11 @@ python3 demo/o3d_viz.py demo_output/hercules_AustraliaEnv/map/<robot_name>.pkl
 
 In the 'align' folder, the file 'align.png' will contain a plot titled "Number of CLIPPER associations". If this plot is a single color, there's a high likelihood that no associations were found, and thus no loop closures. Each detected loop closure can be found in `align.json`.
 
+To visualize the loop closures after the alignment set and see error compared to GT, run the following command:
+```
+python3 demo/loop_closure_viz.py demo_output/hercules_AustraliaEnv/align/Husky1_Husky2/align.json /home/${USER}/data/Hercules_datasets/V1.5/extract/files_for_roman_baseline/Husky1/poseGT.csv /home/${USER}/data/Hercules_datasets/V1.5/extract/files_for_roman_baseline/Husky2/poseGT.csv
+```
+
 To visualize the .g2o files in the output, you can use the g2o_viewer binary from (g2o)[https://github.com/RainerKuemmerle/g2o]. If not on the path, you can find it in the `build/bin` directory of the repository after building:
 
 ```
