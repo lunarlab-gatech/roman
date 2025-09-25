@@ -30,6 +30,7 @@ from roman.map.run import ROMANMapRunner
 from roman.params.data_params import DataParams
 from roman.params.mapper_params import MapperParams
 from roman.params.fastsam_params import FastSAMParams
+from roman.params.scene_graph_3D_params import SceneGraph3DParams, GraphNodeParams
 from roman.utils import expandvars_recursive
 
 from robotdatapy.data import ImgData
@@ -64,6 +65,8 @@ def run(
     data_params: DataParams, 
     fastsam_params: FastSAMParams, 
     mapper_params: MapperParams,
+    scene_graph_params: SceneGraph3DParams,
+    graph_node_params: GraphNodeParams,
     output_path: str,
     viz_params: VisualizationParams = VisualizationParams()
 ):
@@ -71,6 +74,8 @@ def run(
     runner = ROMANMapRunner(data_params=data_params, 
                             fastsam_params=fastsam_params, 
                             mapper_params=mapper_params, 
+                            scene_graph_params=scene_graph_params,
+                            graph_node_params=graph_node_params,
                             verbose=True, viz_map=viz_params.viz_map, 
                             viz_observations=viz_params.viz_observations, 
                             viz_3d=viz_params.viz_3d,
@@ -163,6 +168,8 @@ def mapping(
     data_params_path = expandvars_recursive(f"{params_path}/data.yaml")
     mapper_params_path = expandvars_recursive(f"{params_path}/mapper.yaml")
     fastsam_params_path = expandvars_recursive(f"{params_path}/fastsam.yaml")
+    scene_graph_params = SceneGraph3DParams.from_yaml(os.path.join(params_path, "scene_graph_3D.yaml"))
+    graph_node_params = GraphNodeParams.from_yaml(os.path.join(params_path, "graph_node.yaml"))
         
     if max_time is not None:
         try:
@@ -177,8 +184,7 @@ def mapping(
                     'tf': max_time * (mapping_iter + 1),
                     'relative': True}
                 
-                run(data_params, fastsam_params, mapper_params, 
-                    output_path=f"{output_path}_{mapping_iter}", viz_params=viz_params)
+                run(data_params, fastsam_params, mapper_params, scene_graph_params, graph_node_params, output_path=f"{output_path}_{mapping_iter}", viz_params=viz_params)
                 mapping_iter += 1
         except:
             demo_output_files = [f"{output_path}_{mi}.pkl" for mi in range(mapping_iter)]

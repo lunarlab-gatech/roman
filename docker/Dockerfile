@@ -91,3 +91,5 @@ RUN wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86
     sudo apt-get update && \
     sudo apt-get -y install cuda-toolkit-12-5
 
+# Uninstall matplotlib installed by OS package manager as it conflicts with pip installed version
+RUN sudo apt remove python3-matplotlib

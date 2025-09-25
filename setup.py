@@ -45,6 +45,7 @@ setup(
         'typeguard',
         'robotdatapy>=1.0.1',
         'yolov7-package',
+        'wandb'
     ],
 )
 

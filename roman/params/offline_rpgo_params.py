@@ -31,6 +31,9 @@ class OfflineRPGOParams:
     # sparse or dense
     sparsified: bool = True
 
+    # For Graduated-Non Convexity, set the maximum weighted residual error for an inlier 
+    gnc_inlier_threshold: float = 0.9
+
     @classmethod
     def from_yaml(cls, yaml_file):
         with open(yaml_file, 'r') as f:

@@ -5,3 +5,6 @@ odom_r_std: 0.001745 # .1 deg
 lc_t_std: 2.0 # 2 m
 lc_r_std: 0.1745 # 10 deg
 sparsified: False
+
+# For Graduated-Non Convexity, set the maximum weighted residual error for an inlier 
+gnc_inlier_threshold: 0.9
