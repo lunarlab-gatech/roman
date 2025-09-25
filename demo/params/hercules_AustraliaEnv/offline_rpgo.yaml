@@ -10,3 +10,6 @@ lc_r_std: 0.1745 # 10 deg
 
 # Whether to be sparse or dense
 sparsified: False
+
+# For Graduated-Non Convexity, set the maximum weighted residual error for an inlier 
+gnc_inlier_threshold: 9
