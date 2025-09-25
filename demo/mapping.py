@@ -130,7 +130,7 @@ def run(
     # Output results
     pkl_path = os.path.expanduser(expandvars(output_path)) + ".pkl"
     pkl_file = open(pkl_path, 'wb')
-    pickle.dump(runner.mapper.get_roman_map(), pkl_file, -1)
+    pickle.dump(runner.mapper, pkl_file, -1)
     logging.info(f"Saved tracker, poses_flu_history to file: {pkl_path}.")
     pkl_file.close()
 

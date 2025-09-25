@@ -84,8 +84,11 @@ class GraphNode():
         # Information tracking if we are the RootGraphNode
         self.is_root = is_RootGraphNode
 
-        # Points that relate only to this object and not any children.
+        # Points that relate only to this object and not any children (expressed in world frame).
         self.point_cloud: np.ndarray = np.zeros((0, 3), dtype=np.float64)
+
+        # Points from self and all children expressed in the robot frame aligned to gravity
+        self.point_cloud_robot_aligned: np.ndarray | None = None
 
         # Holds values for reuse to avoid recalculating them
         self._convex_hull: trimesh.Trimesh = None
@@ -332,6 +335,14 @@ class GraphNode():
             self._centroid = np.mean(self.get_point_cloud(), axis=0)
         return self._centroid
     
+    def get_centroid_robot_aligned(self) -> np.ndarray | None:
+        # Extract point cloud in robot frame aligned to gravity
+        points: np.ndarray | None = self.get_point_cloud_robot_aligned()
+        if points is None: return None
+        
+        # Compute the centroid as the mean
+        return np.mean(points, axis=0)
+
     def get_volume(self) -> float:
         if self.get_convex_hull() is None:
             raise RuntimeError(f"Trying to get volume of ConvexHull for Node {self.get_id()}, but there isn't a valid ConvexHull!")
@@ -355,6 +366,9 @@ class GraphNode():
                 logger.debug(f"[bright_yellow]UPDATE[/bright_yellow]: Current point cloud is {num_points} for Node {self.get_id()}")
         return self._point_cloud
     
+    def get_point_cloud_robot_aligned(self) -> np.ndarray | None:
+        return self.point_cloud_robot_aligned
+
     def get_semantic_descriptors(self) -> list[tuple[np.ndarray, float]]:
         if self.is_RootGraphNode():
             raise RuntimeError("get_semantic_descriptors() should not be called on RootGraphNode!")
@@ -421,6 +435,16 @@ class GraphNode():
         semantic_descriptor = np.average(embeddings, axis=0, weights=weights)
         semantic_descriptor /= np.linalg.norm(semantic_descriptor)
         return semantic_descriptor
+
+    def calculate_point_cloud_in_robot_frame_aligned(self, H_world_wrt_robot_aligned: np.ndarray):
+        """ 
+        Calculates this node point cloud in the robot frame aligned with gravity
+        
+        Args:
+            H_world_wrt_robot_aligned: Pose of the world frame with respect to the robot frame aligned to gravity.
+        """
+
+        self.point_cloud_robot_aligned = transform(H_world_wrt_robot_aligned, self.get_point_cloud(), axis=0)
 
     # ==================== Setters ====================
     def set_parent(self, node: GraphNode | None) -> None:
@@ -728,6 +752,18 @@ class GraphNode():
             to_delete = self.update_point_cloud(orphan_pc)
             if len(to_delete) > 0:
                 raise RuntimeError(f"Cannot merge_with_observation; Node {self.get_id()}'s point cloud invalid after adding additional points, which should never happen!")
+            
+    def merge_parent_and_child(self, other: GraphNode) -> None:
+        # Determine which node is the parent
+        if self.is_parent(other): 
+            parent_node = self
+            child_node = other
+        else: 
+            parent_node = other
+            child_node = self
+
+        # Conduct the merge
+        parent_node.merge_child_with_self(child_node)
 
     def merge_child_with_self(self, other: GraphNode) -> None:
         # Make sure other is a child of self

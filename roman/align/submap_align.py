@@ -10,7 +10,6 @@ from typing import List
 import open3d as o3d
 import clipperpy
 import time
-import json
 from copy import deepcopy
 import yaml
 
@@ -18,13 +17,17 @@ from robotdatapy.data.pose_data import PoseData
 from robotdatapy.transform import transform_to_xytheta, transform_to_xyzrpy
 from robotdatapy.transform import transform
 
-from roman.map.map import Submap, SubmapParams, submaps_from_roman_map, load_roman_map
+from roman.map.map import Submap, SubmapParams, submaps_from_roman_map
 from roman.align.object_registration import InsufficientAssociationsException
 from roman.align.dist_reg_with_pruning import GravityConstraintError
 from roman.utils import object_list_bounds, transform_rm_roll_pitch, expandvars_recursive
 from roman.params.submap_align_params import SubmapAlignParams, SubmapAlignInputOutput
 from roman.align.results import save_submap_align_results, SubmapAlignResults
 from roman.object.segment import Segment
+from roman.scene_graph.graph_node import GraphNode
+from roman.scene_graph.scene_graph_3D import SceneGraph3D
+from roman.scene_graph.scene_graph_3D_submap import SceneGraph3DSubmap
+from .roman_registration import ROMANRegistration
 
 import rerun as rr
 import rerun.blueprint as rrb
@@ -50,12 +53,8 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
         sm_io (SubmapAlignInputOutput): Input/output specifications.
     """
 
-    # TODO: Might need to drop mindist restrictions to small nearby objects in our meronomy can still be properly associated.
-
-    assert sm_io.input_type_json or sm_io.input_type_pkl, "Invalid input type"
-    assert sm_io.input_type_json != sm_io.input_type_pkl, "Only one input type allowed"
-    
-    gt_pose_data = [None, None]
+    # TODO: Might need to drop mindist restrictions so small nearby objects in our meronomy can still be properly associated.
+    # TODO: Maybe use node average size instead of longest size?
 
     # Setup a Rerun visualization so we can see each submap
     visualize = False
@@ -66,6 +65,7 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
         rr.init("ROMAN: Submap Align Visualization", spawn=True, default_blueprint=blueprint)
     
     # Load ground truth pose data
+    gt_pose_data = [None, None]
     for i, yaml_file in enumerate(sm_io.input_gt_pose_yaml):
         if yaml_file is not None:
             # set environment variable so an individual param file is not needed
@@ -90,19 +90,12 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
                 raise ValueError("Invalid pose data type")
     
     # Load ROMAN maps
-    if sm_io.input_type_pkl:
-        submap_params = SubmapParams.from_submap_align_params(sm_params)
-        submap_params.use_minimal_data = True
-        roman_maps = [load_roman_map(sm_io.inputs[i]) for i in range(2)]
-        submaps: list[Submap] = [submaps_from_roman_map(
-            roman_maps[i], submap_params, gt_pose_data[i]) for i in range(2)]
-        print("Total Number of Submaps-  ROBOT1: ", len(submaps[0]), " ROBOT2: ", len(submaps[1]))
-    elif sm_io.input_type_json: # TODO: re-implement support for json files
-        assert False, "Not currently supported"
-        # submap_centers, submaps = load_segment_slam_submaps(sm_io.inputs, sm_params, sm_io.debug_show_maps)
-        # times = [None, None]
-        # trackers = [None, None]
-        # submap_idxs = [None, None]
+    submap_params = SubmapParams.from_submap_align_params(sm_params)
+    submap_params.use_minimal_data = True
+    maps: list[SceneGraph3D] = [SceneGraph3D.load_map_from_pickle(sm_io.inputs[i]) for i in range(2)]
+    submaps: list[list[SceneGraph3DSubmap]] = [SceneGraph3DSubmap.generate_submaps(maps[i], 
+                                               submap_params, gt_pose_data[i]) for i in range(2)]
+    print("Total Number of Submaps-  ROBOT1: ", len(submaps[0]), " ROBOT2: ", len(submaps[1]))
 
     # Registration setup
     clipper_angle_mat = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
@@ -118,7 +111,7 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
     associated_objs_mat = [[[] for _ in range(len(submaps[1]))] for _ in range(len(submaps[0]))] # cannot be numpy array since each element is a different sized array
 
     # Registration method
-    registration = sm_params.get_object_registration()
+    registration: ROMANRegistration = sm_params.get_object_registration()
 
     # iterate over pairs of submaps and create registration results
     update_frame = 0
@@ -148,15 +141,15 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
 
             # If single_robot_lc, then delete segments from submaps that are shared between them?
             # I think single_robot_lc means that it will try to avoid doing loop closures at all for a single robot with itself.
-            # TODO: Ask advisors why would they do this?
+            # TODO: Ask advisors; why would they do this?
             if sm_params.single_robot_lc:
-                ids_i = set([seg.id for seg in submap_i.segments])
-                ids_j = set([seg.id for seg in submap_j.segments])
+                ids_i = set([node.get_id() for node in submap_i.inactive_nodes])
+                ids_j = set([node.get_id() for node in submap_j.inactive_nodes])
                 common_ids = ids_i.intersection(ids_j)
-                for sm in [submap_i, submap_j]:
-                    to_rm = [seg for seg in sm.segments if seg.id in common_ids]
-                    for seg in to_rm:
-                        sm.segments.remove(seg)
+                for submap in [submap_i, submap_j]:
+                    to_rm: list[GraphNode] = [node for node in submap.inactive_nodes if node.get_id() in common_ids]
+                    for node in to_rm:
+                        submap.inactive_nodes.remove(node)
 
             # Extract poses of robots with respect to the world (removing roll & pitch), using GT if available
             if gt_pose_data[0] is not None:
@@ -179,8 +172,9 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
                 relative_yaw_angle = transform_to_xyzrpy(H_j_wrt_i)[5]
                 submap_yaw_diff_mat[i, j] = np.abs(np.rad2deg(relative_yaw_angle))
                 
-            # Register the submaps 
-            try:
+            # Attempt to register the submaps
+            try:   
+                # Call the registration routine
                 start_t = time.time()
                 associations = registration.register(submap_i.segments, submap_j.segments)
                 timing_list.append(time.time() - start_t)
@@ -242,4 +236,4 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
         submap_align_params=sm_params,
         submap_io=sm_io
     )
-    save_submap_align_results(results, submaps, roman_maps)
+    save_submap_align_results(results, submaps, maps)

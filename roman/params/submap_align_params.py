@@ -59,17 +59,13 @@ class SubmapAlignParams:
             params = yaml.full_load(f)
         return cls(**params)
     
-    def get_object_registration(self):
+    def get_object_registration(self) -> ROMANRegistration:
         if self.fusion_method == 'geometric_mean':
             sim_fusion_method = clipperpy.invariants.ROMAN.GEOMETRIC_MEAN
-        elif self.fusion_method == 'arithmetic_mean':
-            sim_fusion_method = clipperpy.invariants.ROMAN.ARITHMETIC_MEAN
-        elif self.fusion_method == 'product':
-            sim_fusion_method = clipperpy.invariants.ROMAN.PRODUCT
-        if self.method == 'spvg':
-            self.method = 'roman'           
+        else:
+            raise ValueError(f"Fusion method ({self.fusion_method}) is not supported!")
 
-        if self.method in ['clipper', 'gravity', 'pcavolgrav', 'extentvolgrav', 'roman', 'sevg', 'spv', 'semanticgrav']:
+        if self.method in ['roman']:
             roman_params = ROMANParams()
             roman_params.point_dim = self.dim
             roman_params.sigma = self.sigma
@@ -87,49 +83,17 @@ class SubmapAlignParams:
             
             if self.method in ['roman', 'sevg', 'semanticgrav']:
                 roman_params.semantics_dim = self.semantics_dim
-            
-            # if self.method == 'clipper':
-            #     method_name = f'{self.dim}D Point CLIPPER'
-            # elif self.method == 'gravity':
-            #     method_name = 'Gravity Guided CLIPPER'
-            #     roman_params.gravity = True
-            # elif self.method == 'pcavolgrav':
-            #     method_name = f'Gravity Guided PCA feature-based Volume Registration'
-            # elif self.method == 'extentvolgrav':
-            #     method_name = f'Gravity Guided Extent-based Volume Registration'
-            # elif self.method == 'roman':
-            #     method_name = 'CLIP Semantic + PCA + Volume + Gravity'
-            # elif self.method == 'sevg':
-            #     method_name = 'Semantic + Extent + Volume + Gravity'
 
             registration = ROMANRegistration(roman_params)
-
-        elif self.method == 'clipper+prune':
-            method_name = f'Gravity Filtered Pruning'
-            registration = DistRegWithPruning(
-                sigma=self.sigma, 
-                epsilon=self.epsilon, 
-                mindist=self.mindist, 
-                shape_epsilon=self.epsilon_shape,
-                cos_min=self.cosine_min,
-                dim=self.dim, 
-                use_gravity=True
-            )
-        elif self.method == 'ransac':
-            method_name = 'RANSAC'
-            registration = RansacReg(dim=self.dim, max_iteration=self.ransac_iter)
         else:
             assert False, "Invalid method"
         return registration
         
-    
 @dataclass
 class SubmapAlignInputOutput:
     inputs: List[any]
     output_dir: str
     run_name: str
-    input_type_pkl: bool = True
-    input_type_json: bool = False
     input_gt_pose_yaml: List[str] = field(default_factory=lambda: [None, None])
     robot_names: List[str] = field(default_factory=lambda: ["0", "1"])
     robot_env: str = None

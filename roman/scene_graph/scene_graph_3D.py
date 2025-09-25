@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from enum import Enum
 from .graph_node import GraphNode, wordnetWrapper
 from .hull_methods import find_point_overlap_with_hulls, convex_hull_geometric_overlap, shortest_dist_between_convex_hulls
 from .logger import logger
@@ -10,12 +11,14 @@ import multiprocessing
 import numpy as np
 import os
 from ..params.data_params import ImgDataParams
+import pickle
 from .rerun_wrapper import RerunWrapper
 from roman.map.map import ROMANMap
 from roman.object.segment import Segment
 from roman.params.fastsam_params import FastSAMParams
 from scipy.optimize import linear_sum_assignment
 from typeguard import typechecked
+from typing import Any
 from .word_net_wrapper import WordWrapper, WordListWrapper
 
 multiprocessing.set_start_method("spawn", force=True)
@@ -73,6 +76,8 @@ class SceneGraph3D():
         self.shortest_dist_dist: defaultdict = defaultdict(lambda: defaultdict(lambda: None))
 
         # TODO: Perhaps we add back the check that objects need to be seen at least twice to get added to the graph (similar to ROMAN)
+
+        # TODO: Maybe use node average size instead of node longest size
 
     @typechecked
     def len(self) -> int:
@@ -161,12 +166,7 @@ class SceneGraph3D():
         # Update the viewer
         # self.rerun_viewer.update(self.root_node, self.times[-1], img=img, depth_img=depth_img, camera_pose=pose, img_data_params=img_data_params, seg_img=seg_img, associations=associated_pairs, node_to_obs_mapping=node_to_obs_mapping)
 
-        self.parent_child_semantic_merges(use_wordnet=True)
-
-        # Update the viewer
-        # self.rerun_viewer.update(self.root_node, self.times[-1], img=img, depth_img=depth_img, camera_pose=pose, img_data_params=img_data_params, seg_img=seg_img, associations=associated_pairs, node_to_obs_mapping=node_to_obs_mapping)
-
-        self.nearby_node_semantic_merges(use_wordnet=True)
+        self.synonym_relationship_merging()
 
         # Update the viewer
         # self.rerun_viewer.update(self.root_node, self.times[-1], img=img, depth_img=depth_img, camera_pose=pose, img_data_params=img_data_params, seg_img=seg_img, associations=associated_pairs, node_to_obs_mapping=node_to_obs_mapping)
@@ -296,6 +296,18 @@ class SceneGraph3D():
             b._redo_shortest_dist_between_convex_hulls = False
 
         return result
+    
+    def shortest_dist_to_node_size_ratio(self, a: GraphNode, b: GraphNode) -> float:
+        # Get shortest distance between the nodes
+        dist = self.shortest_dist_between_hulls_cached(a, b)
+
+        # Get average of longest lines of both node
+        longest_line_a = a.get_longest_line_size()
+        longest_line_b = b.get_longest_line_size()
+        longest_line = np.mean([longest_line_a, longest_line_b])
+
+        # Get ratio of shortest distance to longest line (in other words, dist to object length)
+        return dist / longest_line
         
     @typechecked
     @staticmethod
@@ -653,186 +665,63 @@ class SceneGraph3D():
                 if merge_occured:
                     break
 
-    def nearby_node_semantic_merges(self, use_wordnet=False):
-        """ Checks for semantic merges between children of same parent. """
+    class NodeRelationship(Enum):
+        SHARED_HOLONYM = 0
+        HOLONYM_MERONYM = 1
+        SYNONYMY = 2
 
-        # TODO: I wonder if using average distance would be better for 
-        # being resistant to noise in our nearby children semantic merging. Maybe try this!
+    @staticmethod 
+    def find_putative_relationships(node_list_i: list[GraphNode], 
+                                      node_list_j: list[GraphNode] | None = None,
+                                      relationship_type: SceneGraph3D.NodeRelationship = NodeRelationship.SHARED_HOLONYM) \
+                                      -> list[tuple[int, int, Any]]:
+        """ 
+        Finds putative relationships between two lists of nodes. 
+        If second list is none, instead compute between nodes in the first list.
+        """
 
-        merge_occured = True
-        while merge_occured:
-            merge_occured = False
+        # Determine if comparing same list to self or two different lists
+        comparing_to_self: bool = False
+        if node_list_j is None:
+            comparing_to_self = True
+            node_list_j = node_list_i
 
-            # Iterate through each pair of nodes 
-            for i, node_i in enumerate(self.root_node):
-                for j, node_j in enumerate(self.root_node):
+        # Create structure to track all pairs of nodes with putative relationships
+        putative_relationships: list[tuple[int, int, Any]] = []
+
+        # Iterate through each pair of nodes
+        for i, node_i in enumerate(node_list_i):
+            for j, node_j in enumerate(node_list_j):
+
+                # Skip if either node is the Root Graph Node
+                if node_i.is_RootGraphNode() or node_j.is_RootGraphNode():
+                    continue
+
+                # If comparing to self, skip pairs already compared
+                if comparing_to_self:
                     if i >= j: continue
-                        
-                    # For those that are not ascendent or descendent with each other
-                    if not node_i.is_descendent_or_ascendent(node_j):
-                        # ========== Nearby Node Semantic Merge ==========
 
-                        if not use_wordnet:
+                match relationship_type:
+                    case SceneGraph3D.NodeRelationship.SHARED_HOLONYM:
 
-                            # Get shortest distance between the nodes
-                            dist = self.shortest_dist_between_hulls_cached(node_i, node_j)
+                        # Get all holonyms for words
+                        word_i_holonyms_pure: set[str] = node_i.get_all_holonyms(False)
+                        word_j_holonyms_pure: set[str] = node_j.get_all_holonyms(False)
 
-                            # Get longest line of either node
-                            longest_line_node_i = node_i.get_longest_line_size()
-                            longest_line_node_j = node_j.get_longest_line_size()
-                            longest_line = np.mean([longest_line_node_i, longest_line_node_j])
+                        # TODO: Do an option where we can do upwards but excluding holonyms from a holonym/meronym relationship.
 
-                            # Get ratio of shortest distance to longest line (in other words, dist to object length)
-                            dist_to_object_length = dist / longest_line
+                        # Check if there is a shared holonym
+                        shared_holonyms: list[str] = sorted(set.intersection(word_i_holonyms_pure, word_j_holonyms_pure))
+                        if len(shared_holonyms) > 0:
 
-                            # Finally, calculate semantic consistency
-                            sem_con = self.semantic_consistency(node_i.get_weighted_semantic_descriptor(),
-                                                                node_j.get_weighted_semantic_descriptor())
-
-                            # If ratio of shortest distance to object length is within threshold AND
-                            # the semanatic embedding is close enough for association
-                            if dist_to_object_length < self.ratio_dist2length_threshold_nearby_node_semantic_merge and \
-                                sem_con > self.min_sem_con_for_association:
-
-                                # If so, merge these two nodes in the graph
-                                logger.info(f"[gold1]Nearby Node Sem Merge[/gold1]: Merging Node {node_j.get_id()} into Node {node_i.get_id()} and popping off graph")
-
-                                merged_node = node_i.merge_with_node(node_j)
-                                if merged_node is None: logger.info(f"[bright_red]Merge Fail[/bright_red]: Resulting Node was invalid.")
-                                else: self.add_new_node_to_graph(merged_node, only_leaf=True)
-
-                                # Break out of double-nested loop to reset iterators
-                                merge_occured = True
-                                break
-                        
-                        else:
+                            # Append to list of potential nodes with shared holonyms
+                            putative_relationships.append((i, j, shared_holonyms))
                             
-                            # Get words wrapped for each node
-                            words_i = node_i.get_words()
-                            words_j = node_j.get_words()
-
-                            # Calculate Semantic Similarity
-                            sem_con = SceneGraph3D.semantic_consistency(node_i.get_weighted_semantic_descriptor(), node_j.get_weighted_semantic_descriptor())
-
-                            # If any of the words are the same word, check geometric info
-                            if words_i == words_j or sem_con > self.min_sem_con_for_association:
-
-                                # Get shortest distance between the nodes
-                                dist = self.shortest_dist_between_hulls_cached(node_i, node_j)
-
-                                # Get longest line of either node
-                                longest_line_node_i = node_i.get_longest_line_size()
-                                longest_line_node_j = node_j.get_longest_line_size()
-                                longest_line = np.mean([longest_line_node_i, longest_line_node_j])
-
-                                # Get ratio of shortest distance to longest line (in other words, dist to object length)
-                                dist_to_object_length = dist / longest_line
-
-                                if dist_to_object_length < self.ratio_dist2length_threshold_nearby_node_semantic_merge:
-                                    # If so, merge these two nodes in the graph
-                                    logger.info(f"[green3]Nearby Obj Sem Merge[/green3]: Merging Node {node_j.get_id()} into Node {node_i.get_id()} and popping off graph")
-
-                                    merged_node = node_i.merge_with_node(node_j)
-                                    if merged_node is None: logger.info(f"[bright_red]Merge Fail[/bright_red]: Resulting Node was invalid.")
-                                    else: self.add_new_node_to_graph(merged_node, only_leaf=True)
-
-                                    # Break out of double-nested loop to reset iterators
-                                    merge_occured = True
-                                    break
-                    
-                # If we break out of inner loop, leave outer loop too
-                if merge_occured:
-                    break
-
-    def parent_child_semantic_merges(self, use_wordnet: bool = False):
-        """ Checks for semantic merges between parents and children. """
-
-        merge_occured = True
-        while merge_occured:
-            merge_occured = False
-
-            # Iterate through each pair of nodes 
-            for i, node_i in enumerate(self.root_node):
-                for j, node_j in enumerate(self.root_node):
-                    if i >= j: continue
-        
-                    # For those in parent-child relationships
-                    if node_i.is_parent_or_child(node_j):
-              
-                        # ========== Parent-Child Semantic Merging ==========
-            
-                        # If either is the root node, skip as this shouldn't really merge with any children
-                        if node_i.is_RootGraphNode() or node_j.is_RootGraphNode():
-                            continue
-                            
-                        if not use_wordnet:
-                            # Calculate Semantic Similarity
-                            sem_con = SceneGraph3D.semantic_consistency(node_i.get_weighted_semantic_descriptor(), node_j.get_weighted_semantic_descriptor())
-
-                            # If semantic embedding is enough for assocation, just merge the child into the parent
-                            if sem_con > self.min_sem_con_for_association:
-
-                                # Get which node is the parent and which is the child
-                                if node_i.is_parent(node_j): 
-                                    parent_node = node_i
-                                    child_node = node_j
-                                else: 
-                                    parent_node = node_j
-                                    child_node = node_i
-
-                                # Merge the child into the parent
-                                logger.info(f"[green1]Parent-Child Semantic Merge[/green1]: Merging Node {child_node.get_id()} into Node {parent_node.get_id()}")
-                                parent_node.merge_child_with_self(child_node)
-
-                                # Break out of double-nested loop to reset iterators
-                                merge_occured = True
-                                break
-                        else:
-                            # Get words wrapped for each node
-                            words_i = node_i.get_words()
-                            words_j = node_j.get_words()
-
-                            # Calculate Semantic Similarity
-                            sem_con = SceneGraph3D.semantic_consistency(node_i.get_weighted_semantic_descriptor(), node_j.get_weighted_semantic_descriptor())
-
-                            # If any of the words are the same word, merge them
-                            if words_i == words_j or sem_con > self.min_sem_con_for_association:
-                                
-                                # Get which node is the parent and which is the child
-                                if node_i.is_parent(node_j): 
-                                    parent_node = node_i
-                                    child_node = node_j
-                                else: 
-                                    parent_node = node_j
-                                    child_node = node_i
-
-                                # Merge the child into the parent
-                                logger.info(f"[green1]Parent-Child Semantic Merge[/green1]: Merging Node {child_node.get_id()} into Node {parent_node.get_id()}")
-                                parent_node.merge_child_with_self(child_node)
-
-                                # Break out of double-nested loop to reset iterators
-                                merge_occured = True
-                                break
+                    case SceneGraph3D.NodeRelationship.HOLONYM_MERONYM:
                         
-                # If we break out of inner loop, leave outer loop too
-                if merge_occured:
-                    break
-
-    def holonym_meronym_relationship_inference(self):
-        """ Detect parent-child relationships between non-ascendent/descendent nodes in the graph. """
-
-        merge_occured = True
-        while merge_occured:
-            merge_occured = False
-
-            # Iterate through each pair of nodes 
-            for i, node_i in enumerate(self.root_node):
-                for j, node_j in enumerate(self.root_node):
-                    if i >= j: continue
-
-                    # For those that are not ascendent or descendent with each other
-                    if not node_i.is_descendent_or_ascendent(node_j):
-
+                        # Skip nodes that are ascendent or descendent with each other
+                        if comparing_to_self and not node_i.is_descendent_or_ascendent(node_j): continue
+                        
                         # Get likeliest wrapped for each node
                         word_i: WordWrapper = node_i.get_words().words[0]
                         word_j: WordWrapper = node_j.get_words().words[0]
@@ -851,138 +740,320 @@ class SceneGraph3D():
                         if word_i.word in word_j_meronyms or word_i.word in word_j_holonyms or \
                            word_j.word in word_i_meronyms or word_j.word in word_i_holonyms:
                             
-                            logger.debug("Relationship found, close enough?")
+                            node_list_i_has_meronym: bool = False
+                            if word_i.word in word_j_meronyms or word_j.word in word_i_holonyms:
+                                node_list_i_has_meronym = True
 
-                             # Get shortest distance between the nodes
-                            dist = self.shortest_dist_between_hulls_cached(node_i, node_j)
+                            # Append to list of potential nodes with holonym-meronym relationships
+                            # with meronym coming first
+                            putative_relationships.append((i, j, node_list_i_has_meronym))
+                    
+                    case SceneGraph3D.NodeRelationship.SYNONYMY:
 
-                            # Get longest line of either node
-                            longest_line_node_i = node_i.get_longest_line_size()
-                            longest_line_node_j = node_j.get_longest_line_size()
-                            longest_line = np.mean([longest_line_node_i, longest_line_node_j])
+                        # Get words wrapped for each node
+                        words_i = node_i.get_words()
+                        words_j = node_j.get_words()
 
-                            # Get ratio of shortest distance to longest line (in other words, dist to object length)
-                            dist_to_object_length = dist / longest_line
+                        # Calculate Semantic Similarity
+                        sem_con = SceneGraph3D.semantic_consistency(node_i.get_weighted_semantic_descriptor(), node_j.get_weighted_semantic_descriptor())
 
-                            # If they are close enough
-                            if dist_to_object_length < self.ratio_dist2length_threshold_holonym_meronym:
-                                
-                                # Find the meronym
-                                if word_i.word in word_j_meronyms or word_j.word in word_i_holonyms:
-                                    node_meronym = node_i
-                                    node_holonym = node_j
-                                    word_meronym = word_i
-                                    word_holonym = word_j
-                                else:
-                                    node_meronym = node_j
-                                    node_holonym = node_i
-                                    word_meronym = word_j
-                                    word_holonym = word_i
+                        # Check for synonymy (if any of shared lemmas are same & cosine similarity is high)
+                        if words_i == words_j or sem_con > SceneGraph3D.min_sem_con_for_association:
+                            putative_relationships.append((i, j, None))
 
-                                # Move the meronym to be child of holonym
-                                deleted_ids = node_meronym.remove_from_graph_complete()
-                                node_meronym.set_parent(None)
-                                node_holonym.add_child(node_meronym)
-                                node_meronym.set_parent(node_holonym)
+        # Return all found putative relationships
+        return putative_relationships
+    
+    def synonym_relationship_merging(self):
+        """ Detect parent-child and nearby node synonymy merges. """
 
-                                logger.info(f"[dark_goldenrod]Holonym-Meronym Relationship Detected[/dark_goldenrod]: Node {node_meronym.get_id()} as meronym of {node_holonym.get_id()}")
+        # Get all putative synonymys based on WordNet & cosine similarity
+        putative_synonyms: list[tuple[int, int, None]] = SceneGraph3D.find_putative_relationships(
+                    list(self.root_node), relationship_type=SceneGraph3D.NodeRelationship.SYNONYMY)
+        
+        # Get the list of nodes in the graph
+        node_list_initial = list(self.root_node).copy()
+        
+        # For each putative synonymy, calculate detected ones based on graph structure & geometry
+        detected_synonyms: list[set[int]] = []
+        for putative_rel in putative_synonyms:
+            
+            # Extract the corresponding nodes
+            node_i: GraphNode = node_list_initial[putative_rel[0]]
+            node_j: GraphNode = node_list_initial[putative_rel[1]]
 
-                                # Now that we've detected this relationship, we want to strengthen our
-                                # believed embeddings towards these word for holonym (since adding meronym
-                                # will skew holonym towards that word).
-                                                                
-                                holonym_emb: np.ndarray = wordnetWrapper.get_embedding_for_word(word_holonym.word)
-                                total_weight = node_holonym.get_total_weight_of_semantic_descriptors()
-                                node_holonym.add_semantic_descriptors([(holonym_emb, total_weight * self.ratio_relationship_weight_2_total_weight)])
+            # If they are parent-child OR geometrically close:
+            if node_i.is_parent_or_child(node_j) or self.shortest_dist_to_node_size_ratio(node_i, node_j) < \
+                                                    self.ratio_dist2length_threshold_nearby_node_semantic_merge:
+                # Add to list of detected
+                detected_synonyms.append({putative_rel[0], putative_rel[1]})
 
-                                # Print any deleted nodes
-                                if len(deleted_ids) > 0:
-                                    logger.info(f"[bright_red] Discard: [/bright_red] Node(s) {deleted_ids} removed as not enough remaining points with children removal.")
+        # Merge all overlaps to get final sets of all synonymys
+        i = 0
+        while i < len(detected_synonyms):
+            first = detected_synonyms[i]
+            j = i + 1
+            while j < len(detected_synonyms):
 
-                                # Break out of the loop
-                                merge_occured = True
-                                break
-                
-                # If we break out of inner loop, leave outer loop too
-                if merge_occured:
+                # If overlap is detected
+                if first & detected_synonyms[j]:  
+                    # Merge the sets
+                    first |= detected_synonyms.pop(j)
+                else:
+                    j += 1
+            i += 1
+
+        # For each detected synonymy (after merging), merge all nodes one-by-one
+        for detected_syn in detected_synonyms:
+
+            # Get all nodes that are synonyms
+            synonyms: list[GraphNode] = [node_list_initial[idx] for idx in detected_syn]
+
+            # Phase 1: Merge parent-child relationships while ignoring nearby-node ones
+            i = 0
+            while i < len(synonyms):
+                node_i = synonyms[i]
+                j = i + 1
+                while j < len(synonyms):
+                    node_j = synonyms[j]
+
+                    # If they are parent & child
+                    if node_i.is_parent_or_child(node_j):
+
+                        # Merge child into parent & remove merged node from list
+                        logger.info(f"[green1]Parent-Child Synonymy[/green1]: Merging Node {node_i.get_id()} and Node {node_j.get_id()}")
+                        node_i.merge_parent_and_child(node_j)
+                        synonyms.pop(j)  
+
+                    else:
+                        j += 1
+                i += 1
+
+            # Phase 2: Merge remaining nodes (non-parent/child)
+            i = 0
+            while i < len(synonyms):
+                node_i = synonyms[i]
+                j = i + 1
+                while j < len(synonyms):
+                    node_j = synonyms[j]
+
+                    # Merge the two nodes
+                    logger.info(f"[green3]Nearby Obj Sem Merge[/green3]: Merging Node {node_j.get_id()} and Node {node_i.get_id()} and popping off graph")
+                    merged_node = node_i.merge_with_node(node_j)
+                    if merged_node is None:
+                        logger.info(f"[bright_red]Merge Fail[/bright_red]: Resulting Node was invalid.")
+                        j += 1
+                    else:
+                        # Add merged node to graph
+                        self.add_new_node_to_graph(merged_node, only_leaf=True)
+                        synonyms.pop(j)
+                        node_i = merged_node
+                i += 1
+
+    def holonym_meronym_relationship_inference(self):
+        """ Detect parent-child relationships between non-ascendent/descendent nodes in the graph. """
+
+        # Get all putative holonym-meronym relationships based on WordNet
+        putative_holonym_meronyms: list[tuple[int, int, bool]] = SceneGraph3D.find_putative_relationships(
+                    list(self.root_node), relationship_type=SceneGraph3D.NodeRelationship.HOLONYM_MERONYM)
+
+        # Get the list of nodes in the graph
+        node_list_initial = list(self.root_node).copy()
+
+        # For each putative relationship, calculate detected ones based on geometry
+        detected_holonym_meronyms: list[tuple[int, int]] = [] # Meronym will be first
+        for putative_rel in putative_holonym_meronyms:
+
+            # Extract the corresponding nodes
+            node_i: GraphNode = node_list_initial[putative_rel[0]]
+            node_j: GraphNode = node_list_initial[putative_rel[1]]
+
+            # If they are close enough
+            if self.shortest_dist_to_node_size_ratio(node_i, node_j) < self.ratio_dist2length_threshold_holonym_meronym:
+
+                # Put into detected list with meronym first
+                if putative_rel[2]:
+                    detected_holonym_meronyms.append([(putative_rel[0], putative_rel[1])])
+                else:
+                    detected_holonym_meronyms.append([(putative_rel[1], putative_rel[0])])
+       
+        # Iterate over all detected holonym-meronym relationships to resolve overlaps and conflicts
+        overlap = True
+        while overlap:
+            overlap = False
+
+            # Map each child list index of the detected holonyms to the indices of tuples containing it
+            meronym_list_index_to_holonym_list_index = defaultdict(list)
+            for (a, b) in detected_holonym_meronyms:
+                meronym_list_index_to_holonym_list_index[a].append(b)
+
+            # Find out if any meronyms have two or more detected holonyms
+            for i, detected_holonym_indices in meronym_list_index_to_holonym_list_index.items():
+                if len(detected_holonym_indices) > 1:
+
+                    # If so, pick whichever one is closest to it geometrically
+                    putative_holonyms: list[GraphNode] = [node_list_initial[idx] for idx in detected_holonym_indices]
+                    meronym: GraphNode = node_list_initial[i]
+
+                    meronym_cen: np.ndarray = meronym.get_centroid()
+                    centroid_distances = [np.linalg.norm(meronym_cen - holonym.get_centroid()) for holonym in putative_holonyms]
+                    holonym_to_keep_idx = centroid_distances.index(min(centroid_distances))
+                    
+                    # Delete all other holonym_meronym relationships
+                    for idx in sorted(detected_holonym_indices, reverse=True):
+                        if idx != holonym_to_keep_idx:
+                            detected_holonym_meronyms.pop(idx)
+
+                    # Our mapping has changed, so reloop
+                    overlap = True
                     break
 
+        # For each detected holonym-meronym relationship (after conflict resolution), alter the graph
+        for detected_rel in detected_holonym_meronyms:
+
+            # Extract the corresponding nodes
+            node_i: GraphNode = node_list_initial[detected_rel[0]]
+            node_j: GraphNode = node_list_initial[detected_rel[1]]
+
+            # Load words and some meronyms/holonyms
+            word_i: WordWrapper = node_i.get_words().words[0]
+            word_j: WordWrapper = node_j.get_words().words[0]
+            word_j_meronyms: set[str] = node_j.get_all_meronyms(2)
+            word_i_holonyms: set[str] = node_i.get_all_holonyms(True, 2)
+
+            # Find the meronym
+            if word_i.word in word_j_meronyms or word_j.word in word_i_holonyms:
+                node_meronym = node_i
+                node_holonym = node_j
+                word_holonym = word_j
+            else:
+                node_meronym = node_j
+                node_holonym = node_i
+                word_holonym = word_i
+
+            # Move the meronym to be child of holonym
+            deleted_ids = node_meronym.remove_from_graph_complete()
+            node_meronym.set_parent(None)
+            node_holonym.add_child(node_meronym)
+            node_meronym.set_parent(node_holonym)
+
+            logger.info(f"[dark_goldenrod]Holonym-Meronym Relationship Detected[/dark_goldenrod]: Node {node_meronym.get_id()} as meronym of {node_holonym.get_id()}")
+
+            # Now that we've detected this relationship, we want to strengthen our
+            # believed embeddings towards these word for holonym (since adding meronym
+            # will skew holonym towards that word).
+            holonym_emb: np.ndarray = wordnetWrapper.get_embedding_for_word(word_holonym.word)
+            total_weight = node_holonym.get_total_weight_of_semantic_descriptors()
+            node_holonym.add_semantic_descriptors([(holonym_emb, total_weight * self.ratio_relationship_weight_2_total_weight)])
+
+            # Print any deleted nodes
+            if len(deleted_ids) > 0:
+                logger.info(f"[bright_red] Discard: [/bright_red] Node(s) {deleted_ids} removed as not enough remaining points with children removal.")
 
     def shared_holonym_relationship_inference(self):
         """ Detect and add higher level objects to the graph. """
 
-        merge_occured = True
-        while merge_occured:
-            merge_occured = False
+        # Get all putative holonyms based on WordNet
+        putative_holonyms: list[tuple[int, int, list[str]]] = SceneGraph3D.find_putative_relationships(
+                self.root_node.get_children(), relationship_type=SceneGraph3D.NodeRelationship.SHARED_HOLONYM)
+        
+        # Get the list of children nodes
+        children_list_initial = self.root_node.get_children().copy()
 
-            # Iterate through each pair of nodes that are children of the root node
-            for i, node_i in enumerate(self.root_node.get_children()):
-                for j, node_j in enumerate(self.root_node.get_children()):
-                    if i >= j: continue
+        # For each putative holonym, calculate detected ones based on map geometric knowledge
+        detected_holonyms: list[tuple[list[int], list[str]]] = []
+        for putative_holonym in putative_holonyms:
 
-                    # Get likeliest wrapped for each node
-                    word_i: WordWrapper = node_i.get_words().words[0]
-                    word_j: WordWrapper = node_j.get_words().words[0]
+            # Extract the corresponding nodes
+            node_i: GraphNode = children_list_initial[putative_holonym[0]]
+            node_j: GraphNode = children_list_initial[putative_holonym[1]]
 
-                    # Get all holonyms for words
-                    word_i_holonyms_pure: set[str] = node_i.get_all_holonyms(False)
-                    word_j_holonyms_pure: set[str] = node_j.get_all_holonyms(False)
+            # If they are close enough, declare this putative holonym as detected
+            if self.shortest_dist_to_node_size_ratio(node_i, node_j) < self.ratio_dist2length_threshold_shared_holonym:
+                detected_holonyms.append(([putative_holonym[0], putative_holonym[1]], putative_holonym[2]))
 
-                    # TODO: Do an option where we can do upwards but excluding holonyms from a holonym/meronym relationship.
+        # Iterate over all detected shared holonyms to resolve overlaps and conflicts
+        overlap = True
+        while overlap:
+            overlap = False
 
-                    # Check if there is a shared holonym
-                    shared_holonyms = sorted(set.intersection(word_i_holonyms_pure, word_j_holonyms_pure))
-                    if len(shared_holonyms) > 0:
+            # Map each child list index of the detected holonyms to the indices of tuples containing it
+            child_list_index_to_detected_holonym_indices = defaultdict(list)
+            for idx, (a, b, _) in enumerate(detected_holonyms):
+                child_list_index_to_detected_holonym_indices[a].append(idx)
+                child_list_index_to_detected_holonym_indices[b].append(idx)
 
-                        # Get shortest distance between the nodes
-                        dist = self.shortest_dist_between_hulls_cached(node_i, node_j)
+            # Find out if any children of detected holonyms overlap, and if so, attempt to merge
+            for detected_holonym_indices in child_list_index_to_detected_holonym_indices.values():
+                if len(detected_holonym_indices) > 1:
 
-                        # Get longest line of either node
-                        longest_line_node_i = node_i.get_longest_line_size()
-                        longest_line_node_j = node_j.get_longest_line_size()
-                        longest_line = np.mean([longest_line_node_i, longest_line_node_j])
+                    # Get all sets of shared holonyms
+                    holonym_strs: list[set[str]] = []
+                    for detected_holonym_index in detected_holonym_indices:
+                        holonym_strs.append(set(detected_holonyms[detected_holonym_index][1]))
 
-                        # Get ratio of shortest distance to longest line (in other words, dist to object length)
-                        dist_to_object_length = dist / longest_line
+                    # Calculate the intersection
+                    intersection: set[str] = holonym_strs[0].intersection(*holonym_strs[1:])
 
-                        # If they are close enough
-                        if dist_to_object_length < self.ratio_dist2length_threshold_shared_holonym:
+                    # If there is a shared holonym to all of these 
+                    if len(intersection) > 0:
+                        # Add a merged detected holonym
+                        all_child_list_indices: list[int] = []
+                        for i in detected_holonym_indices:
+                            all_child_list_indices += detected_holonyms[i][0]
+                        detected_holonyms.append((all_child_list_indices, sorted(intersection)))
 
-                            # Calculate the first seen time as earliest from the two nodes
-                            first_seen = min(node_i.get_time_first_seen(), node_j.get_time_first_seen())
+                        # Pop all previous detected holonyms that formed the merge one
+                        for idx in sorted(detected_holonym_indices, reverse=True):
+                            detected_holonyms.pop(idx)
+                    else:
+                        # There is no shared holonym, so these detected holonyms are NOT consistent.
+                        # Just greedily pick the first one, which invalidates all others
+                        for idx in sorted(detected_holonym_indices[1:], reverse=True):
+                            detected_holonyms.pop(idx)
 
-                            # Also calculate the first pose
-                            if first_seen == node_i.get_time_first_seen(): first_pose = node_i.get_first_pose()
-                            else: first_pose = node_j.get_first_pose()
-
-                            # Create the holonym node
-                            holonym: GraphNode | None = GraphNode.create_node_if_possible(self.root_node.request_new_ID(), 
-                                                            self.root_node, [], np.zeros((0, 3), dtype=np.float64), 
-                                                            [node_i, node_j], first_seen, self.times[-1], self.times[-1], 
-                                                            first_pose, self.poses[-1], is_RootGraphNode=False)
-
-                            if holonym is not None:
-                                # TODO: Maybe search to see if other nodes are in the overlap space between
-                                # the two children which should also be part of the set?
-
-                                self.place_node_in_graph(holonym, self.root_node, [node_i, node_j])
-
-                                # Update embedding so that it matches the word most of all!
-                                holonym_emb: np.ndarray = wordnetWrapper.get_embedding_for_word(shared_holonyms[0])
-                                total_weight = holonym.get_total_weight_of_semantic_descriptors()
-                                holonym.add_semantic_descriptors([(holonym_emb, total_weight * self.ratio_relationship_weight_2_total_weight)])
-
-                                logger.info(f"[gold1]Shared Holonym Detected[/gold1]: Node {holonym.get_id()} with words {shared_holonyms} {holonym.get_words()} from children with words {word_i.word} and {word_j.word}")
-
-                                merge_occured = True
-                                break
-                            else:
-                                raise RuntimeError("Detected Holonym is not a valid GraphNode!")
-
-                # If we break out of inner loop, leave outer loop too
-                if merge_occured:
+                    # Regardless, our mapping has changed, so reloop
+                    overlap = True
                     break
-    
+                    
+        # For each detected holonym (after conflict resolution), add to graph
+        for detected_holonym in detected_holonyms:
+
+            # Extract the corresponding nodes
+            nodes: list[GraphNode] = children_list_initial[detected_holonym[0]]
+
+            # Calculate the first seen time  and first pose as earliest from all nodes (and children)
+            earliest_node = min(nodes, key=lambda n: n.get_time_first_seen_recursive())
+            first_seen = earliest_node.get_time_first_seen_recursive()
+            first_pose = earliest_node.get_first_pose_recursive()
+
+            # Create the holonym node
+            holonym: GraphNode | None = GraphNode.create_node_if_possible(self.root_node.request_new_ID(), 
+                                            self.root_node, [], np.zeros((0, 3), dtype=np.float64), 
+                                            nodes, first_seen, self.times[-1], self.times[-1], 
+                                            first_pose, self.poses[-1], is_RootGraphNode=False)
+
+            # If the node was successfully created, add to the graph
+            if holonym is not None:
+                # TODO: Maybe search to see if other nodes are in the overlap space between
+                # the two children which should also be part of the set?
+
+                self.place_node_in_graph(holonym, self.root_node, nodes)
+
+                # Update embedding so that it matches the word most of all!
+                # TODO: If there are multiple shared holonyms, maybe update with combination of all?
+                shared_holonyms: list[str] = putative_holonym[2]
+                holonym_emb: np.ndarray = wordnetWrapper.get_embedding_for_word(shared_holonyms[0])
+                total_weight = holonym.get_total_weight_of_semantic_descriptors()
+                holonym.add_semantic_descriptors([(holonym_emb, total_weight * self.ratio_relationship_weight_2_total_weight)])
+
+                # TODO: Need to get words for these children
+                logger.info(f"[gold1]Shared Holonym Detected[/gold1]: Node {holonym.get_id()} with words {shared_holonyms} {holonym.get_words()} from children with words {word_i.word} and {word_j.word}")
+
+            else:
+                raise RuntimeError("Detected Holonym is not a valid GraphNode!")
+
+
     def node_retirement(self, retire_everything=False):
         # Iterate only through the direct children of the root node
         retired_ids = []
@@ -1021,3 +1092,14 @@ class SceneGraph3D():
             times=self.times,
             poses_are_flu=True
         )
+    
+    def load_map_from_pickle(file_path: str) -> SceneGraph3D:
+        """ Load a SceneGraph3D from a pickled file. """
+
+        with open(file_path, 'rb') as f:
+            pickle_data = pickle.load(f)
+            
+            if type(pickle_data) == SceneGraph3D:
+                return pickle_data
+            else:
+                raise ValueError("File path does not point to a pickled SceneGraph3D")

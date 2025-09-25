@@ -7,6 +7,8 @@ import clipperpy
 
 from roman.align.object_registration import ObjectRegistration
 from roman.object.object import Object
+from roman.scene_graph.graph_node import GraphNode
+from roman.scene_graph.scene_graph_3D import SceneGraph3D
 
 class FusionMethod(Enum):
     GEOMETRIC_MEAN = clipperpy.invariants.ROMAN.GEOMETRIC_MEAN
@@ -88,10 +90,26 @@ class ROMANRegistration(ObjectRegistration):
         clipper = clipperpy.CLIPPERPairwiseAndSingle(invariant, params)
         return clipper
     
-    def _clipper_score_all_to_all(self, clipper, map1: List[Object], map2: List[Object]):
+    def _clipper_score_all_to_all(self, clipper, map1: List[GraphNode], map2: List[GraphNode]):
+
+        # Detect putative shared holonyms, holonym-meronym relationships, and synonymys
+        putative_shared_holonyms: list[tuple[int, int, list[str]]] = SceneGraph3D.find_putative_relationships(
+                                                     map1, map2, SceneGraph3D.NodeRelationship.SHARED_HOLONYM)
+        putative_holonym_meronyms: list[tuple[int, int, bool]] = SceneGraph3D.find_putative_relationships(
+                                                     map1, map2, SceneGraph3D.NodeRelationship.HOLONYM_MERONYM)
+        putative_synonymys: list[tuple[int, int, None]] =  SceneGraph3D.find_putative_relationships(
+                                                     map1, map2, SceneGraph3D.NodeRelationship.SYNONYMY)
+           
+        # Calculate number of putative meronyms in each map
+        num_putative_meronyms_map1: int = sum(1 for _, _, final_bool in putative_holonym_meronyms if final_bool)
+        num_putative_meronyms_map2: int = sum(1 for _, _, final_bool in putative_holonym_meronyms if not final_bool)
+
+        # Calculate the total number of nodes in each map (real & putative)
+        total_nodes_map_1: int = len(map1) + len(putative_shared_holonyms) + num_putative_meronyms_map1
+        total_nodes_map_2: int = len(map2) + len(putative_shared_holonyms) + num_putative_meronyms_map2
 
         # Create an all-to-all association matrix (n1*n2 x 2)
-        A_init: np.ndarray = clipperpy.utils.create_all_to_all(len(map1), len(map2))
+        A_init: np.ndarray = clipperpy.utils.create_all_to_all(total_nodes_map_1, total_nodes_map_2)
 
         # Get list of necessary data for each object (N x Num Data Values)
         map1_cl = np.array([self._object_to_clipper_list(p) for p in map1])
