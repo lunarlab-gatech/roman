@@ -1,0 +1,10 @@
+min_iou_for_association: 0.6
+min_sem_con_for_association: 0.8
+iou_threshold_overlapping_obj: 0.2
+enc_threshold_overlapping_obj: 0.2
+ratio_dist2length_threshold_nearby_node_semantic_merge: 0.025
+ratio_dist2length_threshold_shared_holonym: 0.05
+ratio_dist2length_threshold_holonym_meronym: 0.05
+ratio_relationship_weight_2_total_weight: 2
+max_t_active_for_node: 15
+max_dist_active_for_node: 10

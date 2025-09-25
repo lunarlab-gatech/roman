@@ -26,7 +26,7 @@ from roman.map.fastsam_wrapper import FastSAMWrapper
 from roman.params.data_params import DataParams
 from roman.params.mapper_params import MapperParams
 from roman.params.fastsam_params import FastSAMParams
-
+from roman.params.scene_graph_3D_params import SceneGraph3DParams, GraphNodeParams
 from ..scene_graph.logger import logger
 
 @dataclass
@@ -37,7 +37,7 @@ class ProcessingTimes:
 
 class ROMANMapRunner:
     def __init__(self, data_params: DataParams, fastsam_params: FastSAMParams, 
-                 mapper_params: MapperParams, verbose=False, viz_map=False, 
+                 mapper_params: MapperParams, scene_graph_params: SceneGraph3DParams, graph_node_params: GraphNodeParams, verbose=False, viz_map=False, 
                  viz_observations=False, viz_3d=False, save_viz=False):
         self.data_params = data_params
         self.fastsam_params = fastsam_params
@@ -69,7 +69,7 @@ class ROMANMapRunner:
 
         if verbose: print("Setting up FastSAM...")
         self.fastsam = FastSAMWrapper.from_params(self.fastsam_params, self.depth_data.camera_params)
-        self.mapper = SceneGraph3D(self.data_params.pose_data_params.T_camera_flu, self.fastsam_params)
+        self.mapper = SceneGraph3D(scene_graph_params, graph_node_params, self.data_params.pose_data_params.T_camera_flu, self.fastsam_params)
         
         self.verbose = verbose
         self.viz_map = viz_map

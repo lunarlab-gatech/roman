@@ -1,0 +1,6 @@
+num_words_to_consider_ourselves: 1
+sample_voxel_size_to_longest_line_ratio: 0.01
+sample_epsilon_to_longest_line_ratio: 0.1
+cluster_percentage_of_full: 0.8
+stat_out_num_neighbors: 30
+std_ratio: 1.5

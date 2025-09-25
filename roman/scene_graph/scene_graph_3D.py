@@ -10,6 +10,7 @@ import multiprocessing
 import numpy as np
 import os
 from ..params.data_params import ImgDataParams
+from ..params.scene_graph_3D_params import SceneGraph3DParams, GraphNodeParams
 from .rerun_wrapper import RerunWrapper
 from roman.map.map import ROMANMap
 from roman.object.segment import Segment
@@ -22,32 +23,12 @@ multiprocessing.set_start_method("spawn", force=True)
 
 class SceneGraph3D():
 
-    # Requirement for an observation to be associated with a current graph node or for two nodes to be merged.
-    min_iou_for_association = 0.6
-
-    # Used for "Nearby Node Semantic Merging" and "Parent-Child Semantic Merging" if enabled
-    min_sem_con_for_association = 0.8
-
-    # Threshold to determine if two convex hulls are overlapping in resolve_overlapping_convex_hulls()
-    iou_threshold_overlapping_obj = 0.2
-    enc_threshold_overlapping_obj = 0.2
-
-    # Ratio of distance to object volume thresholds
-    ratio_dist2length_threshold_nearby_node_semantic_merge = 0.025
-    ratio_dist2length_threshold_shared_holonym = 0.05
-    ratio_dist2length_threshold_holonym_meronym = 0.05
-
-    # Ratio of detected relationship weight vs. previous total weight
-    ratio_relationship_weight_2_total_weight = 2
-
-    # If a high-level node goes this long since it was first seen, inactivate
-    max_t_active_for_node = 15 # seconds
-
-    # If we travel a significant distance from the first camera pose where this object was seen, inactivate
-    max_dist_active_for_node = 10 # meters
-
     @typechecked
-    def __init__(self, _T_camera_flu: np.ndarray, fastsam_params: FastSAMParams, headless: bool = True):
+    def __init__(self, params: SceneGraph3DParams, node_params: GraphNodeParams, _T_camera_flu: np.ndarray, fastsam_params: FastSAMParams, headless: bool = True):
+
+        # Save parameters 
+        self.params: SceneGraph3DParams = params
+        GraphNode.params = node_params
 
         # Node that connects all highest-level objects together for implementation purposes
         self.root_node: GraphNode = GraphNode.create_node_if_possible(0, None, [], np.zeros((0, 3), dtype=np.float64), 
@@ -71,8 +52,6 @@ class SceneGraph3D():
         # Dictionaries to cache results of calculations for speed
         self.overlap_dict: defaultdict = defaultdict(lambda: defaultdict(lambda: None))
         self.shortest_dist_dist: defaultdict = defaultdict(lambda: defaultdict(lambda: None))
-
-        # TODO: Perhaps we add back the check that objects need to be seen at least twice to get added to the graph (similar to ROMAN)
 
     @typechecked
     def len(self) -> int:
@@ -161,28 +140,23 @@ class SceneGraph3D():
         # Update the viewer
         # self.rerun_viewer.update(self.root_node, self.times[-1], img=img, depth_img=depth_img, camera_pose=pose, img_data_params=img_data_params, seg_img=seg_img, associations=associated_pairs, node_to_obs_mapping=node_to_obs_mapping)
 
-        # self.parent_child_semantic_merges(use_wordnet=True)
+        if self.params.enable_semantic_merges:
+            self.parent_child_semantic_merges(use_wordnet=True)
+            self.nearby_node_semantic_merges(use_wordnet=True)
 
         # Update the viewer
         # self.rerun_viewer.update(self.root_node, self.times[-1], img=img, depth_img=depth_img, camera_pose=pose, img_data_params=img_data_params, seg_img=seg_img, associations=associated_pairs, node_to_obs_mapping=node_to_obs_mapping)
 
-        # self.nearby_node_semantic_merges(use_wordnet=True)
-
-        # Update the viewer
-        # self.rerun_viewer.update(self.root_node, self.times[-1], img=img, depth_img=depth_img, camera_pose=pose, img_data_params=img_data_params, seg_img=seg_img, associations=associated_pairs, node_to_obs_mapping=node_to_obs_mapping)
-
-        # self.holonym_meronym_relationship_inference()
-        
-        # Update the viewer
-        # self.rerun_viewer.update(self.root_node, self.times[-1], img=img, depth_img=depth_img, camera_pose=pose, img_data_params=img_data_params, seg_img=seg_img, associations=associated_pairs, node_to_obs_mapping=node_to_obs_mapping)
-
-        # self.shared_holonym_relationship_inference()
+        if self.params.enable_meronomy_relationship_inference:
+            self.holonym_meronym_relationship_inference()
+            self.shared_holonym_relationship_inference()
 
         # TODO: After merging, update the associations and node_to_obs mapping so colors carry over
 
         # Resolve any overlapping point clouds (TODO: Do we even need this?)
         # TODO: This seems to be causing bugs currently
-        # self.resolve_overlapping_convex_hulls()
+        if self.params.enable_resolve_overlapping_nodes:
+            self.resolve_overlapping_convex_hulls()
 
         # Run node retirement
         self.node_retirement()
@@ -326,7 +300,7 @@ class SceneGraph3D():
         SceneGraph3D.check_within_bounds(iou, (0, 1))
 
         # Check if within thresholds for association
-        return bool(iou >= self.min_iou_for_association)
+        return bool(iou >= self.params.min_iou_for_association)
 
     @typechecked
     def resolve_overlapping_convex_hulls(self):
@@ -353,8 +327,8 @@ class SceneGraph3D():
                         iou, enc_i, enc_j = self.convex_hull_overlap_cached(node_i, node_j)
 
                         # If this is above a threshold, then we've found an overlap
-                        if iou > self.iou_threshold_overlapping_obj or enc_i > self.enc_threshold_overlapping_obj \
-                            or enc_j > self.enc_threshold_overlapping_obj:
+                        if iou > self.params.iou_threshold_overlapping_obj or enc_i > self.params.enc_threshold_overlapping_obj \
+                            or enc_j > self.params.enc_threshold_overlapping_obj:
                             
                             # Get merged point clouds from both nodes
                             pc_i = node_i.get_point_cloud()
@@ -691,8 +665,8 @@ class SceneGraph3D():
 
                             # If ratio of shortest distance to object length is within threshold AND
                             # the semanatic embedding is close enough for association
-                            if dist_to_object_length < self.ratio_dist2length_threshold_nearby_node_semantic_merge and \
-                                sem_con > self.min_sem_con_for_association:
+                            if dist_to_object_length < self.params.ratio_dist2length_threshold_nearby_node_semantic_merge and \
+                                sem_con > self.params.min_sem_con_for_association:
 
                                 # If so, merge these two nodes in the graph
                                 logger.info(f"[gold1]Nearby Node Sem Merge[/gold1]: Merging Node {node_j.get_id()} into Node {node_i.get_id()} and popping off graph")
@@ -715,7 +689,7 @@ class SceneGraph3D():
                             sem_con = SceneGraph3D.semantic_consistency(node_i.get_semantic_descriptor(), node_j.get_semantic_descriptor())
 
                             # If any of the words are the same word, check geometric info
-                            if words_i == words_j or sem_con > self.min_sem_con_for_association:
+                            if words_i == words_j or sem_con > self.params.min_sem_con_for_association:
 
                                 # Get shortest distance between the nodes
                                 dist = self.shortest_dist_between_hulls_cached(node_i, node_j)
@@ -728,7 +702,7 @@ class SceneGraph3D():
                                 # Get ratio of shortest distance to longest line (in other words, dist to object length)
                                 dist_to_object_length = dist / longest_line
 
-                                if dist_to_object_length < self.ratio_dist2length_threshold_nearby_node_semantic_merge:
+                                if dist_to_object_length < self.params.ratio_dist2length_threshold_nearby_node_semantic_merge:
                                     # If so, merge these two nodes in the graph
                                     logger.info(f"[green3]Nearby Obj Sem Merge[/green3]: Merging Node {node_j.get_id()} into Node {node_i.get_id()} and popping off graph")
 
@@ -770,7 +744,7 @@ class SceneGraph3D():
                             sem_con = SceneGraph3D.semantic_consistency(node_i.get_semantic_descriptor(), node_j.get_semantic_descriptor())
 
                             # If semantic embedding is enough for assocation, just merge the child into the parent
-                            if sem_con > self.min_sem_con_for_association:
+                            if sem_con > self.params.min_sem_con_for_association:
 
                                 # Get which node is the parent and which is the child
                                 if node_i.is_parent(node_j): 
@@ -796,7 +770,7 @@ class SceneGraph3D():
                             sem_con = SceneGraph3D.semantic_consistency(node_i.get_semantic_descriptor(), node_j.get_semantic_descriptor())
 
                             # If any of the words are the same word, merge them
-                            if words_i == words_j or sem_con > self.min_sem_con_for_association:
+                            if words_i == words_j or sem_con > self.params.min_sem_con_for_association:
                                 
                                 # Get which node is the parent and which is the child
                                 if node_i.is_parent(node_j): 
@@ -865,7 +839,7 @@ class SceneGraph3D():
                             dist_to_object_length = dist / longest_line
 
                             # If they are close enough
-                            if dist_to_object_length < self.ratio_dist2length_threshold_holonym_meronym:
+                            if dist_to_object_length < self.params.ratio_dist2length_threshold_holonym_meronym:
                                 
                                 # Find the meronym
                                 if word_i.word in word_j_meronyms or word_j.word in word_i_holonyms:
@@ -893,7 +867,7 @@ class SceneGraph3D():
                                                                 
                                 holonym_emb: np.ndarray = wordnetWrapper.get_embedding_for_word(word_holonym.word)
                                 total_weight = node_holonym.get_total_weight_of_semantic_descriptors()
-                                node_holonym.add_semantic_descriptors([(holonym_emb, total_weight * self.ratio_relationship_weight_2_total_weight)])
+                                node_holonym.add_semantic_descriptors([(holonym_emb, total_weight * self.params.ratio_relationship_weight_2_total_weight)])
 
                                 # Print any deleted nodes
                                 if len(deleted_ids) > 0:
@@ -946,7 +920,7 @@ class SceneGraph3D():
                         dist_to_object_length = dist / longest_line
 
                         # If they are close enough
-                        if dist_to_object_length < self.ratio_dist2length_threshold_shared_holonym:
+                        if dist_to_object_length < self.params.ratio_dist2length_threshold_shared_holonym:
 
                             # Calculate the first seen time as earliest from the two nodes
                             first_seen = min(node_i.get_time_first_seen(), node_j.get_time_first_seen())
@@ -970,7 +944,7 @@ class SceneGraph3D():
                                 # Update embedding so that it matches the word most of all!
                                 holonym_emb: np.ndarray = wordnetWrapper.get_embedding_for_word(shared_holonyms[0])
                                 total_weight = holonym.get_total_weight_of_semantic_descriptors()
-                                holonym.add_semantic_descriptors([(holonym_emb, total_weight * self.ratio_relationship_weight_2_total_weight)])
+                                holonym.add_semantic_descriptors([(holonym_emb, total_weight * self.params.ratio_relationship_weight_2_total_weight)])
 
                                 logger.info(f"[gold1]Shared Holonym Detected[/gold1]: Node {holonym.get_id()} with words {shared_holonyms} {holonym.get_words()} from children with words {word_i.word} and {word_j.word}")
 
@@ -990,8 +964,8 @@ class SceneGraph3D():
 
             # If the time the child was first seen was too long ago OR we've move substancially since then 
             # OR we are retiring everything, Inactivate this node and descendents
-            if self.times[-1] - child.get_time_first_seen_recursive() > self.max_t_active_for_node \
-                or np.linalg.norm(self.poses[-1][:3,3] - child.get_first_pose_recursive()[:3,3]) > self.max_dist_active_for_node \
+            if self.times[-1] - child.get_time_first_seen_recursive() > self.params.max_t_active_for_node \
+                or np.linalg.norm(self.poses[-1][:3,3] - child.get_first_pose_recursive()[:3,3]) > self.params.max_dist_active_for_node \
                 or retire_everything:
 
                 # Pop this child off of the root node and put in our inactive nodes

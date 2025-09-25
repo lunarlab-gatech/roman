@@ -18,6 +18,8 @@ import argparse
 from typing import List
 import os
 import yaml
+import wandb
+from .loop_closure_viz import calculate_loop_closure_error
 
 from roman.params.submap_align_params import SubmapAlignInputOutput, SubmapAlignParams
 from roman.align.submap_align import submap_align
@@ -30,6 +32,7 @@ from roman.offline_rpgo.evaluate import evaluate
 from roman.offline_rpgo.edit_g2o_edge_information import edit_g2o_edge_information
 from roman.params.offline_rpgo_params import OfflineRPGOParams
 from roman.params.data_params import DataParams
+from roman.params.scene_graph_3D_params import SceneGraph3DParams, GraphNodeParams
 
 import mapping
 
@@ -88,6 +91,16 @@ if __name__ == '__main__':
     os.makedirs(os.path.join(args.output_dir, "offline_rpgo"), exist_ok=True)
     os.makedirs(os.path.join(args.output_dir, "offline_rpgo/sparse"), exist_ok=True)
     os.makedirs(os.path.join(args.output_dir, "offline_rpgo/dense"), exist_ok=True)
+
+    # Setup WandB to track this run
+    scene_graph_params = SceneGraph3DParams.from_yaml(os.path.join(args.params, "scene_graph_3D.yaml"))
+    graph_node_params = GraphNodeParams.from_yaml(os.path.join(args.params, "graph_node.yaml"))
+    config_dict = {
+        'scene_graph': scene_graph_params.model_dump(),
+        'graph_node': graph_node_params.model_dump()
+    }
+    run = wandb.init(project='ROMAN + MeronomyMapping Ablations',
+                     config=config_dict)
     
     if not args.skip_map:
         
@@ -156,6 +169,11 @@ if __name__ == '__main__':
 
                 # Run the alignment process
                 submap_align(sm_params=submap_align_params, sm_io=sm_io)
+
+                # Calculate loop closure errors
+                json_path = os.path.join(output_dir, "align.json")
+                mean_trans_error, mean_rot_error = calculate_loop_closure_error(json_path, gt_files[i], gt_files[j])
+                run.log({"LC: Mean Translation Error": mean_trans_error, "LC: Mean Rotation Angle Error": mean_rot_error})
                        
     if not args.skip_rpgo:
         min_keyframe_dist = 0.01 if not offline_rpgo_params.sparsified else 2.0
@@ -285,6 +303,7 @@ if __name__ == '__main__':
             print("ATE results:")
             print("============")
             print(ate_rmse)
+            run.log({"RMS ATE": ate_rmse})
             with open(os.path.join(args.output_dir, "offline_rpgo", "ate_rmse.txt"), 'w') as f:
                 print(ate_rmse, file=f)
                 f.close()

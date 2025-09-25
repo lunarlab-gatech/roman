@@ -6,6 +6,7 @@ from .logger import logger
 import numpy as np
 from numpy.typing import NDArray
 import open3d as o3d
+from ..params.scene_graph_3D_params import GraphNodeParams
 from robotdatapy.camera import xyz_2_pixel
 from robotdatapy.transform import transform
 from roman.map.observation import Observation
@@ -22,25 +23,7 @@ wordnetWrapper = WordNetWrapper(["curb", "tree", "garbage can", "door", "window"
 @typechecked
 class GraphNode():
 
-    # If using wordnet for semantic merging, number of words to simulatneously consider ourselves as
-    num_words_to_consider_ourselves = 1
-
-    # Voxel size set for downsampling relative to the longest line of node
-    sample_voxel_size_to_longest_line_ratio = 0.01
-
-    # ===== DBSCAN Parameters ===== 
-    # Epsilon set relative to longest line of point cloud
-    sample_epsilon_to_longest_line_ratio = 0.1
-
-    # Required percentage size of cluster relative to full cloud to consider keeping node
-    cluster_percentage_of_full = 0.8
-
-    # ===== Statistical Outlier Removal Parameters =====
-    # Number of neighbors to calculate average distance for a point
-    stat_out_num_neighbors = 30
-    
-    # STD ratio for thresholding
-    std_ratio = 1.5
+    params: GraphNodeParams
 
     # ================ Initialization =================
     def __init__(self, id: int, parent_node: GraphNode | None, semantic_descriptors: list[tuple[np.ndarray, float]], 
@@ -204,7 +187,7 @@ class GraphNode():
     def get_words(self) -> WordListWrapper:
         if self._words is None:
             descriptor = self.get_semantic_descriptor()
-            self._words = WordListWrapper.from_words(wordnetWrapper.map_embedding_to_words(descriptor, self.num_words_to_consider_ourselves))
+            self._words = WordListWrapper.from_words(wordnetWrapper.map_embedding_to_words(descriptor, self.params.num_words_to_consider_ourselves))
         return self._words
     
     def get_all_meronyms(self, meronym_level: int = 1) -> set[str]:
@@ -604,7 +587,7 @@ class GraphNode():
         pcd.points = o3d.utility.Vector3dVector(self.get_point_cloud())
         length = self.get_longest_line_size()
         if length > 0:
-            pcd_sampled = pcd.voxel_down_sample(length * self.sample_voxel_size_to_longest_line_ratio)
+            pcd_sampled = pcd.voxel_down_sample(length * self.params.sample_voxel_size_to_longest_line_ratio)
         else:
             return self.reset_saved_point_vars()
         
@@ -625,7 +608,7 @@ class GraphNode():
 
         # Perform clustering
         length = self.get_longest_line_size()
-        labels = np.array(pcd.cluster_dbscan(eps=length * self.sample_epsilon_to_longest_line_ratio, min_points=4))
+        labels = np.array(pcd.cluster_dbscan(eps=length * self.params.sample_epsilon_to_longest_line_ratio, min_points=4))
         max_cluster_index = labels.max()
         if max_cluster_index == -1:
             logger.info(f"[bright_red]WARNING[/bright_red]: All points in this node {self.get_id()} have been detected as noise!")
@@ -637,7 +620,7 @@ class GraphNode():
         max_cluster_size = np.sum(labels == max_cluster_index)
         cluster_size_ratio = max_cluster_size / len(pcd.points)
         logger.debug(f"Cluster Size Ratio: {cluster_size_ratio}")
-        if cluster_size_ratio < self.cluster_percentage_of_full:
+        if cluster_size_ratio < self.params.cluster_percentage_of_full:
 
             # Since this cluster is too small, the semantic embedding will not be 
             # representative. Thus, we must delete this node, so wipe our point cloud.
@@ -665,7 +648,7 @@ class GraphNode():
         pcd.points = o3d.utility.Vector3dVector(self.get_point_cloud())
 
         # Remove statistical outliers
-        pcd_sampled, _ = pcd.remove_statistical_outlier(self.stat_out_num_neighbors, self.std_ratio)
+        pcd_sampled, _ = pcd.remove_statistical_outlier(self.params.stat_out_num_neighbors, self.params.std_ratio)
 
         # Save the new sampled point cloud 
         self.point_cloud = GraphNode._intersect_rows(self.point_cloud, np.asarray(pcd_sampled.points))

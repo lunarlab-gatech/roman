@@ -79,7 +79,7 @@ def set_axes_equal(ax):
     ax.set_zlim3d([centers[2]-max_range, centers[2]+max_range])
 
 
-def main(json_file, gt_csv1, gt_csv2):
+def calculate_loop_closure_error(json_file, gt_csv1, gt_csv2, plot=False) -> tuple[float, float]:
     with open(json_file, 'r') as f:
         loops = json.load(f)
 
@@ -111,27 +111,30 @@ def main(json_file, gt_csv1, gt_csv2):
         trans_errors.append(trans_err)
         rot_errors.append(rot_err)
 
-        print("Translation error:", trans_err)
-        print("Rotation error (deg):", rot_err)
+        # print("Translation error:", trans_err)
+        # print("Rotation error (deg):", rot_err)
 
         # --- Create a new figure for this loop closure ---
-        fig = plt.figure()
-        ax = fig.add_subplot(111, projection='3d')
+        if plot:
+            fig = plt.figure()
+            ax = fig.add_subplot(111, projection='3d')
 
-        # Plot GT pose (solid)
-        plot_pose(ax, gt_t_rel, gt_r_rel, scale=0.5)
-        # Plot predicted pose (dashed)
-        plot_pose(ax, pred_t, pred_r, scale=0.5)
+            # Plot GT pose (solid)
+            plot_pose(ax, gt_t_rel, gt_r_rel, scale=0.5)
+            # Plot predicted pose (dashed)
+            plot_pose(ax, pred_t, pred_r, scale=0.5)
 
-        ax.set_xlabel('X')
-        ax.set_ylabel('Y')
-        ax.set_zlabel('Z')
-        ax.set_title(f'Loop Closure {idx} (GT solid, Predicted dashed)')
-        set_axes_equal(ax)
-        plt.show()  # display each loop closure plot separately
+            ax.set_xlabel('X')
+            ax.set_ylabel('Y')
+            ax.set_zlabel('Z')
+            ax.set_title(f'Loop Closure {idx} (GT solid, Predicted dashed)')
+            set_axes_equal(ax)
+            plt.show()  # display each loop closure plot separately
 
-    print("Mean translation error:", np.mean(trans_errors))
-    print("Mean rotation error (deg):", np.mean(rot_errors))
+    mean_trans_error = np.mean(trans_errors)
+    mean_rot_error_deg = np.mean(rot_errors)
+    print("Mean translation error:",  mean_trans_error)
+    print("Mean rotation error (deg):", mean_rot_error_deg)
 
 
 if __name__ == "__main__":
@@ -141,5 +144,5 @@ if __name__ == "__main__":
     parser.add_argument("gt_csv2", help="GT CSV for robot 2")
     args = parser.parse_args()
 
-    main(args.json_file, args.gt_csv1, args.gt_csv2)
+    calculate_loop_closure_error(args.json_file, args.gt_csv1, args.gt_csv2, plot=True)
 
