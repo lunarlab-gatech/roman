@@ -23,7 +23,7 @@ multiprocessing.set_start_method("spawn", force=True)
 class SceneGraph3D():
 
     # Requirement for an observation to be associated with a current graph node or for two nodes to be merged.
-    min_iou_for_association = 0.6
+    min_iou_for_association = 0.25
 
     # Used for "Nearby Node Semantic Merging" and "Parent-Child Semantic Merging" if enabled
     min_sem_con_for_association = 0.8
@@ -72,7 +72,7 @@ class SceneGraph3D():
         self.overlap_dict: defaultdict = defaultdict(lambda: defaultdict(lambda: None))
         self.shortest_dist_dist: defaultdict = defaultdict(lambda: defaultdict(lambda: None))
 
-        # TODO: Perhaps we add back the check that objects need to be seen at least twice to get added to the graph (similar to ROMAN)
+        # TODO: Are there cases where we don't want to call remove from graph complete, as we want to retire the node instead?
 
     @typechecked
     def len(self) -> int:
@@ -983,7 +983,7 @@ class SceneGraph3D():
                 if merge_occured:
                     break
     
-    def node_retirement(self, retire_everything=False, delete_only_seen_once=False):
+    def node_retirement(self, retire_everything=False, delete_only_seen_once=True):
         # Iterate only through the direct children of the root node
         retired_ids = []
         for child in self.root_node.get_children()[:]: # Create shallow copy so removing doesn't break loop
@@ -997,6 +997,9 @@ class SceneGraph3D():
                 # Pop this child off of the root node and put in our inactive nodes
                 retired_ids += [child.get_id()]
                 retired_ids += child.remove_from_graph_complete()
+
+                # Run DBSCan right before we finish for cleanup
+                child.update_point_cloud(np.zeros((0, 3), dtype=np.float64), run_dbscan=True)
                 self.inactive_nodes.append(child)
 
         # Delete nodes that were seen last frame but not this one
@@ -1007,12 +1010,13 @@ class SceneGraph3D():
                     if node.get_time_first_seen() != self.times[-1]:
 
                         # Pop just this node off the graph, reconnect children back to our parent
+                        deleted_ids += [node.get_id()]
                         deleted_ids += node.remove_from_graph_complete(keep_children=False)
 
         if len(retired_ids) > 0:
             logger.info(f"[dark_magenta]Node Retirement[/dark_magenta]: {len(retired_ids)} nodes retired, including {retired_ids}.")
         if len(deleted_ids) > 0:
-            logger.info(f"[magenta]Node Deletion[/magenta]: {len(deleted_ids)} nodes deleted after being seen only once, including {retired_ids}.")
+            logger.info(f"[magenta]Node Deletion[/magenta]: {len(deleted_ids)} nodes deleted after being seen only once, including {deleted_ids}.")
 
     def get_roman_map(self) -> ROMANMap:
         """

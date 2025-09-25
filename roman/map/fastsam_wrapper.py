@@ -263,7 +263,7 @@ class FastSAMWrapper():
         masks: np.ndarray = self._process_img(img, ignore_mask=ignore_mask, keep_mask=keep_mask)
         
         # Remove masks corresponding to dynamic objects
-        masks = self.remove_dynamic_object_masks(masks, img_depth, pose)
+        # masks = self.remove_dynamic_object_masks(masks, img_depth, pose)
 
         # ================== Generate Observations ==================
         for i, mask in enumerate(masks):

@@ -37,15 +37,15 @@ class GraphNode():
 
     # ===== Statistical Outlier Removal Parameters =====
     # Number of neighbors to calculate average distance for a point
-    stat_out_num_neighbors = 30
+    stat_out_num_neighbors = 10
     
     # STD ratio for thresholding
-    std_ratio = 1.5
+    std_ratio = 1.0
 
     # ================ Initialization =================
     def __init__(self, id: int, parent_node: GraphNode | None, semantic_descriptors: list[tuple[np.ndarray, float]], 
                  point_cloud: np.ndarray, child_nodes: list[GraphNode], first_seen: float, last_updated: float, 
-                 curr_time: float, first_pose: np.ndarray, curr_pose: np.ndarray, run_dbscan: bool = True, is_RootGraphNode: bool = False):
+                 curr_time: float, first_pose: np.ndarray, curr_pose: np.ndarray, run_dbscan: bool = False, is_RootGraphNode: bool = False):
         """
         Don't create a Graph Node directly! Instead do it with create_node_if_possible(), 
         as node can be invalid after creation.
@@ -89,6 +89,8 @@ class GraphNode():
 
         # Tracks number of times we've been sighted
         self.num_sightings = 1
+        if self.is_root:
+            self.num_sightings = 10000 # Root should never be removed for too little sightings
 
         # Holds values for reuse to avoid recalculating them
         self._convex_hull: trimesh.Trimesh = None
@@ -342,7 +344,7 @@ class GraphNode():
             raise RuntimeError(f"Trying to get volume of ConvexHull for Node {self.get_id()}, but its not watertight!")
         return self.get_convex_hull().volume
     
-    def get_point_cloud(self, recursive: bool = True) -> np.ndarray:
+    def get_point_cloud(self, recursive: bool = False) -> np.ndarray:
         if self.is_RootGraphNode():
             raise RuntimeError("get_point_cloud() should not be called on RootGraphNode!")
 
@@ -361,7 +363,7 @@ class GraphNode():
                 self._point_cloud = self.point_cloud.copy()
         return self._point_cloud
     
-    def get_semantic_descriptors(self, recursive: bool = True) -> list[tuple[np.ndarray, float]]:
+    def get_semantic_descriptors(self, recursive: bool = False) -> list[tuple[np.ndarray, float]]:
         if self.is_RootGraphNode():
             raise RuntimeError("get_semantic_descriptors() should not be called on RootGraphNode!")
 
@@ -413,7 +415,7 @@ class GraphNode():
         return seg
 
     # ==================== Calculations ====================
-    def calculate_semantic_descriptor(self, descriptors: list[tuple[NDArray[np.float64], float]], method: str = "weighted average") -> np.ndarray | None:
+    def calculate_semantic_descriptor(self, descriptors: list[tuple[NDArray[np.float64], float]], method: str = "average") -> np.ndarray | None:
         # If we have no descriptors, just return None
         if len(descriptors) == 0:
             return None
@@ -593,9 +595,6 @@ class GraphNode():
 
         # Perform DBSCAN clustering (if desired)
         if run_dbscan:
-            # Remove statistical outliers first so they don't interfere with clustering
-            self._remove_statistical_outliers()
-
             # Now perform clustering
             self._dbscan_clustering()
 
@@ -604,7 +603,7 @@ class GraphNode():
         pcd.points = o3d.utility.Vector3dVector(self.get_point_cloud())
         length = self.get_longest_line_size()
         if length > 0:
-            pcd_sampled = pcd.voxel_down_sample(length * self.sample_voxel_size_to_longest_line_ratio)
+            pcd_sampled = pcd.voxel_down_sample(0.05)
         else:
             return self.reset_saved_point_vars()
         
@@ -612,6 +611,10 @@ class GraphNode():
         self.point_cloud = GraphNode._intersect_rows(self.point_cloud, np.asarray(pcd_sampled.points))
         logger.debug(f"Point Cloud size after downsampling: {self.point_cloud.shape[0]}")
         self.last_updated = self.curr_time
+        self.reset_saved_point_vars_safe()
+
+        # Remove statistical outliers
+        self._remove_statistical_outliers()
 
         # Reset point cloud dependent saved variables and return nodes to delete
         logger.debug(f"update_point_cloud(): Resetting Point Cloud for Node {self.get_id()}")
@@ -625,7 +628,7 @@ class GraphNode():
 
         # Perform clustering
         length = self.get_longest_line_size()
-        labels = np.array(pcd.cluster_dbscan(eps=length * self.sample_epsilon_to_longest_line_ratio, min_points=4))
+        labels = np.array(pcd.cluster_dbscan(eps=0.25, min_points=10))
         max_cluster_index = labels.max()
         if max_cluster_index == -1:
             logger.info(f"[bright_red]WARNING[/bright_red]: All points in this node {self.get_id()} have been detected as noise!")
