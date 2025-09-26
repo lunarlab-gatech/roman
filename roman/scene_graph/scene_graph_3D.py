@@ -275,7 +275,7 @@ class SceneGraph3D():
         
     @typechecked
     @staticmethod
-    def semantic_consistency(a: np.ndarray| None, b: np.ndarray | None, rescaling: list = [0.7, 1.0]) -> float:
+    def semantic_consistency(a: np.ndarray| None, b: np.ndarray | None) -> float:
         # If either is none, then just assume neutral consistency
         if a is None or b is None:
             return 0.5
@@ -286,12 +286,7 @@ class SceneGraph3D():
 
         # Calculate the cosine similarity
         cos_sim = np.dot(a, b)
-
-        # Rescale the similarity so that a similiarity <=rescaling[0] is 0 and >=rescaling[1] is 1.
-        min_val, max_val = rescaling
-        rescaled = (cos_sim - min_val) / (max_val - min_val)
-        rescaled_clamped = np.clip(rescaled, 0.0, 1.0)
-        return rescaled_clamped
+        return np.clip(cos_sim, 0.0, 1.0)
     
     @typechecked
     def pass_minimum_requirements_for_association(self, iou: float) ->  bool:
@@ -959,7 +954,7 @@ class SceneGraph3D():
                 if merge_occured:
                     break
     
-    def node_retirement(self, retire_everything=False, delete_only_seen_once=True):
+    def node_retirement(self, retire_everything=False):
         # Iterate only through the direct children of the root node
         retired_ids = []
         for child in self.root_node.get_children()[:]: # Create shallow copy so removing doesn't break loop
@@ -974,13 +969,14 @@ class SceneGraph3D():
                 retired_ids += [child.get_id()]
                 retired_ids += child.remove_from_graph_complete()
 
-                # Run DBSCan right before we finish for cleanup
-                child.update_point_cloud(np.zeros((0, 3), dtype=np.float64), run_dbscan=True)
+                # Run DBScan right before we finish for cleanup
+                if self.params.run_dbscan_when_retiring_node:
+                    child.update_point_cloud(np.zeros((0, 3), dtype=np.float64), run_dbscan=True)
                 self.inactive_nodes.append(child)
 
         # Delete nodes that were seen last frame but not this one
         deleted_ids = []
-        if delete_only_seen_once:
+        if self.params.delete_nodes_only_seen_once:
             for node in self.root_node:
                 if node.get_num_sightings() == 1:
                     if node.get_time_first_seen() != self.times[-1]:

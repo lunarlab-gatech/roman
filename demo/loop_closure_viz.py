@@ -83,6 +83,9 @@ def calculate_loop_closure_error(json_file, gt_csv1, gt_csv2, plot=False) -> tup
     with open(json_file, 'r') as f:
         loops = json.load(f)
 
+    if len(loops) == 0:
+        return (np.inf, np.inf)
+
     gt_df1 = load_gt_csv(gt_csv1)
     gt_df2 = load_gt_csv(gt_csv2)
 
@@ -111,8 +114,8 @@ def calculate_loop_closure_error(json_file, gt_csv1, gt_csv2, plot=False) -> tup
         trans_errors.append(trans_err)
         rot_errors.append(rot_err)
 
-        # print("Translation error:", trans_err)
-        # print("Rotation error (deg):", rot_err)
+        print("Translation error:", trans_err)
+        print("Rotation error (deg):", rot_err)
 
         # --- Create a new figure for this loop closure ---
         if plot:
@@ -135,7 +138,7 @@ def calculate_loop_closure_error(json_file, gt_csv1, gt_csv2, plot=False) -> tup
     mean_rot_error_deg = np.mean(rot_errors)
     print("Mean translation error:",  mean_trans_error)
     print("Mean rotation error (deg):", mean_rot_error_deg)
-
+    return mean_trans_error, mean_rot_error_deg
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Compare loop closures to GT and visualize poses.")
@@ -144,5 +147,5 @@ if __name__ == "__main__":
     parser.add_argument("gt_csv2", help="GT CSV for robot 2")
     args = parser.parse_args()
 
-    calculate_loop_closure_error(args.json_file, args.gt_csv1, args.gt_csv2, plot=True)
+    calculate_loop_closure_error(args.json_file, args.gt_csv1, args.gt_csv2, plot=False)
 

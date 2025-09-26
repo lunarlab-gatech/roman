@@ -85,7 +85,6 @@ class PoseDataParams:
         for k, v in params_dict.items():
             if type(params_dict[k]) == str:
                 params_dict[k] = expandvars_recursive(params_dict[k])
-        print("Called from data_params.py: ", params_dict)
         pose_data = PoseData.from_dict(params_dict)
         return pose_data
     
@@ -144,29 +143,19 @@ class DataParams:
             assert 'tf' in self.time_params['time'], "tf must be specified in params"
         
     @classmethod
-    def from_yaml(cls, yaml_path: str, run: str = None):
+    def from_yaml(cls, yaml_path: str):
         with open(yaml_path) as f:
             data = yaml.safe_load(f)
-        if run is None:
-            return cls(
-                None, None, None,
-                dt=data['dt'] if 'dt' in data else 1/6,
-                runs=data['runs'] if 'runs' in data else None,
-                run_env=data['run_env'] if 'run_env' in data else None
-            )
-        elif run in data:
-            run_data = data[run]
-        else:
-            run_data = data
+
         return cls(
-            ImgDataParams.from_dict(run_data['img_data']),
-            ImgDataParams.from_dict(run_data['depth_data']),
-            PoseDataParams.from_dict(run_data['pose_data']),
-            dt=run_data['dt'] if 'dt' in run_data else 1/6,
+            ImgDataParams.from_dict(data['img_data']),
+            ImgDataParams.from_dict(data['depth_data']),
+            PoseDataParams.from_dict(data['pose_data']),
+            dt=data['dt'] if 'dt' in data else 1/6,
             runs=data['runs'] if 'runs' in data else None,
             run_env=data['run_env'] if 'run_env' in data else None,
-            time_params=run_data['time_params'] if 'time_params' in run_data else None,
-            kitti=run_data['kitti'] if 'kitti' in run_data else False
+            time_params=data['time_params'] if 'time_params' in data else None,
+            kitti=data['kitti'] if 'kitti' in data else False
         )
         
     @cached_property
@@ -236,7 +225,6 @@ class DataParams:
             img_data.extract_params()
         elif img_data_params.type == "npy":
             img_file_path = expandvars_recursive(img_data_params.path)
-            print(img_data_params.path_times)
             times_file_path = expandvars_recursive(img_data_params.path_times)
             img_data = ImgData.from_npy(
                 path=img_file_path,

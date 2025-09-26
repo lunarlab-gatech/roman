@@ -96,7 +96,7 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
         roman_maps = [load_roman_map(sm_io.inputs[i]) for i in range(2)]
         submaps: list[Submap] = [submaps_from_roman_map(
             roman_maps[i], submap_params, gt_pose_data[i]) for i in range(2)]
-        print("Total Number of Submaps-  ROBOT1: ", len(submaps[0]), " ROBOT2: ", len(submaps[1]))
+        # print("Total Number of Submaps-  ROBOT1: ", len(submaps[0]), " ROBOT2: ", len(submaps[1]))
     elif sm_io.input_type_json: # TODO: re-implement support for json files
         assert False, "Not currently supported"
         # submap_centers, submaps = load_segment_slam_submaps(sm_io.inputs, sm_params, sm_io.debug_show_maps)
@@ -220,9 +220,9 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
                 clipper_dist_mat[i, j] = np.nan
 
             clipper_num_associations[i, j] = len(associations)
-            if clipper_num_associations[i, j] > 0:
-                print("# of associations: ", len(associations))
-            clipper_percent_associations[i, j] = len(associations) / np.mean([len(submap_i), len(submap_j)])
+            avg_num_objs = np.mean([len(submap_i), len(submap_j)])
+            if avg_num_objs > 0: clipper_percent_associations[i, j] = len(associations) / avg_num_objs
+            else: clipper_percent_associations[i, j] = 0
             
             T_ij_mat[i, j] = H_j_wrt_i
             T_ij_hat_mat[i, j] = T_ij_hat

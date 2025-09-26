@@ -4,17 +4,32 @@ from pydantic import BaseModel
 import yaml
 
 class SceneGraph3DParams(BaseModel):
+    """
+    Params for 3D Scene Graph association, merging, and relationship inference.
+
+    Args:
+        min_iou_for_association (float): Minimum IOU for associating an observation with a node or merging two nodes.
+        enable_semantic_merges (bool): Whether to enable semantic merges.
+        min_sem_con_for_association (float): Minimum cosine similarity that triggers a semantic merge.
+        ratio_dist2length_threshold_nearby_node_semantic_merge (float): Threshold for ratio of distance/length to trigger
+            a semantic merge with a nearby node.
+        enable_resolve_overlapping_nodes (bool): Whether to enable resolving overlapping nodes.
+        iou_threshold_overlapping_obj (float): IOU threshold that detects overlapping objects.
+        enc_threshold_overlapping_obj (float): Enclosure threshold that detects overlapping objects.
+        enable_meronomy_relationship_inference (bool): Whether to enable meronomy relationship inference.
+        ratio_dist2length_threshold_shared_holonym (float): Ratio of distance to object volume threshold for inferring shared holonym relationships.
+        ratio_dist2length_threshold_holonym_meronym (float): Ratio of distance to object volume threshold for inferring holonym-meronym relationships.
+        ratio_relationship_weight_2_total_weight (float): Ratio of previous semantic weight to weight for the detected word.
+        max_t_active_for_node (float): Maximum time since first seen for a node to remain active.
+        max_dist_active_for_node (float): Maximum distance traveled since first seen for a node to remain active.
+    """
+
     # ======================= Node Association =======================
-    # Requirement for an observation to be associated with a current graph node or for two nodes to be merged.
     min_iou_for_association: float
 
     # ======================= Semantic Merges =======================
     enable_semantic_merges: bool
-
-    # Minimum Cosine similarity for semantic merges
     min_sem_con_for_association: float
-    
-    # Threshold maximum of ratio of distance/length
     ratio_dist2length_threshold_nearby_node_semantic_merge: float
 
     # ======================= Resolve Overlapping Nodes =======================
@@ -24,20 +39,14 @@ class SceneGraph3DParams(BaseModel):
     
     # ======================= Meronomy Relationship Inference =======================
     enable_meronomy_relationship_inference: bool
-
-    # Ratio of distance to object volume thresholds
     ratio_dist2length_threshold_shared_holonym: float
     ratio_dist2length_threshold_holonym_meronym: float
-
-    # Ratio of detected relationship weight vs. previous total weight
     ratio_relationship_weight_2_total_weight: float
 
     # ======================= Node Retirement =======================
-    # If a high-level node goes this long since it was first seen, inactivate
     max_t_active_for_node: float # seconds
-
-    # If travel this dist from first place this object was seen, inactivate
     max_dist_active_for_node: float # meters
+    delete_nodes_only_seen_once: bool
 
     @classmethod
     def from_yaml(cls, path: str) -> SceneGraph3DParams:
@@ -55,6 +64,8 @@ class GraphNodeParams(BaseModel):
     voxel_size_variable_ratio_to_length: float
 
     # ===== DBSCAN Parameters ===== 
+    run_dbscan_when_creating_node: bool
+    run_dbscan_when_retiring_node: bool
     enable_variable_epsilon: bool
     epsilon_not_variable: float
     epsilon_variable_ratio_to_length: float
@@ -65,10 +76,18 @@ class GraphNodeParams(BaseModel):
 
     # ===== Statistical Outlier Removal Parameters =====
     # Number of neighbors to calculate average distance for a point
+    enable_remove_statistical_outliers: bool
     stat_out_num_neighbors: int
     
     # STD ratio for thresholding
     std_ratio: float
+
+    # ===== Semantic Descriptor =====
+    use_weighted_average_for_descriptor: bool
+    get_semantic_descriptors_includes_children: bool
+
+    # ===== Point Clouds =====
+    get_point_cloud_includes_children: bool
 
     @classmethod
     def from_yaml(cls, path: str) -> GraphNodeParams:

@@ -54,9 +54,7 @@ class MapperParams():
     segment_voxel_size: float = 0.05
     
     @classmethod
-    def from_yaml(cls, yaml_path: str, run: str = None):
+    def from_yaml(cls, yaml_path: str):
         with open(yaml_path) as f:
             data = yaml.safe_load(f)
-        if run is not None and run in data:
-            data = data[run]
         return cls(**data)

@@ -17,3 +17,4 @@ yolo_imgsz: [256, 256]
 depth_scale: 1000.0
 depth_data_type: uint16
 max_depth: 7.5
+enable_scene_flow_dynamic_obj_removal: True

@@ -79,7 +79,7 @@ def mask_bounding_box(mask: np.ndarray) -> tuple:
 
 class FastSAMWrapper():
 
-    def __init__(self, weights: str, conf: float =.5, iou: float =.9, imgsz: tuple[int, int] =(1024, 1024),
+    def __init__(self, params: FastSAMParams, weights: str, conf: float =.5, iou: float =.9, imgsz: tuple[int, int] =(1024, 1024),
         device: str ='cuda', mask_downsample_factor: int = 1, rotate_img=None) -> None:
         """Wrapper for running FastSAM on images (especially RGB/depth pairs)
 
@@ -95,6 +95,7 @@ class FastSAMWrapper():
                 feeding into FastSAM. Defaults to None.
         """
         # parameters
+        self.params = params
         self.weights = weights
         self.conf = conf
         self.iou = iou
@@ -123,6 +124,7 @@ class FastSAMWrapper():
     @classmethod
     def from_params(cls, params: FastSAMParams, depth_cam_params: CameraParams):
         fastsam = cls(
+            params=params,
             weights=expandvars_recursive(params.weights_path),
             imgsz=params.imgsz,
             device=params.device,
@@ -263,7 +265,8 @@ class FastSAMWrapper():
         masks: np.ndarray = self._process_img(img, ignore_mask=ignore_mask, keep_mask=keep_mask)
         
         # Remove masks corresponding to dynamic objects
-        # masks = self.remove_dynamic_object_masks(masks, img_depth, pose)
+        if self.params.enable_scene_flow_dynamic_obj_removal:
+            masks = self.remove_dynamic_object_masks(masks, img_depth, pose)
 
         # ================== Generate Observations ==================
         for i, mask in enumerate(masks):

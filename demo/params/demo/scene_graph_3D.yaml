@@ -1,7 +1,7 @@
-min_iou_for_association: 0.25
+min_iou_for_association: 0.6
 
-enable_semantic_merges: False
-min_sem_con_for_association: 0.8
+enable_semantic_merges: True
+min_sem_con_for_association: 0.94
 ratio_dist2length_threshold_nearby_node_semantic_merge: 0.025
 
 enable_resolve_overlapping_nodes: False
@@ -15,3 +15,4 @@ ratio_relationship_weight_2_total_weight: 2
 
 max_t_active_for_node: 15
 max_dist_active_for_node: 10
+delete_nodes_only_seen_once: False

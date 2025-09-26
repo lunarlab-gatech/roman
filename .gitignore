@@ -172,6 +172,7 @@ output_old/
 # Ignore certain folders
 datasets/
 playground/
+wandb/
 
 # Ignore porfiling results
 profile.out

@@ -52,6 +52,7 @@ class FastSAMParams:
         _type_: _description_
     """
     
+    enable_scene_flow_dynamic_obj_removal: bool
     weights_path: str = "$ROMAN_WEIGHTS/FastSAM-x.pt"
     yolo_weights_path: str = "$ROMAN_WEIGHTS/yolov7.pt"
     imgsz: Tuple[int, int] = (256, 256)
@@ -76,10 +77,8 @@ class FastSAMParams:
     triangle_ignore_masks: List[Tuple[Tuple[int,int], Tuple[int,int], Tuple[int,int]]] = None
     
     @classmethod
-    def from_yaml(cls, yaml_path: str, run: str = None):
+    def from_yaml(cls, yaml_path: str):
         with open(yaml_path) as f:
             data = yaml.safe_load(f)
-        if run is not None and run in data:
-            data = data[run]
         return cls(**data)
     

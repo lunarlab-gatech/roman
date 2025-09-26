@@ -11,75 +11,22 @@
 ###########################################################
 
 import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation, FFMpegWriter
-import argparse
 import pickle
 import time
-import cv2 as cv
-import open3d as o3d
 import logging
 import os
 import tqdm
-import io
 from os.path import expandvars
-from threading import Thread
-from dataclasses import dataclass
 
 from roman.map.run import ROMANMapRunner
-from roman.params.data_params import DataParams
-from roman.params.mapper_params import MapperParams
-from roman.params.fastsam_params import FastSAMParams
-from roman.params.scene_graph_3D_params import SceneGraph3DParams, GraphNodeParams
-from roman.utils import expandvars_recursive
+from roman.params.system_params import SystemParams
 
-from robotdatapy.data import ImgData
 from merge_demo_output import merge_demo_output
 
-@dataclass
-class VisualizationParams:
-    viz_map: bool = False
-    viz_observations: bool = False
-    viz_3d: bool = False
-    vid_rate: float = 1.0
-    save_img_data: bool = False
 
-
-def extract_params(data_params_path, fastsam_params_path, mapper_params_path, run_name=None):
-    assert os.path.exists(data_params_path), "Data params file does not exist."
-    data_params = DataParams.from_yaml(data_params_path, run=run_name)
-        
-    if os.path.exists(fastsam_params_path):
-        fastsam_params = FastSAMParams.from_yaml(fastsam_params_path, run=run_name)
-    else:
-        fastsam_params = FastSAMParams()
-
-    if os.path.exists(mapper_params_path):
-        mapper_params = MapperParams.from_yaml(mapper_params_path, run=run_name)
-    else:
-        mapper_params = MapperParams()
+def run(system_params: SystemParams, output_path: str):
     
-    return data_params, fastsam_params, mapper_params
-
-def run(
-    data_params: DataParams, 
-    fastsam_params: FastSAMParams, 
-    mapper_params: MapperParams,
-    scene_graph_params: SceneGraph3DParams,
-    graph_node_params: GraphNodeParams,
-    output_path: str,
-    viz_params: VisualizationParams = VisualizationParams()
-):
-    
-    runner = ROMANMapRunner(data_params=data_params, 
-                            fastsam_params=fastsam_params, 
-                            mapper_params=mapper_params, 
-                            scene_graph_params=scene_graph_params,
-                            graph_node_params=graph_node_params,
-                            verbose=True, viz_map=viz_params.viz_map, 
-                            viz_observations=viz_params.viz_observations, 
-                            viz_3d=viz_params.viz_3d,
-                            save_viz=viz_params.save_img_data)
+    runner = ROMANMapRunner(system_params=system_params, verbose=True)
 
     # Setup logging
     # TODO: add support for logfile
@@ -87,43 +34,15 @@ def run(
         level=logging.ERROR, 
         format='%(asctime)s %(message)s', 
         datefmt='%m-%d %H:%M:%S', 
-        # handlers=logging.StreamHandler()
     )
 
     print("Running segment tracking! Start time {:.1f}, end time {:.1f}".format(runner.t0, runner.tf))
     wc_t0 = time.time()
 
-    vid = viz_params.viz_map or viz_params.viz_observations
-    if vid:
-        fc = cv.VideoWriter_fourcc(*"mp4v")
-        video_file = os.path.expanduser(expandvars(output_path)) + ".mp4"
-        fps = int(np.max([5., viz_params.vid_rate*1/data_params.dt]))
-        if fastsam_params.rotate_img not in ['CCW', 'CW']:
-            width = runner.img_data.camera_params.width 
-            height = runner.img_data.camera_params.height
-        else:
-            width = runner.img_data.camera_params.height
-            height = runner.img_data.camera_params.width
-        num_panes = 0
-        if viz_params.viz_map:
-            num_panes += 1
-        if viz_params.viz_observations:
-            num_panes += 1
-        if viz_params.viz_3d:
-            num_panes += 1
-        video = cv.VideoWriter(video_file, fc, fps, 
-                               (width*num_panes, height))
-
     bar = tqdm.tqdm(total=len(runner.times()), desc="Frame Processing")
     for t in runner.times():
-        img_t = runner.update(t)
-        if vid and img_t is not None:
-            video.write(img_t)
+        runner.update(t)
         bar.update()
-
-    if vid:
-        video.release()
-        cv.destroyAllWindows()
 
     runner.mapper.node_retirement(retire_everything=True)
 
@@ -141,7 +60,7 @@ def run(
 
     timing_file = os.path.expanduser(expandvars(output_path)) + ".time.txt"
     with open(timing_file, 'w') as f:
-        f.write(f"dt: {data_params.dt}\n\n")
+        f.write(f"dt: {system_params.data_params.dt}\n\n")
         f.write(f"AVERAGE TIMES\n")
         f.write(f"fastsam: {np.mean(runner.processing_times.fastsam_times):.3f}\n")
         f.write(f"segment_track: {np.mean(runner.processing_times.map_times):.3f}\n")
@@ -149,78 +68,26 @@ def run(
         f.write(f"TOTAL TIMES\n")
         f.write(f"total: {np.sum(runner.processing_times.total_times):.2f}\n")
     
-    if viz_params.save_img_data:
-        img_data_path = os.path.expanduser(expandvars(output_path)) + ".img_data.npz"
-        print(f"Saving visualization to {img_data_path}")
-        img_data = ImgData(times=runner.mapper.times, imgs=runner.viz_imgs, data_type='raw')
-        img_data.to_npz(img_data_path)
-
     del runner
     return
 
-def mapping(
-    params_path: str,
-    output_path: str,
-    run_name: str = None,
-    max_time: float = None,
-    viz_params: VisualizationParams = VisualizationParams()
-):
-    data_params_path = expandvars_recursive(f"{params_path}/data.yaml")
-    mapper_params_path = expandvars_recursive(f"{params_path}/mapper.yaml")
-    fastsam_params_path = expandvars_recursive(f"{params_path}/fastsam.yaml")
-    scene_graph_params = SceneGraph3DParams.from_yaml(os.path.join(params_path, "scene_graph_3D.yaml"))
-    graph_node_params = GraphNodeParams.from_yaml(os.path.join(params_path, "graph_node.yaml"))
-        
+def mapping(system_params: SystemParams, output_path: str, run_name: str = None,  max_time: float = None) -> None:
+
     if max_time is not None:
         try:
             mapping_iter = 0
             while True:
                 
-                data_params, fastsam_params, mapper_params = \
-                    extract_params(data_params_path, fastsam_params_path, mapper_params_path, run_name=run_name)
-                    
-                data_params.time_params = {
+                system_params.data_params.time_params = {
                     't0': max_time * mapping_iter, 
                     'tf': max_time * (mapping_iter + 1),
                     'relative': True}
                 
-                run(data_params, fastsam_params, mapper_params, scene_graph_params, graph_node_params, output_path=f"{output_path}_{mapping_iter}", viz_params=viz_params)
+                run(system_params, output_path=f"{output_path}_{mapping_iter}")
                 mapping_iter += 1
         except:
             demo_output_files = [f"{output_path}_{mi}.pkl" for mi in range(mapping_iter)]
             merge_demo_output(demo_output_files, f"{output_path}.pkl")
     
     else:
-        data_params, fastsam_params, mapper_params = \
-            extract_params(data_params_path, fastsam_params_path, mapper_params_path, run_name=run_name)
-        run(data_params, fastsam_params, mapper_params, output_path, viz_params)
-
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-p', '--params', type=str, help='Path to params file', required=True)
-    parser.add_argument('-o', '--output', type=str, help='Path to output file', required=True)
-    parser.add_argument('--max-time', type=float, default=None)
-    parser.add_argument('-m', '--viz-map', action='store_true', help='Visualize map')
-    parser.add_argument('-v', '--viz-observations', action='store_true', help='Visualize observations')
-    parser.add_argument('-3', '--viz-3d', action='store_true', help='Visualize in 3D')
-    parser.add_argument('--vid-rate', type=float, help='Video playback rate', default=1.0)
-    parser.add_argument('-d', '--save-img-data', action='store_true', help='Save video frames as ImgData class')
-    parser.add_argument('-r', '--run', type=str, help='Robot run', default=None)
-    args = parser.parse_args()
-
-    viz_params = VisualizationParams(
-        viz_map=args.viz_map,
-        viz_observations=args.viz_observations,
-        viz_3d=args.viz_3d,
-        vid_rate=args.vid_rate,
-        save_img_data=args.save_img_data
-    )
-
-    mapping(
-        params_path=args.params,
-        output_path=args.output,
-        run_name=args.run,
-        max_time=args.max_time,
-        viz_params=viz_params
-    )
+        run(system_params, output_path)

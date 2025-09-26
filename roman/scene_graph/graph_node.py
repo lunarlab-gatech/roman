@@ -28,7 +28,7 @@ class GraphNode():
     # ================ Initialization =================
     def __init__(self, id: int, parent_node: GraphNode | None, semantic_descriptors: list[tuple[np.ndarray, float]], 
                  point_cloud: np.ndarray, child_nodes: list[GraphNode], first_seen: float, last_updated: float, 
-                 curr_time: float, first_pose: np.ndarray, curr_pose: np.ndarray, run_dbscan: bool = False, is_RootGraphNode: bool = False):
+                 curr_time: float, first_pose: np.ndarray, curr_pose: np.ndarray, run_dbscan: bool | None = None, is_RootGraphNode: bool = False):
         """
         Don't create a Graph Node directly! Instead do it with create_node_if_possible(), 
         as node can be invalid after creation.
@@ -96,6 +96,8 @@ class GraphNode():
         self._class_method_creation_success: bool = True
 
         # Update point cloud and check that the cloud is good
+        if run_dbscan is None:
+            run_dbscan = self.params.run_dbscan_when_creating_node
         to_delete = self.update_point_cloud(point_cloud, run_dbscan=run_dbscan)
         if len(to_delete) > 0:
             self._class_method_creation_success = False
@@ -115,7 +117,7 @@ class GraphNode():
             self._class_method_creation_success = True
 
     @classmethod
-    def create_node_if_possible(cls, id: int, parent_node: GraphNode | None, semantic_descriptors: list[tuple[np.ndarray, float]], point_cloud: np.ndarray, child_nodes: list[GraphNode], first_seen: float, last_updated: float, curr_time: float, first_pose: np.ndarray, curr_pose: np.ndarray, run_dbscan: bool = True, is_RootGraphNode: bool = False) -> GraphNode | None:
+    def create_node_if_possible(cls, id: int, parent_node: GraphNode | None, semantic_descriptors: list[tuple[np.ndarray, float]], point_cloud: np.ndarray, child_nodes: list[GraphNode], first_seen: float, last_updated: float, curr_time: float, first_pose: np.ndarray, curr_pose: np.ndarray, run_dbscan: bool | None = None, is_RootGraphNode: bool = False) -> GraphNode | None:
         """ 
         This method will create and return a GraphNode if that node is valid, 
         or return None if its point cloud or hull isn't reasonable after cleanup. 
@@ -327,9 +329,12 @@ class GraphNode():
             raise RuntimeError(f"Trying to get volume of ConvexHull for Node {self.get_id()}, but its not watertight!")
         return self.get_convex_hull().volume
     
-    def get_point_cloud(self, recursive: bool = False) -> np.ndarray:
+    def get_point_cloud(self, recursive: bool | None = None) -> np.ndarray:
         if self.is_RootGraphNode():
             raise RuntimeError("get_point_cloud() should not be called on RootGraphNode!")
+        
+        if recursive is None:
+            recursive = self.params.get_point_cloud_includes_children
 
         if self._point_cloud is None:
             if recursive:
@@ -346,12 +351,12 @@ class GraphNode():
                 self._point_cloud = self.point_cloud.copy()
         return self._point_cloud
     
-    def get_semantic_descriptors(self, recursive: bool = False) -> list[tuple[np.ndarray, float]]:
+    def get_semantic_descriptors(self) -> list[tuple[np.ndarray, float]]:
         if self.is_RootGraphNode():
             raise RuntimeError("get_semantic_descriptors() should not be called on RootGraphNode!")
 
         descriptors = []
-        if recursive:
+        if self.params.get_semantic_descriptors_includes_children:
             for child in self.get_children():
                 descriptors += child.get_semantic_descriptors()
         descriptors += self.semantic_descriptors
@@ -398,7 +403,7 @@ class GraphNode():
         return seg
 
     # ==================== Calculations ====================
-    def calculate_semantic_descriptor(self, descriptors: list[tuple[NDArray[np.float64], float]], method: str = "average") -> np.ndarray | None:
+    def calculate_semantic_descriptor(self, descriptors: list[tuple[NDArray[np.float64], float]]) -> np.ndarray | None:
         # If we have no descriptors, just return None
         if len(descriptors) == 0:
             return None
@@ -413,9 +418,9 @@ class GraphNode():
             embeddings[i] = embeddings[i] / np.linalg.norm(embeddings[i])
 
         # Calculate the new final semantic descriptor
-        if method == "weighted average":
+        if self.params.use_weighted_average_for_descriptor:
             semantic_descriptor = np.average(embeddings, axis=0, weights=weights)
-        elif method == "average":
+        else:
             semantic_descriptor = np.mean(embeddings, axis=0)
         semantic_descriptor /= np.linalg.norm(semantic_descriptor)
         return semantic_descriptor
@@ -576,6 +581,10 @@ class GraphNode():
         # Necessary to limit sizes of point clouds for computation purposes and for ensuring incoming point clouds only represent a single object.
         # Considers child cloud as part of self for determining how to downsample, remove outliers, and cluster. 
 
+        # Remove statistical outliers
+        if self.params.enable_remove_statistical_outliers:
+            self._remove_statistical_outliers()
+
         # Perform DBSCAN clustering (if desired)
         if run_dbscan:
             # Now perform clustering
@@ -598,10 +607,6 @@ class GraphNode():
         self.point_cloud = GraphNode._intersect_rows(self.point_cloud, np.asarray(pcd_sampled.points))
         logger.debug(f"Point Cloud size after downsampling: {self.point_cloud.shape[0]}")
         self.last_updated = self.curr_time
-        self.reset_saved_point_vars_safe()
-
-        # Remove statistical outliers
-        self._remove_statistical_outliers()
 
         # Reset point cloud dependent saved variables and return nodes to delete
         logger.debug(f"update_point_cloud(): Resetting Point Cloud for Node {self.get_id()}")
@@ -737,7 +742,6 @@ class GraphNode():
             hulls.append(child.get_convex_hull())
         
         # Get masks of which points fall into which hulls
-        logger.info(f"Current Node: {self.get_id()}")
         contain_masks = find_point_overlap_with_hulls(new_pc, hulls, fail_on_multi_assign=False)
         # TODO: Add statement to check if this multi-assignment happens too often!
 
