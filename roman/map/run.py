@@ -34,6 +34,7 @@ class ProcessingTimes:
 
 class ROMANMapRunner:
     def __init__(self, system_params: SystemParams, verbose=False):
+        self.system_params = system_params
         self.data_params = system_params.data_params
         self.fastsam_params = system_params.fastsam_params
         self.mapper_params = system_params.mapper_params
@@ -64,7 +65,14 @@ class ROMANMapRunner:
 
         if verbose: print("Setting up FastSAM...")
         self.fastsam = FastSAMWrapper.from_params(self.fastsam_params, self.depth_data.camera_params)
-        self.mapper = SceneGraph3D(system_params.scene_graph_3D_params, system_params.graph_node_params, self.data_params.pose_data_params.T_camera_flu, self.fastsam_params)
+
+        if verbose: print("Setting up mapper...")
+        if system_params.use_scene_graph:
+            self.mapper = SceneGraph3D(system_params.scene_graph_3D_params, system_params.graph_node_params, self.data_params.pose_data_params.T_camera_flu, self.fastsam_params)
+        else: 
+            self.mapper = Mapper(self.mapper_params, self.img_data.camera_params)
+            if self.data_params.pose_data_params.T_camera_flu is not None:
+                self.mapper.set_T_camera_flu(self.data_params.pose_data_params.T_camera_flu)
         
         self.verbose = verbose
         self.processing_times = ProcessingTimes([], [], [])
@@ -127,4 +135,11 @@ class ROMANMapRunner:
             mask = obs.mask
             seg_img[i] = np.multiply(mask.astype(np.uint16), np.full((height, width), i+1, dtype=np.uint16))
 
-        self.mapper.update(t, pose_odom_camera, observations, img, depth_img, self.data_params.img_data_params, seg_img)
+        if self.system_params.use_scene_graph:
+            self.mapper.update(t, pose_odom_camera, observations, img, depth_img, self.data_params.img_data_params, seg_img)
+        else:
+            if len(observations) > 0:
+                self.mapper.update(t, pose_odom_camera, observations)
+            else:
+                self.mapper.poses_flu_history.append(pose_odom_camera @ self.mapper._T_camera_flu)
+                self.mapper.times_history.append(t)

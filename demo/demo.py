@@ -82,7 +82,7 @@ if __name__ == '__main__':
 
     # Create output directories
     params_path = Path(args.params)
-    output_path = params_path.parent.parent.parent / "demo_output" / params_path.name / "solar-snowball-37"
+    output_path = params_path.parent.parent.parent / "demo_output" / params_path.name / wandb_run.name
     os.makedirs(os.path.join(output_path, "map"), exist_ok=True)
     os.makedirs(os.path.join(output_path, "align"), exist_ok=True)
     os.makedirs(os.path.join(output_path, "offline_rpgo"), exist_ok=True)

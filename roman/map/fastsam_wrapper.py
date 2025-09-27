@@ -263,6 +263,7 @@ class FastSAMWrapper():
         # ================== Generate Observations ==================
         for i, mask in enumerate(masks):
             mask = self.apply_rotation(mask, unrotate=True)
+            mask = mask.astype(np.float32)
 
             # ============= Extract point cloud of object from RGBD =============
             ptcld = None
