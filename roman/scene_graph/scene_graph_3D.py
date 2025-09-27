@@ -24,7 +24,7 @@ multiprocessing.set_start_method("spawn", force=True)
 class SceneGraph3D():
 
     @typechecked
-    def __init__(self, params: SceneGraph3DParams, node_params: GraphNodeParams, _T_camera_flu: np.ndarray, fastsam_params: FastSAMParams, headless: bool = True):
+    def __init__(self, params: SceneGraph3DParams, node_params: GraphNodeParams, _T_camera_flu: np.ndarray, fastsam_params: FastSAMParams):
 
         # Save parameters 
         self.params: SceneGraph3DParams = params
@@ -47,7 +47,7 @@ class SceneGraph3D():
         self.pose_FLU_wrt_Camera = _T_camera_flu
 
         # Create the visualization
-        self.rerun_viewer = RerunWrapper(enable=not headless, fastsam_params=fastsam_params)
+        self.rerun_viewer = RerunWrapper(enable=self.params.enable_rerun_viz, fastsam_params=fastsam_params)
 
         # Dictionaries to cache results of calculations for speed
         self.overlap_dict: defaultdict = defaultdict(lambda: defaultdict(lambda: None))

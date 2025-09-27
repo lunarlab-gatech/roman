@@ -55,8 +55,6 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
     assert sm_io.input_type_json or sm_io.input_type_pkl, "Invalid input type"
     assert sm_io.input_type_json != sm_io.input_type_pkl, "Only one input type allowed"
     
-    gt_pose_data = [None, None]
-
     # Setup a Rerun visualization so we can see each submap
     visualize = False
     if visualize:
@@ -65,37 +63,13 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
                     )
         rr.init("ROMAN: Submap Align Visualization", spawn=True, default_blueprint=blueprint)
     
-    # Load ground truth pose data
-    for i, yaml_file in enumerate(sm_io.input_gt_pose_yaml):
-        if yaml_file is not None:
-            # set environment variable so an individual param file is not needed
-            # for each robot / run
-            if sm_io.robot_env is not None:
-                os.environ[sm_io.robot_env] = sm_io.robot_names[i]
-            # load yaml file
-            with open(os.path.expanduser(yaml_file), 'r') as f:
-                gt_pose_args = yaml.safe_load(f)
-            if gt_pose_args['type'] == 'bag':
-                # expand variables
-                for k, v in gt_pose_args.items():
-                    if type(gt_pose_args[k]) == str:
-                        gt_pose_args[k] = expandvars_recursive(gt_pose_args[k])
-                print("Called from Submap_align.py: ", gt_pose_args)
-                gt_pose_data[i] = PoseData.from_bag(**{k: v for k, v in gt_pose_args.items() if k != 'type'})
-            elif gt_pose_args['type'] == 'csv':
-                gt_pose_data[i] = PoseData.from_csv(**{k: v for k, v in gt_pose_args.items() if k != 'type'})
-            elif gt_pose_args['type'] == 'bag_tf':
-                gt_pose_data[i] = PoseData.from_bag_tf(**{k: v for k, v in gt_pose_args.items() if k != 'type'})
-            else:
-                raise ValueError("Invalid pose data type")
-    
     # Load ROMAN maps
     if sm_io.input_type_pkl:
         submap_params = SubmapParams.from_submap_align_params(sm_params)
         submap_params.use_minimal_data = True
         roman_maps = [load_roman_map(sm_io.inputs[i]) for i in range(2)]
         submaps: list[Submap] = [submaps_from_roman_map(
-            roman_maps[i], submap_params, gt_pose_data[i]) for i in range(2)]
+            roman_maps[i], submap_params, sm_io.gt_pose_data[i]) for i in range(2)]
         # print("Total Number of Submaps-  ROBOT1: ", len(submaps[0]), " ROBOT2: ", len(submaps[1]))
     elif sm_io.input_type_json: # TODO: re-implement support for json files
         assert False, "Not currently supported"
@@ -159,12 +133,12 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
                         sm.segments.remove(seg)
 
             # Extract poses of robots with respect to the world (removing roll & pitch), using GT if available
-            if gt_pose_data[0] is not None:
+            if sm_io.gt_pose_data[0] is not None:
                 H_i_wrt_w = submaps[0][i].pose_gravity_aligned_gt
             else:
                 H_i_wrt_w = submaps[0][i].pose_gravity_aligned
 
-            if gt_pose_data[1] is not None:
+            if sm_io.gt_pose_data[1] is not None:
                 H_j_wrt_w = submaps[1][j].pose_gravity_aligned_gt
             else:
                 H_j_wrt_w = submaps[1][j].pose_gravity_aligned

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 ###########################################################
 #
 # data_params.py
@@ -15,11 +17,10 @@ from dataclasses import dataclass
 import yaml
 from typing import List, Tuple, Optional
 from functools import cached_property
-
 from robotdatapy.data import ImgData, PoseData
 from robotdatapy.transform import T_FLURDF, T_RDFFLU
-
 from roman.utils import expandvars_recursive
+import os
 
 @dataclass
 class ImgDataParams:
@@ -41,7 +42,42 @@ class ImgDataParams:
     @classmethod
     def from_dict(cls, params_dict: dict):
         return cls(**params_dict)
-    
+
+@dataclass
+class PoseDataGTParams:
+    yaml_file: str
+
+    @classmethod
+    def from_yaml(cls, yaml_file: str):
+        return cls(yaml_file)
+        
+    def get_pose_data(self, data_params: DataParams) -> list[PoseData]:
+        gt_pose_data: list[PoseData] = []
+        if self.yaml_file.exists():
+            for i, robot_name in enumerate(data_params.runs):
+                # Set environment variable to expand path to robot data
+                os.environ[data_params.run_env] = robot_name
+
+                # Load yaml file
+                with open(os.path.expanduser(self.yaml_file), 'r') as f:
+                    gt_pose_args = yaml.safe_load(f)
+                
+                # Convert into a PoseData object
+                if gt_pose_args['type'] == 'bag':
+                    # expand variables
+                    for k, v in gt_pose_args.items():
+                        if type(gt_pose_args[k]) == str:
+                            gt_pose_args[k] = expandvars_recursive(gt_pose_args[k])
+                    print("Called from Submap_align.py: ", gt_pose_args)
+                    gt_pose_data.append(PoseData.from_bag(**{k: v for k, v in gt_pose_args.items() if k != 'type'}))
+                elif gt_pose_args['type'] == 'csv':
+                    gt_pose_data.append(PoseData.from_csv(**{k: v for k, v in gt_pose_args.items() if k != 'type'}))
+                elif gt_pose_args['type'] == 'bag_tf':
+                    gt_pose_data.append(PoseData.from_bag_tf(**{k: v for k, v in gt_pose_args.items() if k != 'type'}))
+                else:
+                    raise ValueError("Invalid pose data type")
+        return gt_pose_data
+
 @dataclass
 class PoseDataParams:
     

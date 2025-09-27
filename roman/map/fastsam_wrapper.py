@@ -38,14 +38,6 @@ from scipy.spatial.transform import Rotation as R
 
 from typeguard import typechecked
 
-# Try to make FastSAM and YOLO Deterministic
-torch.manual_seed(42)
-random.seed(42)
-np.random.seed(42)
-torch.backends.cudnn.deterministic = True
-torch.backends.cudnn.benchmark = False
-
-
 @typechecked
 def mask_bounding_box(mask: np.ndarray) -> tuple:
     """ 

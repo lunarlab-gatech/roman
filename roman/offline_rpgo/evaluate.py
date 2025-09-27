@@ -5,13 +5,14 @@ from evo.core import sync
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import numpy as np
+from robotdatapy.data.pose_data import PoseData
 from roman.offline_rpgo.g2o_and_time_to_pose_data import gt_csv_est_g2o_to_pose_data
 import seaborn as sns
 from typing import Dict
 
+
 def make_lightness_palette(base_color, n_colors=20, light_range=(0.3, 0.8)):
     # Convert base color to HLS
-    print(base_color)
     rgb = mcolors.to_rgb(base_color)
     h, _, s = colorsys.rgb_to_hls(*rgb)
 
@@ -62,15 +63,13 @@ def draw_plot_with_robot_trajectories_different_colors(traj_est_aligned_copies, 
     axs.set_title("Ground Truth vs. ROMAN Estimated Trajectories (Aligned)")
     axs.set_xlabel("X (meters)")
     axs.set_ylabel("Y (meters)")
-    # axs.set_xlim([-250, 250])
-    # axs.set_ylim([-250, 250])
     axs.legend()
     plt.savefig(file_path, dpi=300)
 
-def evaluate(est_g2o_file: str, est_time_file: str, gt_files: Dict[int, str], 
+def evaluate(est_g2o_file: str, est_time_file: str, gt_data: Dict[int, PoseData], 
              run_names: Dict[int, str] = None, run_env: str = None, output_dir: str = None):
     pd_est, pd_gt = gt_csv_est_g2o_to_pose_data(
-        est_g2o_file, est_time_file, gt_files, run_names, run_env)
+        est_g2o_file, est_time_file, gt_data, run_names, run_env)
         
     traj_ref = pd_gt.to_evo()
     traj_est = pd_est.to_evo()
@@ -112,7 +111,7 @@ def evaluate(est_g2o_file: str, est_time_file: str, gt_files: Dict[int, str],
         num_robots = len(list(run_names.keys()))
 
         # Get PoseData objects not merged between robots
-        list_est, list_gt = gt_csv_est_g2o_to_pose_data(est_g2o_file, est_time_file, gt_files, run_names, run_env, skip_final_merge=True)
+        list_est, list_gt = gt_csv_est_g2o_to_pose_data(est_g2o_file, est_time_file, gt_data, run_names, run_env, skip_final_merge=True)
 
         # Extract evo PoseTrajectory3Ds that corresond to each robot
         time_offsets = []

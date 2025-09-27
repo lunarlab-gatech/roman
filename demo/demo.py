@@ -15,13 +15,18 @@ import matplotlib.pyplot as plt
 import argparse
 import json
 import os
+import numpy as np
 import yaml
 import wandb
-import loop_closure_viz
 from pathlib import Path
+import torch
+import random
+import mapping
 
+from robotdatapy.data.pose_data import PoseData
 from roman.params.submap_align_params import SubmapAlignInputOutput, SubmapAlignParams
 from roman.align.submap_align import submap_align
+from roman.align.results import calculate_loop_closure_error
 from roman.offline_rpgo.extract_odom_g2o import roman_map_pkl_to_g2o
 from roman.offline_rpgo.g2o_file_fusion import create_config, g2o_file_fusion
 from roman.offline_rpgo.combine_loop_closures import combine_loop_closures
@@ -35,16 +40,30 @@ from roman.params.scene_graph_3D_params import SceneGraph3DParams, GraphNodePara
 from roman.params.system_params import SystemParams
 from roman.utils import expandvars_recursive
 
-import mapping
+# Try to enforce determinism in the algorithm
+random.seed(42)
+np.random.seed(42)
+torch.manual_seed(42)
+torch.cuda.manual_seed_all(42)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+torch.use_deterministic_algorithms(True)
 
+def convert_paths(obj):
+    if isinstance(obj, dict):
+        return {k: convert_paths(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_paths(v) for v in obj]
+    elif isinstance(obj, Path):
+        return str(obj)
+    else:
+        return obj
+    
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-p', '--params', type=str, help='Path to params directory', required=True, default=None)
-    parser.add_argument('-o', '--output-dir', type=str, help='Path to output directory', required=True, default=None)
-    
     parser.add_argument('--max-time', type=float, default=None, help='If the input data is too large, this allows a maximum time' +
                         'to be set, such that if the mapping will be chunked into max_time increments and fused together')
-
     parser.add_argument('--skip-map', action='store_true', help='Skip mapping')
     parser.add_argument('--skip-align', action='store_true', help='Skip alignment')
     parser.add_argument('--skip-rpgo', action='store_true', help='Skip robust pose graph optimization')
@@ -55,29 +74,34 @@ if __name__ == '__main__':
     system_params = SystemParams.from_param_dir(args.params)
 
     # Setup WandB to track this run
-    config_dict = {'system_params': system_params.model_dump()}
-    run = wandb.init(project='ROMAN + MeronomyMapping Ablations',
+    def shorten(d):
+        return {(''.join([w[0] for w in k.split('_')]) if isinstance(v, dict) else k): (shorten(v) if isinstance(v, dict) else v) for k, v in d.items()}
+    config_dict = shorten({'system_params': system_params.model_dump()})
+    wandb_run = wandb.init(project='ROMAN + MeronomyMapping Ablations',
                      config=config_dict)
 
     # Create output directories
     params_path = Path(args.params)
-    output_dir = params_path.parent() / "demo_output" / params_path.name / run.name
-    os.makedirs(os.path.join(output_dir, "map"), exist_ok=True)
-    os.makedirs(os.path.join(output_dir, "align"), exist_ok=True)
-    os.makedirs(os.path.join(output_dir, "offline_rpgo"), exist_ok=True)
-    os.makedirs(os.path.join(output_dir, "offline_rpgo/sparse"), exist_ok=True)
-    os.makedirs(os.path.join(output_dir, "offline_rpgo/dense"), exist_ok=True)
-    with open(output_dir / "config.json", "w") as f:
-        json.dump(config_dict, f, indent=4)
-    
+    output_path = params_path.parent.parent.parent / "demo_output" / params_path.name / "solar-snowball-37"
+    os.makedirs(os.path.join(output_path, "map"), exist_ok=True)
+    os.makedirs(os.path.join(output_path, "align"), exist_ok=True)
+    os.makedirs(os.path.join(output_path, "offline_rpgo"), exist_ok=True)
+    os.makedirs(os.path.join(output_path, "offline_rpgo/sparse"), exist_ok=True)
+    os.makedirs(os.path.join(output_path, "offline_rpgo/dense"), exist_ok=True)
+    params_output_path = output_path / "params.yaml"
+    params_output_path.write_text(yaml.safe_dump(convert_paths(system_params.model_dump())))
+
+    # Extract GT Pose Data
+    gt_pose_data: list[PoseData] = system_params.pose_data_gt_params.get_pose_data(system_params.data_params)
+
     # Run the Mapping step
     if not args.skip_map:
 
         for i, run in enumerate(system_params.data_params.runs):
             if i in args.skip_indices: continue
                 
-            # mkdir $output_dir/map
-            args.output = os.path.join(output_dir, "map", f"{run}")
+            # mkdir $output_path/map
+            args.output = os.path.join(output_path, "map", f"{run}")
 
             # shell: export RUN=run
             if system_params.data_params.run_env is not None:
@@ -101,20 +125,20 @@ if __name__ == '__main__':
                 print(f"Running alignment for {system_params.data_params.runs[i]}_{system_params.data_params.runs[j]}")
                 
                 # Make the output directory to store the alignment results
-                output_dir = os.path.join(output_dir, "align", f"{system_params.data_params.runs[i]}_{system_params.data_params.runs[j]}")
-                os.makedirs(output_dir, exist_ok=True)
+                align_path = os.path.join(output_path, "align", f"{system_params.data_params.runs[i]}_{system_params.data_params.runs[j]}")
+                os.makedirs(align_path, exist_ok=True)
 
                 # Load the two pickle files containing the maps from the first step
-                input_files: list[str] = [os.path.join(output_dir, "map", f"{system_params.data_params.runs[i]}.pkl"),
-                            os.path.join(output_dir, "map", f"{system_params.data_params.runs[j]}.pkl")]
+                input_files: list[str] = [os.path.join(output_path, "map", f"{system_params.data_params.runs[i]}.pkl"),
+                            os.path.join(output_path, "map", f"{system_params.data_params.runs[j]}.pkl")]
 
                 # Create the Input/Output parameters
                 sm_io = SubmapAlignInputOutput(
                     inputs=input_files,
-                    output_dir=output_dir,
+                    output_dir=align_path,
                     run_name="align",
-                    lc_association_thresh=args.num_req_assoc,
-                    input_gt_pose_yaml=[system_params.gt_file, system_params.gt_file],
+                    lc_association_thresh=system_params.num_req_assoc,
+                    gt_pose_data=[gt_pose_data[i], gt_pose_data[j]],
                     robot_names=[system_params.data_params.runs[i], system_params.data_params.runs[j]],
                     robot_env=system_params.data_params.run_env,
                 )
@@ -127,32 +151,22 @@ if __name__ == '__main__':
                 submap_align(sm_params=system_params.submap_align_params, sm_io=sm_io)
 
                 # Calculate loop closure errors
-                json_path = os.path.join(output_dir, "align.json")
-
-                gt_csvs = [None, None]
-                for index, yaml_file in enumerate([system_params.gt_file, system_params.gt_file]):
-                    if yaml_file is not None:
-                        if sm_io.robot_env is not None:
-                            os.environ[sm_io.robot_env] = sm_io.robot_names[index]
-                        with open(os.path.expanduser(yaml_file), 'r') as f:
-                            gt_pose_args = yaml.safe_load(f)
-                            for k, v in gt_pose_args.items():
-                                if type(gt_pose_args[k]) == str:
-                                    gt_pose_args[k] = expandvars_recursive(gt_pose_args[k])
-                            gt_csvs[index] = gt_pose_args["path"]
-                      
-                mean_trans_error, mean_rot_error = loop_closure_viz.calculate_loop_closure_error(json_path, gt_csvs[i], gt_csvs[j])
+                json_path = os.path.join(align_path, "align.json")               
+                t_err, t_std, r_err, r_std = calculate_loop_closure_error(json_path, gt_pose_data[i], gt_pose_data[j])
                 if i != j:
-                    run.log({"LC: Mean Translation Error": mean_trans_error, "LC: Mean Rotation Angle Error": mean_rot_error})
+                    wandb_run.log({"LC: Mean Translation Error": t_err, 
+                                   "LC: Std Translation Error": t_std,
+                                   "LC: Mean Rotation Angle Error": r_err,
+                                   "LC: Std Rotation Angle Error": r_std})
                        
     if not args.skip_rpgo:
         min_keyframe_dist = 0.01 if not system_params.offline_rpgo_params.sparsified else 2.0
         # Create g2o files for odometry
         for i, run in enumerate(system_params.data_params.runs):
             roman_map_pkl_to_g2o(
-                pkl_file=os.path.join(output_dir, "map", f"{run}.pkl"),
-                g2o_file=os.path.join(output_dir, "offline_rpgo/sparse", f"{run}.g2o"),
-                time_file=os.path.join(output_dir, "offline_rpgo/sparse", f"{run}.time.txt"),
+                pkl_file=os.path.join(output_path, "map", f"{run}.pkl"),
+                g2o_file=os.path.join(output_path, "offline_rpgo/sparse", f"{run}.g2o"),
+                time_file=os.path.join(output_path, "offline_rpgo/sparse", f"{run}.time.txt"),
                 robot_id=i,
                 min_keyframe_dist=min_keyframe_dist,
                 t_std=system_params.offline_rpgo_params.odom_t_std,
@@ -162,9 +176,9 @@ if __name__ == '__main__':
             
             # create dense g2o file
             roman_map_pkl_to_g2o(
-                pkl_file=os.path.join(output_dir, "map", f"{run}.pkl"),
-                g2o_file=os.path.join(output_dir, "offline_rpgo/dense", f"{run}.g2o"),
-                time_file=os.path.join(output_dir, "offline_rpgo/dense", f"{run}.time.txt"),
+                pkl_file=os.path.join(output_path, "map", f"{run}.pkl"),
+                g2o_file=os.path.join(output_path, "offline_rpgo/dense", f"{run}.g2o"),
+                time_file=os.path.join(output_path, "offline_rpgo/dense", f"{run}.time.txt"),
                 robot_id=i,
                 min_keyframe_dist=None,
                 t_std=system_params.offline_rpgo_params.odom_t_std,
@@ -173,35 +187,35 @@ if __name__ == '__main__':
             )
         
         # Combine timing files
-        odom_sparse_all_time_file = os.path.join(output_dir, "offline_rpgo/sparse", "odom_all.time.txt")
-        odom_dense_all_time_file = os.path.join(output_dir, "offline_rpgo/dense", "odom_all.time.txt")
+        odom_sparse_all_time_file = os.path.join(output_path, "offline_rpgo/sparse", "odom_all.time.txt")
+        odom_dense_all_time_file = os.path.join(output_path, "offline_rpgo/dense", "odom_all.time.txt")
         with open(odom_sparse_all_time_file, 'w') as f:
             for i, run in enumerate(system_params.data_params.runs):
-                with open(os.path.join(output_dir, "offline_rpgo/sparse", f"{run}.time.txt"), 'r') as f2:
+                with open(os.path.join(output_path, "offline_rpgo/sparse", f"{run}.time.txt"), 'r') as f2:
                     f.write(f2.read())
                 f2.close()
         with open(odom_dense_all_time_file, 'w') as f:
             for i, run in enumerate(system_params.data_params.runs):
-                with open(os.path.join(output_dir, "offline_rpgo/dense", f"{run}.time.txt"), 'r') as f2:
+                with open(os.path.join(output_path, "offline_rpgo/dense", f"{run}.time.txt"), 'r') as f2:
                     f.write(f2.read())
                 f2.close()
         
         # Fuse all odometry g2o files
-        odom_sparse_all_g2o_file = os.path.join(output_dir, "offline_rpgo/sparse", "odom_all.g2o")
+        odom_sparse_all_g2o_file = os.path.join(output_path, "offline_rpgo/sparse", "odom_all.g2o")
         g2o_fusion_config = create_config(robots=system_params.data_params.runs, 
-            odometry_g2o_dir=os.path.join(output_dir, "offline_rpgo/sparse"))
-        g2o_file_fusion(g2o_fusion_config, odom_sparse_all_g2o_file, thresh=args.num_req_assoc)
+            odometry_g2o_dir=os.path.join(output_path, "offline_rpgo/sparse"))
+        g2o_file_fusion(g2o_fusion_config, odom_sparse_all_g2o_file, thresh=system_params.num_req_assoc)
         
         # Fuse dense g2o file including loop closures
-        dense_g2o_file = os.path.join(output_dir, "offline_rpgo/dense", "odom_and_lc.g2o")
+        dense_g2o_file = os.path.join(output_path, "offline_rpgo/dense", "odom_and_lc.g2o")
         g2o_fusion_config = create_config(robots=system_params.data_params.runs, 
-            odometry_g2o_dir=os.path.join(output_dir, "offline_rpgo/dense"),
-            submap_align_dir=os.path.join(output_dir, "align"), align_file_name="align")
-        g2o_file_fusion(g2o_fusion_config, dense_g2o_file, thresh=args.num_req_assoc)
+            odometry_g2o_dir=os.path.join(output_path, "offline_rpgo/dense"),
+            submap_align_dir=os.path.join(output_path, "align"), align_file_name="align")
+        g2o_file_fusion(g2o_fusion_config, dense_g2o_file, thresh=system_params.num_req_assoc)
 
         # Add loop closures to odometry g2o files
         if system_params.offline_rpgo_params.sparsified:
-            final_g2o_file = os.path.join(output_dir, "offline_rpgo", "odom_and_lc.g2o")
+            final_g2o_file = os.path.join(output_path, "offline_rpgo", "odom_and_lc.g2o")
             combine_loop_closures(
                 g2o_reference=odom_sparse_all_g2o_file, 
                 g2o_extra_lc=dense_g2o_file, 
@@ -223,15 +237,15 @@ if __name__ == '__main__':
             f.close()
             
         # run kimera centralized robust pose graph optimization
-        result_g2o_file = os.path.join(output_dir, "offline_rpgo", "result.g2o")
+        result_g2o_file = os.path.join(output_path, "offline_rpgo", "result.g2o")
         ros_launch_command = f"roslaunch kimera_centralized_pgmo offline_g2o_solver.launch \
             g2o_file:={final_g2o_file} \
-            output_path:={os.path.join(output_dir, 'offline_rpgo')}"
+            output_path:={os.path.join(output_path, 'offline_rpgo')}"
         roman_path = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
         rpgo_read_g2o_executable = \
             f"{roman_path}/dependencies/Kimera-RPGO/build/RpgoReadG2o"
         rpgo_command = f"{rpgo_read_g2o_executable} 3d {final_g2o_file}" \
-            + f" -1.0 -1.0 {system_params.offline_rpgo_params.gnc_inlier_threshold} {os.path.join(output_dir, 'offline_rpgo')} v"
+            + f" -1.0 -1.0 {system_params.offline_rpgo_params.gnc_inlier_threshold} {os.path.join(output_path, 'offline_rpgo')} v"
         os.system(rpgo_command)
         # os.system(ros_launch_command)
         
@@ -249,32 +263,32 @@ if __name__ == '__main__':
                 ax=ax[i],
                 params=g2o_plot_params
             )
-        plt.savefig(os.path.join(output_dir, "offline_rpgo", "result.png"))
-        print(f"Results saved to {os.path.join(output_dir, 'offline_rpgo', 'result.png')}")
+        plt.savefig(os.path.join(output_path, "offline_rpgo", "result.png"))
+        print(f"Results saved to {os.path.join(output_path, 'offline_rpgo', 'result.png')}")
         
         # Save csv files with resulting trajectories
         for i, run in enumerate(system_params.data_params.runs):
             pose_data = g2o_and_time_to_pose_data(result_g2o_file, 
                                                   odom_sparse_all_time_file if system_params.offline_rpgo_params.sparsified else odom_dense_all_time_file, 
                                                   robot_id=i)
-            pose_data.to_csv(os.path.join(output_dir, "offline_rpgo", f"{run}.csv"))
-            print(f"Saving {run} pose data to {os.path.join(output_dir, 'offline_rpgo', f'{run}.csv')}")
+            pose_data.to_csv(os.path.join(output_path, "offline_rpgo", f"{run}.csv"))
+            print(f"Saving {run} pose data to {os.path.join(output_path, 'offline_rpgo', f'{run}.csv')}")
 
         # Report ATE results
-        if system_params.gt_file is not None:
+        if len(gt_pose_data) != 0:
             ate_rmse = evaluate(
                 result_g2o_file, 
                 odom_sparse_all_time_file  if system_params.offline_rpgo_params.sparsified else odom_dense_all_time_file, 
-                {i: system_params.gt_file for i in range(len(system_params.data_params.runs))},
+                {i: gt_pose_data[i] for i in range(len(system_params.data_params.runs))},
                 {i: system_params.data_params.runs[i] for i in range(len(system_params.data_params.runs))},
                 system_params.data_params.run_env,
-                output_dir=output_dir
+                output_dir=str(output_path)
             )
             print("ATE results:")
             print("============")
             print(ate_rmse)
-            run.log({"RMS ATE": ate_rmse})
-            with open(os.path.join(output_dir, "offline_rpgo", "ate_rmse.txt"), 'w') as f:
+            wandb_run.log({"RMS ATE": ate_rmse})
+            with open(os.path.join(output_path, "offline_rpgo", "ate_rmse.txt"), 'w') as f:
                 print(ate_rmse, file=f)
                 f.close()
             

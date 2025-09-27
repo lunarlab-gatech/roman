@@ -53,9 +53,11 @@ class FastSAMParams:
     """
     
     enable_scene_flow_dynamic_obj_removal: bool
+    imgsz: list[int]
+    yolo_imgsz: list[int]
+    plane_filter_params: list[float]
     weights_path: str = "$ROMAN_WEIGHTS/FastSAM-x.pt"
     yolo_weights_path: str = "$ROMAN_WEIGHTS/yolov7.pt"
-    imgsz: Tuple[int, int] = (256, 256)
     device: str = 'cuda'
     mask_downsample_factor: int = 8
     min_mask_len_div: int = 30
@@ -67,10 +69,8 @@ class FastSAMParams:
     use_keep_labels: bool = False
     keep_labels: list = tuple([])
     keep_labels_option: dict = None
-    plane_filter_params: tuple = tuple([3.0, 1.0, 0.2])
     rotate_img: str = None
     clip: bool = True
-    yolo_imgsz: Tuple[int, int] = (256, 256)
     depth_scale: float = 1e3
     depth_data_type: str = "uint16"
     max_depth: float = 7.5

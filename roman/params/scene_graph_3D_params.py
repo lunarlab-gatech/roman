@@ -24,6 +24,9 @@ class SceneGraph3DParams(BaseModel):
         max_dist_active_for_node (float): Maximum distance traveled since first seen for a node to remain active.
     """
 
+    # ======================= Visualization =======================
+    enable_rerun_viz: bool
+
     # ======================= Node Association =======================
     min_iou_for_association: float
 
@@ -46,6 +49,7 @@ class SceneGraph3DParams(BaseModel):
     # ======================= Node Retirement =======================
     max_t_active_for_node: float # seconds
     max_dist_active_for_node: float # meters
+    run_dbscan_when_retiring_node: bool
     delete_nodes_only_seen_once: bool
 
     @classmethod
@@ -65,7 +69,6 @@ class GraphNodeParams(BaseModel):
 
     # ===== DBSCAN Parameters ===== 
     run_dbscan_when_creating_node: bool
-    run_dbscan_when_retiring_node: bool
     enable_variable_epsilon: bool
     epsilon_not_variable: float
     epsilon_variable_ratio_to_length: float

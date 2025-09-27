@@ -21,6 +21,7 @@ import clipperpy
 from roman.align.roman_registration import ROMANRegistration, ROMANParams
 from roman.align.ransac_reg import RansacReg
 from roman.align.dist_reg_with_pruning import DistRegWithPruning, GravityConstraintError
+from robotdatapy.data.pose_data import PoseData
 
 @dataclass
 class SubmapAlignParams:
@@ -126,18 +127,18 @@ class SubmapAlignParams:
 @dataclass
 class SubmapAlignInputOutput:
     inputs: List[any]
+    gt_pose_data: list[PoseData]
     output_dir: str
     run_name: str
     input_type_pkl: bool = True
     input_type_json: bool = False
-    input_gt_pose_yaml: List[str] = field(default_factory=lambda: [None, None])
     robot_names: List[str] = field(default_factory=lambda: ["0", "1"])
     robot_env: str = None
     lc_association_thresh: int = 4
     g2o_t_std: float = 0.5
     g2o_r_std: float = np.deg2rad(0.5)
     debug_show_maps: bool = False
-    
+            
     @property
     def output_img(self):
         return os.path.join(self.output_dir, f'{self.run_name}.png')
@@ -169,3 +170,4 @@ class SubmapAlignInputOutput:
     @property
     def output_submaps(self):
         return [os.path.join(self.output_dir, f'{rn}.sm.json') for rn in self.robot_names]
+    

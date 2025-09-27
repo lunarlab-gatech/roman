@@ -57,9 +57,7 @@ Run the following commands:
 export YOLO_VERBOSE=False
 export ROMAN_DEMO_DATA=/home/$USER/data/ROMAN_Kimera_Multi_Data
 export ROMAN_WEIGHTS=/home/$USER/roman/weights
-python3 demo/demo.py -p demo/params/demo -o demo_output/demo --skip-align --skip-rpgo
-python3 demo/demo.py -p demo/params/demo -o demo_output/demo --skip-map --skip-rpgo
-python3 demo/demo.py -p demo/params/demo -o demo_output/demo --skip-map --skip-align
+python3 demo/demo.py -p demo/params/demo
 ```
 
 For faster processing, run the following command first:
