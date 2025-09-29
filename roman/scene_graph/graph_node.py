@@ -98,7 +98,7 @@ class GraphNode():
         # Update point cloud and check that the cloud is good
         if run_dbscan is None:
             run_dbscan = self.params.run_dbscan_when_creating_node
-        to_delete = self.update_point_cloud(point_cloud, run_dbscan=run_dbscan)
+        to_delete = self.update_point_cloud(point_cloud, run_dbscan=run_dbscan, remove_outliers=run_dbscan)
         if len(to_delete) > 0:
             self._class_method_creation_success = False
         else:
@@ -559,7 +559,7 @@ class GraphNode():
         B_view = B.view([('', B.dtype)] * B.shape[1])
         return np.intersect1d(A_view, B_view).view(A.dtype).reshape(-1, A.shape[1])
 
-    def update_point_cloud(self, new_points: np.ndarray, run_dbscan: bool = False) -> set[GraphNode]:
+    def update_point_cloud(self, new_points: np.ndarray, run_dbscan: bool = False, remove_outliers: bool | None = None) -> set[GraphNode]:
         """ Returns nodes that might need to be deleted due to cleanup removing points..."""
 
         # =========== Add to Point Cloud ============
@@ -582,7 +582,9 @@ class GraphNode():
         # Considers child cloud as part of self for determining how to downsample, remove outliers, and cluster. 
 
         # Remove statistical outliers
-        if self.params.enable_remove_statistical_outliers:
+        if remove_outliers is None:
+            remove_outliers = self.params.enable_remove_statistical_outliers
+        if remove_outliers:
             self._remove_statistical_outliers()
 
         # Perform DBSCAN clustering (if desired)
@@ -757,7 +759,7 @@ class GraphNode():
 
         # If there are at least one point in this orphan point cloud, add them to this node's cloud
         if orphan_pc.shape[0] > 1:
-            to_delete = self.update_point_cloud(orphan_pc)
+            to_delete = self.update_point_cloud(orphan_pc, remove_outliers=False)
             if len(to_delete) > 0:
                 raise RuntimeError(f"Cannot merge_with_observation; Node {self.get_id()}'s point cloud invalid after adding additional points, which should never happen!")
             
@@ -773,7 +775,7 @@ class GraphNode():
         self.add_semantic_descriptors(other.semantic_descriptors)
         
         # Do the same with point cloud specific to the child (not grandchildren)
-        to_delete = self.update_point_cloud(other.point_cloud)
+        to_delete = self.update_point_cloud(other.point_cloud, remove_outliers=False)
         if len(to_delete) > 0:
             raise RuntimeError(f"Cannot merge_child_with_self; New point cloud is invalid, this should never happen")
 

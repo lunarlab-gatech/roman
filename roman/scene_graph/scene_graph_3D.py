@@ -443,7 +443,8 @@ class SceneGraph3D():
                 continue
 
             # Since we're nearby this, add all of this nodes children to the queue as well
-            node_queue += pos_parent_node.get_children()
+            children = pos_parent_node.get_children()
+            node_queue += children
 
             # Add similarities for geometric overlaps with parent
             if pos_parent_node.is_RootGraphNode():
@@ -454,11 +455,10 @@ class SceneGraph3D():
 
             # Add similarities for geometric overlaps with children
             children_iou, children_enclosure = [], []
-            if not only_leaf:
-                for child in pos_parent_node.get_children():
-                    iou, child_enc, _ = self.convex_hull_overlap_cached(child, node)
-                    children_iou.append(iou)
-                    children_enclosure.append(child_enc)
+            for child in children:
+                iou, child_enc, _ = self.convex_hull_overlap_cached(child, node)
+                children_iou.append(iou)
+                children_enclosure.append(child_enc)
 
             # Calculate the final likelihood score
             score = self.calculate_best_likelihood_score(children_iou, children_enclosure, parent_iou, parent_encompassment, only_leaf=only_leaf)
@@ -479,10 +479,11 @@ class SceneGraph3D():
         # Now, find the best subset of children, which comprises
         # of all children nodes with encompassment of 50% or more
         new_children: list[GraphNode] = []
-        for child in new_parent.get_children():
-            _, child_enc, _ = self.convex_hull_overlap_cached(child, node)
-            if child_enc >= 0.5:
-                new_children.append(child)
+        if not only_leaf:
+            for child in new_parent.get_children():
+                _, child_enc, _ = self.convex_hull_overlap_cached(child, node)
+                if child_enc >= 0.5:
+                    new_children.append(child)
 
         # Place our already fully formed node into its spot
         self.place_node_in_graph(node, new_parent, new_children)
@@ -971,7 +972,7 @@ class SceneGraph3D():
 
                 # Run DBScan right before we finish for cleanup
                 if self.params.run_dbscan_when_retiring_node:
-                    child.update_point_cloud(np.zeros((0, 3), dtype=np.float64), run_dbscan=True)
+                    child.update_point_cloud(np.zeros((0, 3), dtype=np.float64), run_dbscan=True, remove_outliers=False)
                 self.inactive_nodes.append(child)
 
         # Delete nodes that were seen last frame but not this one

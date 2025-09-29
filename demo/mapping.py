@@ -51,7 +51,10 @@ def run(system_params: SystemParams, output_path: str):
     print(f"Segment tracking took {time.time() - wc_t0:.2f} seconds")
     print(f"Run duration was {runner.tf - runner.t0:.2f} seconds")
     print(f"Compute per second: {(time.time() - wc_t0) / (runner.tf - runner.t0):.2f}")
-    print(f"Number of poses: {len(runner.mapper.poses)}.")
+    if system_params.use_scene_graph:
+        print(f"Number of poses: {len(runner.mapper.poses)}.")
+    else:
+        print(f"Number of poses: {len(runner.mapper.poses_flu_history)}")
 
     # Output results
     pkl_path = os.path.expanduser(expandvars(output_path)) + ".pkl"
