@@ -1,0 +1,39 @@
+dt: 0.166666666666666667
+runs: ["sparkal1", "sparkal2"]
+run_env: "ROBOT"
+
+img_data:
+  type: bag
+  path: "${ROMAN_DEMO_DATA}/${ROBOT}_camera.bag"
+  topic: /${ROBOT}/forward/color/image_raw/compressed
+  camera_info_topic: /${ROBOT}/forward/color/camera_info
+  compressed: True
+  K: [380.8096923828125,   0, 315.84698486328125,
+        0, 380.5378723144531, 238.04495239257812,
+        0,   0,   1]
+  D: [ -0.054963257163763046, 0.06448927521705627, 0.00020229471556376666, 0.00045873370254412293, -0.02038593403995037]
+  width: 640
+  height: 480
+
+  
+depth_data:
+  type: bag
+  path: "${ROMAN_DEMO_DATA}/${ROBOT}_camera.bag"
+  topic: /${ROBOT}/forward/depth/image_rect_raw
+  camera_info_topic: /${ROBOT}/forward/depth/camera_info
+  compressed: False
+  K: [386.883056640625,   0, 312.7587585449219,
+        0, 386.883056640625, 237.32907104492188,
+        0,   0,   1]
+  D: [ 0, 0, 0, 0]
+  width: 640
+  height: 480
+
+pose_data:
+  type: bag
+  path: ${ROMAN_DEMO_DATA}/${ROBOT}_vio.bag
+  topic: /${ROBOT}/kimera_vio_ros/odometry
+  time_tol: 10.0
+  T_camera_flu:
+    input_type: "string"
+    string: "T_RDFFLU"

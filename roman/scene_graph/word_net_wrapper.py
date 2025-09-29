@@ -295,6 +295,13 @@ class WordNetWrapper():
         logger.debug(f"{self.word_list}")
         logger.info(f"Number of Words in dictionary: {len(self.word_list)}")
 
+        # Check if we have access to cupy
+        try:
+            _ = cp.zeros(1)
+            self.use_cupy = True
+        except Exception:
+            self.use_cupy = False
+
         self._calculate_word_embeddings()
             
     def _calculate_word_embeddings(self):
@@ -331,7 +338,8 @@ class WordNetWrapper():
             np.save(str(self.wordnet_emb_path), self.word_features)
 
         # Save word features into CuPy array
-        self.word_features_cupy = cp.asarray(self.word_features)
+        if self.use_cupy:
+            self.word_features_cupy = cp.asarray(self.word_features)
     
     def map_embedding_to_words(self, emb: np.ndarray, k: int = 5) -> list[str]:
         """ Returns the top-k words that match, with first word being most likely. """
@@ -341,9 +349,14 @@ class WordNetWrapper():
         if k == 1: top_k = k + 1
         else: top_k = k
 
-        similarities = self.word_features_cupy @ cp.asarray(emb)
-        best_idxs_gpu = cp.argsort(similarities)[-top_k:][::-1]
-        best_idxs = best_idxs_gpu.get()
+        if self.use_cupy:
+            similarities = self.word_features_cupy @ cp.asarray(emb)
+            best_idxs_gpu = cp.argsort(similarities)[-top_k:][::-1]
+            best_idxs = best_idxs_gpu.get()
+        else:
+            similarities = self.word_features @ emb
+            best_idxs = np.argsort(similarities)[-top_k:][::-1]
+        
         best_words = [self.word_list[i] for i in best_idxs]
         if k == 1:
             return [best_words[0]]

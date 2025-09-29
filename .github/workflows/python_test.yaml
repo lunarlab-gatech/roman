@@ -20,6 +20,7 @@ jobs:
       - name: Install dependencies 
         run: |
           ./install.sh
+          pip install cupy-cpu
       - name: Run tests
         run: |
           python3 -m coverage run --source roman -m unittest discover tests/ -v
