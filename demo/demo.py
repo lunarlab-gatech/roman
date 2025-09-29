@@ -26,7 +26,7 @@ import mapping
 from robotdatapy.data.pose_data import PoseData
 from roman.params.submap_align_params import SubmapAlignInputOutput, SubmapAlignParams
 from roman.align.submap_align import submap_align
-from roman.align.results import calculate_loop_closure_error
+from roman.align.results import calculate_loop_closure_error, extract_num_loop_closures
 from roman.offline_rpgo.extract_odom_g2o import roman_map_pkl_to_g2o
 from roman.offline_rpgo.g2o_file_fusion import create_config, g2o_file_fusion
 from roman.offline_rpgo.combine_loop_closures import combine_loop_closures
@@ -151,13 +151,18 @@ if __name__ == '__main__':
                 submap_align(sm_params=system_params.submap_align_params, sm_io=sm_io)
 
                 # Calculate loop closure errors
-                json_path = os.path.join(align_path, "align.json")               
-                t_err, t_std, r_err, r_std = calculate_loop_closure_error(json_path, gt_pose_data[i], gt_pose_data[j])
+                json_path = os.path.join(align_path, "align.json")      
+                num_loop_closures = extract_num_loop_closures(json_path)       
+                print(f"Total Number of Loop Closures: {num_loop_closures}")
+                errors = calculate_loop_closure_error(json_path, gt_pose_data[i], gt_pose_data[j])
                 if i != j:
-                    wandb_run.log({"LC: Mean Translation Error": t_err, 
-                                   "LC: Std Translation Error": t_std,
-                                   "LC: Mean Rotation Angle Error": r_err,
-                                   "LC: Std Rotation Angle Error": r_std})
+                    wandb_run.log({"LC: Total number": num_loop_closures,
+                                   "LC: Mean Translation Error": errors[0], 
+                                   "LC: Median Translation Error": errors[1],
+                                   "LC: Std Translation Error": errors[2],
+                                   "LC: Mean Rotation Angle Error": errors[3],
+                                   "LC: Median Rotation Angle Error": errors[4],
+                                   "LC: Std Rotation Angle Error":errors[5]})
                        
     if not args.skip_rpgo:
         min_keyframe_dist = 0.01 if not system_params.offline_rpgo_params.sparsified else 2.0

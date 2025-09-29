@@ -208,7 +208,12 @@ def save_submap_align_results(results: SubmapAlignResults, submaps, roman_maps: 
                     json.dump(sm_json, f, indent=4)
                     f.close()
 
-def calculate_loop_closure_error(json_file: str, gt_pose0: PoseData, gt_pose1: PoseData) -> tuple[float, float, float, float]:
+def extract_num_loop_closures(json_file: str) -> int:
+    with open(json_file, 'r') as f:
+        loops = json.load(f)
+        return len(loops)
+
+def calculate_loop_closure_error(json_file: str, gt_pose0: PoseData, gt_pose1: PoseData) -> list[float]:
 
     def extract_T_R_from_transform(H: np.ndarray) -> tuple[np.ndarray, Rotation]:
         T = H[:3, 3] 
@@ -226,7 +231,7 @@ def calculate_loop_closure_error(json_file: str, gt_pose0: PoseData, gt_pose1: P
 
     # If there are no loops, return infinite error
     if len(loops) == 0:
-        return np.inf, np.inf, np.inf, np.inf
+        return [np.inf, np.inf, np.inf, np.inf, np.inf, np.inf]
 
     # Create lists to store errors
     trans_errors: list[float] = []
@@ -249,33 +254,40 @@ def calculate_loop_closure_error(json_file: str, gt_pose0: PoseData, gt_pose1: P
         # Compute GT relative transform
         gt_t_rel, gt_r_rel = relative_transform(t_gt0, r_gt0, t_gt1, r_gt1)
 
-        print("GT Tranlsation: ", gt_t_rel)
-        print("GT Rotation: ", gt_r_rel.as_matrix())
+        #print("GT Tranlsation: ", gt_t_rel)
+        #print("GT Rotation: ", gt_r_rel.as_matrix())
 
         # Predicted transform
         pred_t = np.array(loop["translation"])
         pred_r = Rotation.from_quat(loop["rotation"])
 
-        print("Predicted Translation: ", pred_t)
-        print("Predicted Rotation: ", pred_r.as_matrix())
+        #print("Predicted Translation: ", pred_t)
+        #print("Predicted Rotation: ", pred_r.as_matrix())
 
         # Compute errors
-        trans_error = np.linalg.norm(pred_t - gt_t_rel)
+        t_err = np.linalg.norm(pred_t - gt_t_rel)
         r_diff = pred_r.inv() * gt_r_rel
         angle_error = r_diff.magnitude() * 180/np.pi
-        trans_errors.append(trans_error)
+        trans_errors.append(t_err)
         rot_errors.append(angle_error)
 
-        print("Translation error:", trans_error)
-        print("Rotation error (deg):", angle_error)
 
     mean_trans_error = np.mean(trans_errors)
-    print(trans_error)
-    std_trans_error = np.std(trans_error)
+    median_trans_error = np.median(trans_errors)
+    std_trans_error = np.std(trans_errors)
     mean_rot_error_deg = np.mean(rot_errors)
+    median_rot_error_deg = np.median(rot_errors)
     std_rot_error_deg = np.std(rot_errors)
+
+    print("=======================")
+    print("Translation errors:", trans_errors, end="\n")
+    print("Rotation errors (deg):", rot_errors, end="\n")
+    print("=======================")
     print("Mean translation error:",  mean_trans_error)
+    print("Median translation error:", median_trans_error)
     print("Standard Deviation translation error: ", std_trans_error)
     print("Mean rotation error (deg):", mean_rot_error_deg)
+    print("Median rotation error (deg): ", median_rot_error_deg)
     print("Standard Deviation rotation error (deg):", std_rot_error_deg)
-    return mean_trans_error, std_trans_error, mean_rot_error_deg, std_rot_error_deg
+    print("=======================")
+    return [mean_trans_error, median_trans_error, std_trans_error, mean_rot_error_deg, median_rot_error_deg, std_rot_error_deg]
