@@ -17,22 +17,20 @@ import cv2 as cv
 import math
 import numpy as np
 import open3d as o3d
-import random
 import torch
 from torch.amp import autocast
 from yolov7_package import Yolov7Detector
 from PIL import Image
 from fastsam import FastSAMPrompt
 from fastsam import FastSAM
-import logging
 from robotdatapy.camera import CameraParams
 from robotdatapy.transform import transform
 from roman.map.observation import Observation
 from roman.params.fastsam_params import FastSAMParams
+from roman.params.system_params import SystemParams
 from roman.utils import expandvars_recursive
 import rerun as rr
 from ..scene_graph.logger import logger 
-from scipy.ndimage import uniform_filter
 from scipy.spatial.transform import Rotation as R
 
 
@@ -71,7 +69,7 @@ def mask_bounding_box(mask: np.ndarray) -> tuple:
 
 class FastSAMWrapper():
 
-    def __init__(self, params: FastSAMParams, weights: str, conf: float =.5, iou: float =.9, imgsz: tuple[int, int] =(1024, 1024),
+    def __init__(self, params: FastSAMParams, system_params: SystemParams, weights: str, conf: float =.5, iou: float =.9, imgsz: tuple[int, int] =(1024, 1024),
         device: str ='cuda', mask_downsample_factor: int = 1, rotate_img=None) -> None:
         """Wrapper for running FastSAM on images (especially RGB/depth pairs)
 
@@ -88,6 +86,7 @@ class FastSAMWrapper():
         """
         # parameters
         self.params = params
+        self.system_params = system_params
         self.weights = weights
         self.conf = conf
         self.iou = iou
@@ -114,9 +113,10 @@ class FastSAMWrapper():
             or self.rotate_img == '180', "Invalid rotate_img option."
             
     @classmethod
-    def from_params(cls, params: FastSAMParams, depth_cam_params: CameraParams):
+    def from_params(cls, params: FastSAMParams, depth_cam_params: CameraParams, system_params: SystemParams):
         fastsam = cls(
             params=params,
+            system_params=system_params,
             weights=expandvars_recursive(params.weights_path),
             imgsz=params.imgsz,
             device=params.device,
@@ -130,7 +130,8 @@ class FastSAMWrapper():
             depth_data_type=params.depth_data_type,
             voxel_size=params.voxel_size,
             erosion_size=params.erosion_size,
-            plane_filter_params=params.plane_filter_params
+            plane_filter_params=params.plane_filter_params,
+            within_depth_frac=params.within_depth_frac
         )
 
         img_area = depth_cam_params.width * depth_cam_params.height
@@ -197,7 +198,7 @@ class FastSAMWrapper():
             self.constant_ignore_mask = None
             
     def setup_rgbd_params(self, depth_cam_params: CameraParams, max_depth: float, depth_data_type: str, depth_scale: float = 1e3, voxel_size: float = 0.05, 
-        within_depth_frac: float = 0.5, pcd_stride: int = 4, erosion_size = 0, plane_filter_params = None) -> None:
+        within_depth_frac: float = 0.25, pcd_stride: int = 4, erosion_size = 0, plane_filter_params = None) -> None:
         """Setup params for processing RGB-D depth measurements
 
         Args:
@@ -296,11 +297,14 @@ class FastSAMWrapper():
                 # Remove points past max depth, downsample, and remove non-finite points
                 pcd_test.remove_non_finite_points()
 
-                # Remove this, as I want to downsample related to size with Scene Graph
-                # pcd_test = pcd_test.voxel_down_sample(voxel_size=self.voxel_size)
+                # Downsample only if using ROMAN Mapper (SceneGraph will do its own downsampling)
+                if not self.system_params.use_scene_graph:
+                    pcd_test = pcd_test.voxel_down_sample(voxel_size=self.voxel_size)
 
                 if not pcd_test.is_empty():
                     ptcld = np.asarray(pcd_test.points)
+
+                    # Remove points past max depth
                     ptcld = ptcld[ptcld[:,2] <= self.max_depth]
                 if ptcld is None:
                     continue

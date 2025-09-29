@@ -64,7 +64,7 @@ class ROMANMapRunner:
         print(f"Pose Data Loading Time: {time.time() - start_time} seconds")
 
         if verbose: print("Setting up FastSAM...")
-        self.fastsam = FastSAMWrapper.from_params(self.fastsam_params, self.depth_data.camera_params)
+        self.fastsam = FastSAMWrapper.from_params(self.fastsam_params, self.depth_data.camera_params, self.system_params)
 
         if verbose: print("Setting up mapper...")
         if system_params.use_scene_graph:

@@ -131,11 +131,7 @@ class PoseDataParams:
         Returns:
             np.array: Transformation matrix.
         """
-        # T_postmultiply = np.eye(4)
-        # # if 'T_body_odom' in param_dict:
-        # #     T_postmultiply = np.linalg.inv(np.array(param_dict['T_body_odom']).reshape((4, 4)))
-        # if 'T_body_cam' in param_dict:
-        #     T_postmultiply = T_postmultiply @ np.array(param_dict['T_body_cam']).reshape((4, 4))
+
         if param_dict['input_type'] == 'string':
             if param_dict['string'] == 'T_FLURDF':
                 return T_FLURDF
@@ -251,39 +247,40 @@ class DataParams:
 
         # Extract relevant perams depending on if RGB or Depth
         if color:
-            img_data_params = self.img_data_params
+            params = self.img_data_params
         else:
-            img_data_params = self.depth_data_params
+            params = self.depth_data_params
 
         # Depending on data type
         if self.kitti:
-            img_data = ImgData.from_kitti(self.img_data_params.path, 'rgb' if color else 'depth')
+            raise NotImplementedError("This hasn't been fully tested with new params variable!")
+            img_data = ImgData.from_kitti(img_data_params.path, 'rgb' if color else 'depth')
             img_data.extract_params()
-        elif img_data_params.type == "npy":
-            img_file_path = expandvars_recursive(img_data_params.path)
-            times_file_path = expandvars_recursive(img_data_params.path_times)
+        elif params.type == "npy":
+            img_file_path = expandvars_recursive(params.path)
+            times_file_path = expandvars_recursive(params.path_times)
             img_data = ImgData.from_npy(
                 path=img_file_path,
                 path_times=times_file_path,
-                K=img_data_params.K,
-                D=img_data_params.D,
-                encoding=img_data_params.encoding,
-                width=img_data_params.width,
-                height=img_data_params.height, 
+                K=params.K,
+                D=params.D,
+                encoding=params.encoding,
+                width=params.width,
+                height=params.height, 
                 time_tol=self.dt / 2.0
             )
         else:
-            img_file_path = expandvars_recursive(img_data_params.path)
+            img_file_path = expandvars_recursive(params.path)
             img_data = ImgData.from_bag(
                 path=img_file_path,
-                topic=expandvars_recursive(img_data_params.topic),
+                topic=expandvars_recursive(params.topic),
                 time_tol=self.dt / 2.0,
                 time_range=self.time_range,
-                compressed=img_data_params.compressed,
-                compressed_rvl=img_data_params.compressed_rvl,
-                compressed_encoding=img_data_params.compressed_encoding
+                compressed=params.compressed,
+                compressed_rvl=params.compressed_rvl,
+                compressed_encoding=params.compressed_encoding
             )
-            img_data.extract_params(expandvars_recursive(img_data_params.camera_info_topic))
+            img_data.extract_params(expandvars_recursive(params.camera_info_topic))
         return img_data
     
     def _extract_time_range(self) -> Tuple[float, float]:

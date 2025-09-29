@@ -279,7 +279,7 @@ if __name__ == '__main__':
             ate_rmse = evaluate(
                 result_g2o_file, 
                 odom_sparse_all_time_file  if system_params.offline_rpgo_params.sparsified else odom_dense_all_time_file, 
-                {i: gt_pose_data[i] for i in range(len(system_params.data_params.runs))},
+                {i: gt_pose_data[i] for i in range(len(gt_pose_data))},
                 {i: system_params.data_params.runs[i] for i in range(len(system_params.data_params.runs))},
                 system_params.data_params.run_env,
                 output_dir=str(output_path)
