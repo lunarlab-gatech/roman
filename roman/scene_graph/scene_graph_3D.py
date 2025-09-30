@@ -11,6 +11,7 @@ import multiprocessing
 import numpy as np
 import os
 from ..params.data_params import ImgDataParams
+from ..params.scene_graph_3D_params import SceneGraph3DParams, GraphNodeParams
 import pickle
 from .rerun_wrapper import RerunWrapper
 from roman.map.map import ROMANMap
@@ -25,32 +26,12 @@ multiprocessing.set_start_method("spawn", force=True)
 
 class SceneGraph3D():
 
-    # Requirement for an observation to be associated with a current graph node or for two nodes to be merged.
-    min_iou_for_association = 0.6
-
-    # Used for "Nearby Node Semantic Merging" and "Parent-Child Semantic Merging" if enabled
-    min_sem_con_for_association = 0.8
-
-    # Threshold to determine if two convex hulls are overlapping in resolve_overlapping_convex_hulls()
-    iou_threshold_overlapping_obj = 0.2
-    enc_threshold_overlapping_obj = 0.2
-
-    # Ratio of distance to object volume thresholds
-    ratio_dist2length_threshold_nearby_node_semantic_merge = 0.025
-    ratio_dist2length_threshold_shared_holonym = 0.05
-    ratio_dist2length_threshold_holonym_meronym = 0.05
-
-    # Ratio of detected relationship weight vs. previous total weight
-    ratio_relationship_weight_2_total_weight = 2
-
-    # If a high-level node goes this long since it was first seen, inactivate
-    max_t_active_for_node = 15 # seconds
-
-    # If we travel a significant distance from the first camera pose where this object was seen, inactivate
-    max_dist_active_for_node = 10 # meters
-
     @typechecked
-    def __init__(self, _T_camera_flu: np.ndarray, fastsam_params: FastSAMParams, headless: bool = True):
+    def __init__(self, params: SceneGraph3DParams, node_params: GraphNodeParams, _T_camera_flu: np.ndarray, fastsam_params: FastSAMParams):
+
+        # Save parameters 
+        self.params: SceneGraph3DParams = params
+        GraphNode.params = node_params
 
         # Node that connects all highest-level objects together for implementation purposes
         self.root_node: GraphNode = GraphNode.create_node_if_possible(0, None, [], np.zeros((0, 3), dtype=np.float64), 
@@ -69,13 +50,14 @@ class SceneGraph3D():
         self.pose_FLU_wrt_Camera = _T_camera_flu
 
         # Create the visualization
-        self.rerun_viewer = RerunWrapper(enable=not headless, fastsam_params=fastsam_params)
+        self.rerun_viewer = RerunWrapper(enable=self.params.enable_rerun_viz, fastsam_params=fastsam_params)
 
         # Dictionaries to cache results of calculations for speed
         self.overlap_dict: defaultdict = defaultdict(lambda: defaultdict(lambda: None))
         self.shortest_dist_dist: defaultdict = defaultdict(lambda: defaultdict(lambda: None))
 
-        # TODO: Perhaps we add back the check that objects need to be seen at least twice to get added to the graph (similar to ROMAN)
+        # TODO: Are there cases where we don't want to call remove from graph complete, as we want to retire the node instead?
+        # TODO: I might need a mechanism to merge hypernyms/hyponyms in the graph.
 
         # TODO: Maybe use node average size instead of node longest size
 
@@ -166,23 +148,22 @@ class SceneGraph3D():
         # Update the viewer
         # self.rerun_viewer.update(self.root_node, self.times[-1], img=img, depth_img=depth_img, camera_pose=pose, img_data_params=img_data_params, seg_img=seg_img, associations=associated_pairs, node_to_obs_mapping=node_to_obs_mapping)
 
-        self.synonym_relationship_merging()
+        if self.params.enable_synonym_merges:
+            self.synonym_relationship_merging()
 
         # Update the viewer
         # self.rerun_viewer.update(self.root_node, self.times[-1], img=img, depth_img=depth_img, camera_pose=pose, img_data_params=img_data_params, seg_img=seg_img, associations=associated_pairs, node_to_obs_mapping=node_to_obs_mapping)
 
-        self.holonym_meronym_relationship_inference()
-        
-        # Update the viewer
-        # self.rerun_viewer.update(self.root_node, self.times[-1], img=img, depth_img=depth_img, camera_pose=pose, img_data_params=img_data_params, seg_img=seg_img, associations=associated_pairs, node_to_obs_mapping=node_to_obs_mapping)
-
-        self.shared_holonym_relationship_inference()
+        if self.params.enable_meronomy_relationship_inference:
+            self.holonym_meronym_relationship_inference()
+            self.shared_holonym_relationship_inference()
 
         # TODO: After merging, update the associations and node_to_obs mapping so colors carry over
 
         # Resolve any overlapping point clouds (TODO: Do we even need this?)
         # TODO: This seems to be causing bugs currently
-        self.resolve_overlapping_convex_hulls()
+        if self.params.enable_resolve_overlapping_nodes:
+            self.resolve_overlapping_convex_hulls()
 
         # Run node retirement
         self.node_retirement()
@@ -215,7 +196,7 @@ class SceneGraph3D():
                     continue
                 
                 # Calculate IOU
-                iou, _, _ = self.convex_hull_overlap_cached(node, new_node)
+                iou, _, _ = self.geometric_overlap_cached(node, new_node)
 
                 # Check if it passes minimum requirements for association
                 logger.debug(f"Currently comparing Node {new_node.get_id()} to Node {node.get_id()} with IOU: {iou}")
@@ -248,7 +229,7 @@ class SceneGraph3D():
         return new_pairs
     
     @typechecked
-    def convex_hull_overlap_cached(self, a: GraphNode, b: GraphNode) -> tuple[float, float, float]:
+    def geometric_overlap_cached(self, a: GraphNode, b: GraphNode) -> tuple[float, float, float]:
         """ Wrapper around convex_hull_geometric_overlap that caches results for reuse. """
 
         # Rearrange so that a is the node with the smaller id
@@ -263,7 +244,17 @@ class SceneGraph3D():
 
         # Calculate (or recalculate) the overlap if necessary
         if result is None or a._redo_convex_hull_geometric_overlap or b._redo_convex_hull_geometric_overlap:
+
+            # Calculate geometric overlap using hulls
             result: tuple[float, float, float] = convex_hull_geometric_overlap(a.get_convex_hull(), b.get_convex_hull())
+
+            # Use Voxel Grid for IOU if specified
+            if not self.params.use_convex_hull_for_iou:
+                voxel_size = self.params.voxel_size_for_voxel_grid_iou
+                voxel_iou = a.get_voxel_grid(voxel_size).iou(b.get_voxel_grid(voxel_size))
+                result = (voxel_iou, result[1], result[2])
+
+            # Save the results
             self.overlap_dict[a.get_id()][b.get_id()] = result
 
             # Tell nodes that we've updated our cache with their latest info
@@ -311,7 +302,7 @@ class SceneGraph3D():
         
     @typechecked
     @staticmethod
-    def semantic_consistency(a: np.ndarray| None, b: np.ndarray | None, rescaling: list = [0.7, 1.0]) -> float:
+    def semantic_consistency(a: np.ndarray| None, b: np.ndarray | None) -> float:
         # If either is none, then just assume neutral consistency
         if a is None or b is None:
             return 0.5
@@ -322,12 +313,7 @@ class SceneGraph3D():
 
         # Calculate the cosine similarity
         cos_sim = np.dot(a, b)
-
-        # Rescale the similarity so that a similiarity <=rescaling[0] is 0 and >=rescaling[1] is 1.
-        min_val, max_val = rescaling
-        rescaled = (cos_sim - min_val) / (max_val - min_val)
-        rescaled_clamped = np.clip(rescaled, 0.0, 1.0)
-        return rescaled_clamped
+        return np.clip(cos_sim, 0.0, 1.0)
     
     @typechecked
     def pass_minimum_requirements_for_association(self, iou: float) ->  bool:
@@ -338,7 +324,7 @@ class SceneGraph3D():
         SceneGraph3D.check_within_bounds(iou, (0, 1))
 
         # Check if within thresholds for association
-        return bool(iou >= self.min_iou_for_association)
+        return bool(iou >= self.params.min_iou_for_association)
 
     @typechecked
     def resolve_overlapping_convex_hulls(self):
@@ -362,11 +348,11 @@ class SceneGraph3D():
                             continue
 
                         # Calculate the geometric overlap between them
-                        iou, enc_i, enc_j = self.convex_hull_overlap_cached(node_i, node_j)
+                        iou, enc_i, enc_j = self.geometric_overlap_cached(node_i, node_j)
 
                         # If this is above a threshold, then we've found an overlap
-                        if iou > self.iou_threshold_overlapping_obj or enc_i > self.enc_threshold_overlapping_obj \
-                            or enc_j > self.enc_threshold_overlapping_obj:
+                        if iou > self.params.iou_threshold_overlapping_obj or enc_i > self.params.enc_threshold_overlapping_obj \
+                            or enc_j > self.params.enc_threshold_overlapping_obj:
                             
                             # Get merged point clouds from both nodes
                             pc_i = node_i.get_point_cloud()
@@ -484,22 +470,22 @@ class SceneGraph3D():
                 continue
 
             # Since we're nearby this, add all of this nodes children to the queue as well
-            node_queue += pos_parent_node.get_children()
+            children = pos_parent_node.get_children()
+            node_queue += children
 
             # Add similarities for geometric overlaps with parent
             if pos_parent_node.is_RootGraphNode():
                 # Objects at least half encompassed by other node should be assigned there, no matter how small.
                 parent_iou, parent_encompassment = 0.0, 0.5 
             else:
-                parent_iou, _, parent_encompassment = self.convex_hull_overlap_cached(pos_parent_node, node)
+                parent_iou, _, parent_encompassment = self.geometric_overlap_cached(pos_parent_node, node)
 
             # Add similarities for geometric overlaps with children
             children_iou, children_enclosure = [], []
-            if not only_leaf:
-                for child in pos_parent_node.get_children():
-                    iou, child_enc, _ = self.convex_hull_overlap_cached(child, node)
-                    children_iou.append(iou)
-                    children_enclosure.append(child_enc)
+            for child in children:
+                iou, child_enc, _ = self.geometric_overlap_cached(child, node)
+                children_iou.append(iou)
+                children_enclosure.append(child_enc)
 
             # Calculate the final likelihood score
             score = self.calculate_best_likelihood_score(children_iou, children_enclosure, parent_iou, parent_encompassment, only_leaf=only_leaf)
@@ -520,10 +506,11 @@ class SceneGraph3D():
         # Now, find the best subset of children, which comprises
         # of all children nodes with encompassment of 50% or more
         new_children: list[GraphNode] = []
-        for child in new_parent.get_children():
-            _, child_enc, _ = self.convex_hull_overlap_cached(child, node)
-            if child_enc >= 0.5:
-                new_children.append(child)
+        if not only_leaf:
+            for child in new_parent.get_children():
+                _, child_enc, _ = self.geometric_overlap_cached(child, node)
+                if child_enc >= 0.5:
+                    new_children.append(child)
 
         # Place our already fully formed node into its spot
         self.place_node_in_graph(node, new_parent, new_children)
@@ -644,7 +631,7 @@ class SceneGraph3D():
                     if not node_i.is_descendent_or_ascendent(node_j):
                         
                         # Calculate IOU and Semantic Similarity
-                        iou, _, _ = self.convex_hull_overlap_cached(node_i, node_j)
+                        iou, _, _ = self.geometric_overlap_cached(node_i, node_j)
     
                         # See if they pass minimum requirements for association
                         if self.pass_minimum_requirements_for_association(iou):
@@ -1061,17 +1048,34 @@ class SceneGraph3D():
 
             # If the time the child was first seen was too long ago OR we've move substancially since then 
             # OR we are retiring everything, Inactivate this node and descendents
-            if self.times[-1] - child.get_time_first_seen_recursive() > self.max_t_active_for_node \
-                or np.linalg.norm(self.poses[-1][:3,3] - child.get_first_pose_recursive()[:3,3]) > self.max_dist_active_for_node \
+            if self.times[-1] - child.get_time_first_seen_recursive() > self.params.max_t_active_for_node \
+                or np.linalg.norm(self.poses[-1][:3,3] - child.get_first_pose_recursive()[:3,3]) > self.params.max_dist_active_for_node \
                 or retire_everything:
 
                 # Pop this child off of the root node and put in our inactive nodes
                 retired_ids += [child.get_id()]
                 retired_ids += child.remove_from_graph_complete()
+
+                # Run DBScan right before we finish for cleanup
+                if self.params.run_dbscan_when_retiring_node:
+                    child.update_point_cloud(np.zeros((0, 3), dtype=np.float64), run_dbscan=True, remove_outliers=False)
                 self.inactive_nodes.append(child)
+
+        # Delete nodes that were seen last frame but not this one
+        deleted_ids = []
+        if self.params.delete_nodes_only_seen_once:
+            for node in self.root_node:
+                if node.get_num_sightings() == 1:
+                    if node.get_time_first_seen() != self.times[-1]:
+
+                        # Pop just this node off the graph, reconnect children back to our parent
+                        deleted_ids += [node.get_id()]
+                        deleted_ids += node.remove_from_graph_complete(keep_children=False)
 
         if len(retired_ids) > 0:
             logger.info(f"[dark_magenta]Node Retirement[/dark_magenta]: {len(retired_ids)} nodes retired, including {retired_ids}.")
+        if len(deleted_ids) > 0:
+            logger.info(f"[magenta]Node Deletion[/magenta]: {len(deleted_ids)} nodes deleted after being seen only once, including {deleted_ids}.")
 
     def get_roman_map(self) -> ROMANMap:
         """

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 ###########################################################
 #
 # data_params.py
@@ -15,11 +17,10 @@ from dataclasses import dataclass
 import yaml
 from typing import List, Tuple, Optional
 from functools import cached_property
-
 from robotdatapy.data import ImgData, PoseData
 from robotdatapy.transform import T_FLURDF, T_RDFFLU
-
 from roman.utils import expandvars_recursive
+import os
 
 @dataclass
 class ImgDataParams:
@@ -41,7 +42,42 @@ class ImgDataParams:
     @classmethod
     def from_dict(cls, params_dict: dict):
         return cls(**params_dict)
-    
+
+@dataclass
+class PoseDataGTParams:
+    yaml_file: str
+
+    @classmethod
+    def from_yaml(cls, yaml_file: str):
+        return cls(yaml_file)
+        
+    def get_pose_data(self, data_params: DataParams) -> list[PoseData]:
+        gt_pose_data: list[PoseData] = []
+        if self.yaml_file.exists():
+            for i, robot_name in enumerate(data_params.runs):
+                # Set environment variable to expand path to robot data
+                os.environ[data_params.run_env] = robot_name
+
+                # Load yaml file
+                with open(os.path.expanduser(self.yaml_file), 'r') as f:
+                    gt_pose_args = yaml.safe_load(f)
+                
+                # Convert into a PoseData object
+                if gt_pose_args['type'] == 'bag':
+                    # expand variables
+                    for k, v in gt_pose_args.items():
+                        if type(gt_pose_args[k]) == str:
+                            gt_pose_args[k] = expandvars_recursive(gt_pose_args[k])
+                    print("Called from Submap_align.py: ", gt_pose_args)
+                    gt_pose_data.append(PoseData.from_bag(**{k: v for k, v in gt_pose_args.items() if k != 'type'}))
+                elif gt_pose_args['type'] == 'csv':
+                    gt_pose_data.append(PoseData.from_csv(**{k: v for k, v in gt_pose_args.items() if k != 'type'}))
+                elif gt_pose_args['type'] == 'bag_tf':
+                    gt_pose_data.append(PoseData.from_bag_tf(**{k: v for k, v in gt_pose_args.items() if k != 'type'}))
+                else:
+                    raise ValueError("Invalid pose data type")
+        return gt_pose_data
+
 @dataclass
 class PoseDataParams:
     
@@ -85,7 +121,6 @@ class PoseDataParams:
         for k, v in params_dict.items():
             if type(params_dict[k]) == str:
                 params_dict[k] = expandvars_recursive(params_dict[k])
-        print("Called from data_params.py: ", params_dict)
         pose_data = PoseData.from_dict(params_dict)
         return pose_data
     
@@ -96,11 +131,7 @@ class PoseDataParams:
         Returns:
             np.array: Transformation matrix.
         """
-        # T_postmultiply = np.eye(4)
-        # # if 'T_body_odom' in param_dict:
-        # #     T_postmultiply = np.linalg.inv(np.array(param_dict['T_body_odom']).reshape((4, 4)))
-        # if 'T_body_cam' in param_dict:
-        #     T_postmultiply = T_postmultiply @ np.array(param_dict['T_body_cam']).reshape((4, 4))
+
         if param_dict['input_type'] == 'string':
             if param_dict['string'] == 'T_FLURDF':
                 return T_FLURDF
@@ -144,29 +175,19 @@ class DataParams:
             assert 'tf' in self.time_params['time'], "tf must be specified in params"
         
     @classmethod
-    def from_yaml(cls, yaml_path: str, run: str = None):
+    def from_yaml(cls, yaml_path: str):
         with open(yaml_path) as f:
             data = yaml.safe_load(f)
-        if run is None:
-            return cls(
-                None, None, None,
-                dt=data['dt'] if 'dt' in data else 1/6,
-                runs=data['runs'] if 'runs' in data else None,
-                run_env=data['run_env'] if 'run_env' in data else None
-            )
-        elif run in data:
-            run_data = data[run]
-        else:
-            run_data = data
+
         return cls(
-            ImgDataParams.from_dict(run_data['img_data']),
-            ImgDataParams.from_dict(run_data['depth_data']),
-            PoseDataParams.from_dict(run_data['pose_data']),
-            dt=run_data['dt'] if 'dt' in run_data else 1/6,
+            ImgDataParams.from_dict(data['img_data']),
+            ImgDataParams.from_dict(data['depth_data']),
+            PoseDataParams.from_dict(data['pose_data']),
+            dt=data['dt'] if 'dt' in data else 1/6,
             runs=data['runs'] if 'runs' in data else None,
             run_env=data['run_env'] if 'run_env' in data else None,
-            time_params=run_data['time_params'] if 'time_params' in run_data else None,
-            kitti=run_data['kitti'] if 'kitti' in run_data else False
+            time_params=data['time_params'] if 'time_params' in data else None,
+            kitti=data['kitti'] if 'kitti' in data else False
         )
         
     @cached_property
@@ -226,40 +247,40 @@ class DataParams:
 
         # Extract relevant perams depending on if RGB or Depth
         if color:
-            img_data_params = self.img_data_params
+            params = self.img_data_params
         else:
-            img_data_params = self.depth_data_params
+            params = self.depth_data_params
 
         # Depending on data type
         if self.kitti:
-            img_data = ImgData.from_kitti(self.img_data_params.path, 'rgb' if color else 'depth')
+            raise NotImplementedError("This hasn't been fully tested with new params variable!")
+            img_data = ImgData.from_kitti(img_data_params.path, 'rgb' if color else 'depth')
             img_data.extract_params()
-        elif img_data_params.type == "npy":
-            img_file_path = expandvars_recursive(img_data_params.path)
-            print(img_data_params.path_times)
-            times_file_path = expandvars_recursive(img_data_params.path_times)
+        elif params.type == "npy":
+            img_file_path = expandvars_recursive(params.path)
+            times_file_path = expandvars_recursive(params.path_times)
             img_data = ImgData.from_npy(
                 path=img_file_path,
                 path_times=times_file_path,
-                K=img_data_params.K,
-                D=img_data_params.D,
-                encoding=img_data_params.encoding,
-                width=img_data_params.width,
-                height=img_data_params.height, 
+                K=params.K,
+                D=params.D,
+                encoding=params.encoding,
+                width=params.width,
+                height=params.height, 
                 time_tol=self.dt / 2.0
             )
         else:
-            img_file_path = expandvars_recursive(img_data_params.path)
+            img_file_path = expandvars_recursive(params.path)
             img_data = ImgData.from_bag(
                 path=img_file_path,
-                topic=expandvars_recursive(img_data_params.topic),
+                topic=expandvars_recursive(params.topic),
                 time_tol=self.dt / 2.0,
                 time_range=self.time_range,
-                compressed=img_data_params.compressed,
-                compressed_rvl=img_data_params.compressed_rvl,
-                compressed_encoding=img_data_params.compressed_encoding
+                compressed=params.compressed,
+                compressed_rvl=params.compressed_rvl,
+                compressed_encoding=params.compressed_encoding
             )
-            img_data.extract_params(expandvars_recursive(img_data_params.camera_info_topic))
+            img_data.extract_params(expandvars_recursive(params.camera_info_topic))
         return img_data
     
     def _extract_time_range(self) -> Tuple[float, float]:

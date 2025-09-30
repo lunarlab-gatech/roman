@@ -1,6 +1,6 @@
 # Specify that GT pose infomation is stored in a csv file
 type: "csv"
-path:  "/home/${USER}/data/Hercules_datasets/V1.4.1/extract/files_for_roman_baseline/${ROBOT}/poseGT.csv"
+path:  "/home/${USER}/data/Hercules_datasets/V1.5/extract/files_for_roman_baseline/${ROBOT}/poseGT.csv"
 
 # Options that inform the algorithm where data is saved in the CSV file
 csv_options:
@@ -17,6 +17,6 @@ csv_options:
   timescale: 1.0
 
 # Time tolerance used to reject available data if no pose data is within the time tolerance value
-time_tol: 0.03
-interp: False
-causal: True
+time_tol: 0.0249 # For a value right between both, won't do either. Thus, we enforce causality.
+interp: False # Don't interpolate between poses.
+causal: False # We enforce causality with time_tol, this allows us to get closest pose and not just the latest pose.

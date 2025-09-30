@@ -6,9 +6,11 @@ from .logger import logger
 import numpy as np
 from numpy.typing import NDArray
 import open3d as o3d
+from ..params.scene_graph_3D_params import GraphNodeParams
 from robotdatapy.camera import xyz_2_pixel
 from robotdatapy.transform import transform
 from roman.map.observation import Observation
+from roman.map.voxel_grid import VoxelGrid
 from roman.object.segment import Segment
 import trimesh
 from typing import Iterator
@@ -22,30 +24,12 @@ wordnetWrapper = WordNetWrapper(["curb", "tree", "garbage can", "door", "window"
 @typechecked
 class GraphNode():
 
-    # If using wordnet for semantic merging, number of words to simulatneously consider ourselves as
-    num_words_to_consider_ourselves = 1
-
-    # Voxel size set for downsampling relative to the longest line of node
-    sample_voxel_size_to_longest_line_ratio = 0.01
-
-    # ===== DBSCAN Parameters ===== 
-    # Epsilon set relative to longest line of point cloud
-    sample_epsilon_to_longest_line_ratio = 0.1
-
-    # Required percentage size of cluster relative to full cloud to consider keeping node
-    cluster_percentage_of_full = 0.8
-
-    # ===== Statistical Outlier Removal Parameters =====
-    # Number of neighbors to calculate average distance for a point
-    stat_out_num_neighbors = 30
-    
-    # STD ratio for thresholding
-    std_ratio = 1.5
+    params: GraphNodeParams
 
     # ================ Initialization =================
     def __init__(self, id: int, parent_node: GraphNode | None, semantic_descriptors: list[tuple[np.ndarray, float]], 
                  point_cloud: np.ndarray, child_nodes: list[GraphNode], first_seen: float, last_updated: float, 
-                 curr_time: float, first_pose: np.ndarray, curr_pose: np.ndarray, run_dbscan: bool = True, is_RootGraphNode: bool = False):
+                 curr_time: float, first_pose: np.ndarray, curr_pose: np.ndarray, run_dbscan: bool | None = None, is_RootGraphNode: bool = False):
         """
         Don't create a Graph Node directly! Instead do it with create_node_if_possible(), 
         as node can be invalid after creation.
@@ -87,15 +71,20 @@ class GraphNode():
         # Points that relate only to this object and not any children (expressed in world frame).
         self.point_cloud: np.ndarray = np.zeros((0, 3), dtype=np.float64)
 
-        # Points from self and all children expressed in the robot frame aligned to gravity
+        # Points (could include childnre points) expressed in the robot frame aligned to gravity
         self.point_cloud_robot_aligned: np.ndarray | None = None
+
+        # Tracks number of times we've been sighted
+        self.num_sightings = 1
+        if self.is_root:
+            self.num_sightings = 10000 # Root should never be removed for too little sightings
 
         # Holds values for reuse to avoid recalculating them
         self._convex_hull: trimesh.Trimesh = None
         self._point_cloud: np.ndarray = None
         self._longest_line_size: float = None
         self._centroid: np.ndarray = None
-        self._weighted_semantic_descriptor: np.ndarray = None
+        self._semantic_descriptor: np.ndarray = None
         self._words: WordListWrapper = None
         self._meronyms: dict[int, set[str]] = defaultdict(lambda: None)
         self._holonyms: dict[int, set[str]] = defaultdict(lambda: None)
@@ -111,7 +100,9 @@ class GraphNode():
         self._class_method_creation_success: bool = True
 
         # Update point cloud and check that the cloud is good
-        to_delete = self.update_point_cloud(point_cloud, run_dbscan=run_dbscan)
+        if run_dbscan is None:
+            run_dbscan = self.params.run_dbscan_when_creating_node
+        to_delete = self.update_point_cloud(point_cloud, run_dbscan=run_dbscan, remove_outliers=run_dbscan)
         if len(to_delete) > 0:
             self._class_method_creation_success = False
         else:
@@ -130,7 +121,7 @@ class GraphNode():
             self._class_method_creation_success = True
 
     @classmethod
-    def create_node_if_possible(cls, id: int, parent_node: GraphNode | None, semantic_descriptors: list[tuple[np.ndarray, float]], point_cloud: np.ndarray, child_nodes: list[GraphNode], first_seen: float, last_updated: float, curr_time: float, first_pose: np.ndarray, curr_pose: np.ndarray, run_dbscan: bool = True, is_RootGraphNode: bool = False) -> GraphNode | None:
+    def create_node_if_possible(cls, id: int, parent_node: GraphNode | None, semantic_descriptors: list[tuple[np.ndarray, float]], point_cloud: np.ndarray, child_nodes: list[GraphNode], first_seen: float, last_updated: float, curr_time: float, first_pose: np.ndarray, curr_pose: np.ndarray, run_dbscan: bool | None = None, is_RootGraphNode: bool = False) -> GraphNode | None:
         """ 
         This method will create and return a GraphNode if that node is valid, 
         or return None if its point cloud or hull isn't reasonable after cleanup. 
@@ -189,22 +180,27 @@ class GraphNode():
         """ Returns True if self is the child of other. """
         return other.is_parent(self)
     
-    def get_convex_hull(self)-> trimesh.Trimesh | None:
+    def get_convex_hull(self) -> trimesh.Trimesh | None:
         if self.is_RootGraphNode():
             return None
         if self._convex_hull is None:
             self._convex_hull = get_convex_hull_from_point_cloud(self.get_point_cloud())
         return self._convex_hull
     
-    def get_weighted_semantic_descriptor(self) -> np.ndarray | None:
-        if self._weighted_semantic_descriptor is None:
-            self._weighted_semantic_descriptor = self.calculate_weighted_semantic_descriptor(self.get_semantic_descriptors())
-        return self._weighted_semantic_descriptor
+    def get_voxel_grid(self, voxel_size: float) -> VoxelGrid | None:
+        if self.is_RootGraphNode():
+            return None
+        return VoxelGrid.from_points(self.get_point_cloud(), voxel_size)
+    
+    def get_semantic_descriptor(self) -> np.ndarray | None:
+        if self._semantic_descriptor is None:
+            self._semantic_descriptor = self.calculate_semantic_descriptor(self.get_semantic_descriptors())
+        return self._semantic_descriptor
     
     def get_words(self) -> WordListWrapper:
         if self._words is None:
-            descriptor = self.get_weighted_semantic_descriptor()
-            self._words = WordListWrapper.from_words(wordnetWrapper.map_embedding_to_words(descriptor, self.num_words_to_consider_ourselves))
+            descriptor = self.get_semantic_descriptor()
+            self._words = WordListWrapper.from_words(wordnetWrapper.map_embedding_to_words(descriptor, self.params.num_words_to_consider_ourselves))
         return self._words
     
     def get_all_meronyms(self, meronym_level: int = 1) -> set[str]:
@@ -350,20 +346,26 @@ class GraphNode():
             raise RuntimeError(f"Trying to get volume of ConvexHull for Node {self.get_id()}, but its not watertight!")
         return self.get_convex_hull().volume
     
-    def get_point_cloud(self) -> np.ndarray:
+    def get_point_cloud(self, recursive: bool | None = None) -> np.ndarray:
         if self.is_RootGraphNode():
             raise RuntimeError("get_point_cloud() should not be called on RootGraphNode!")
+        
+        if recursive is None:
+            recursive = self.params.get_point_cloud_includes_children
 
         if self._point_cloud is None:
-            full_pc = np.zeros((0, 3), dtype=np.float64)
-            for child in self.get_children():
-                full_pc = np.concatenate((full_pc, child.get_point_cloud()), dtype=np.float64)
-            self._point_cloud = np.concatenate((full_pc, self.point_cloud), dtype=np.float64)
-            num_points = self._point_cloud.shape[0]
-            if num_points < 4:
-                logger.debug(f"[bright_red]WARNING[/bright_red]: Current point cloud is {num_points} for Node {self.get_id()}")
+            if recursive:
+                full_pc = np.zeros((0, 3), dtype=np.float64)
+                for child in self.get_children():
+                    full_pc = np.concatenate((full_pc, child.get_point_cloud()), dtype=np.float64)
+                self._point_cloud = np.concatenate((full_pc, self.point_cloud), dtype=np.float64)
+                num_points = self._point_cloud.shape[0]
+                if num_points < 4:
+                    logger.debug(f"[bright_red]WARNING[/bright_red]: Current point cloud is {num_points} for Node {self.get_id()}")
+                else:
+                    logger.debug(f"[bright_yellow]UPDATE[/bright_yellow]: Current point cloud is {num_points} for Node {self.get_id()}")
             else:
-                logger.debug(f"[bright_yellow]UPDATE[/bright_yellow]: Current point cloud is {num_points} for Node {self.get_id()}")
+                self._point_cloud = self.point_cloud.copy()
         return self._point_cloud
     
     def get_point_cloud_robot_aligned(self) -> np.ndarray | None:
@@ -374,8 +376,9 @@ class GraphNode():
             raise RuntimeError("get_semantic_descriptors() should not be called on RootGraphNode!")
 
         descriptors = []
-        for child in self.get_children():
-            descriptors += child.get_semantic_descriptors()
+        if self.params.get_semantic_descriptors_includes_children:
+            for child in self.get_children():
+                descriptors += child.get_semantic_descriptors()
         descriptors += self.semantic_descriptors
         return descriptors
     
@@ -393,6 +396,9 @@ class GraphNode():
     def get_children(self) -> list[GraphNode]:
         return self.child_nodes
     
+    def get_num_sightings(self) -> int:
+        return self.num_sightings
+    
     def is_sibling(self, other: GraphNode) -> bool:
         if self.is_RootGraphNode():
             return False
@@ -409,15 +415,15 @@ class GraphNode():
 
         # Update internal values of Segment so it matches Graph Node
         seg.last_seen = self.get_time_last_updated_recursive()
-        seg.num_sightings = None
+        seg.num_sightings = self.get_num_sightings()
         seg.points = self.get_point_cloud()
-        seg.semantic_descriptor = self.get_weighted_semantic_descriptor()
+        seg.semantic_descriptor = self.get_semantic_descriptor()
         seg.semantic_descriptor_cnt = None
 
         return seg
 
     # ==================== Calculations ====================
-    def calculate_weighted_semantic_descriptor(self, descriptors: list[tuple[NDArray[np.float64], float]]) -> np.ndarray | None:
+    def calculate_semantic_descriptor(self, descriptors: list[tuple[NDArray[np.float64], float]]) -> np.ndarray | None:
         # If we have no descriptors, just return None
         if len(descriptors) == 0:
             return None
@@ -431,8 +437,11 @@ class GraphNode():
         for i in range(embeddings.shape[0]):
             embeddings[i] = embeddings[i] / np.linalg.norm(embeddings[i])
 
-        # Calculate the new final semantic descriptor as weighted average
-        semantic_descriptor = np.average(embeddings, axis=0, weights=weights)
+        # Calculate the new final semantic descriptor
+        if self.params.use_weighted_average_for_descriptor:
+            semantic_descriptor = np.average(embeddings, axis=0, weights=weights)
+        else:
+            semantic_descriptor = np.mean(embeddings, axis=0)
         semantic_descriptor /= np.linalg.norm(semantic_descriptor)
         return semantic_descriptor
 
@@ -456,25 +465,35 @@ class GraphNode():
         self.id = id
 
     # ==================== Removal ====================
-    def remove_from_graph(self) -> set[GraphNode]:
+    def remove_from_graph(self, keep_children: bool = True) -> set[GraphNode]:
         """ Does so by disconnecting self from parent both ways. Returns any remaining parents that need to be deleted now. """
         if self.is_RootGraphNode():
             raise RuntimeError("Can't call remove_from_graph() on RootGraphNode!")
 
-        to_delete = self.get_parent().remove_child(self)
+        # Add children to our parent (removing from self) if requested
+        to_delete = set()
+        if not keep_children:
+            self.get_parent().add_children(self.get_children())
+            for child in self.get_children():
+                child.set_parent(self.get_parent())
+            to_delete.update(self.remove_children(self.get_children()))
+
+        # Disconnect ourselves from our parent both ways
+        to_delete.update(self.get_parent().remove_child(self))
         self.set_parent(None)
+        
         return to_delete
     
-    def remove_from_graph_complete(self) -> list[int]:
+    def remove_from_graph_complete(self, keep_children: bool = True) -> list[int]:
         """ Does so by disconnecting self from parent both ways. Also immediately deletes any parent nodes that are now invalid. 
             Returns ids of additional nodes that were also retired (not including self). """
 
         deleted_ids = []
-        to_delete = self.remove_from_graph()
+        to_delete = self.remove_from_graph(keep_children)
         while to_delete:
             for node in to_delete:
                 deleted_ids.append(node.get_id())
-            to_delete.update(to_delete.pop().remove_from_graph())
+            to_delete.update(to_delete.pop().remove_from_graph(keep_children))
         return deleted_ids
 
     def remove_points_from_self(self, pc_to_remove: np.ndarray) -> set[GraphNode]:
@@ -525,6 +544,12 @@ class GraphNode():
             return self.reset_saved_point_vars()
         else:
             raise ValueError(f"Tried to remove {child} from {self}, but {child} not in self.child_nodes: {self.child_nodes}")
+        
+    def remove_children(self, children: list[GraphNode]) -> set[GraphNode]:
+        nodes_to_delete = set()
+        for child in children:
+            nodes_to_delete.update(self.remove_child(child))
+        return nodes_to_delete
 
     # ==================== Updating / Adding ====================
     def update_curr_time(self, curr_time: float):
@@ -564,7 +589,7 @@ class GraphNode():
         B_view = B.view([('', B.dtype)] * B.shape[1])
         return np.intersect1d(A_view, B_view).view(A.dtype).reshape(-1, A.shape[1])
 
-    def update_point_cloud(self, new_points: np.ndarray, run_dbscan: bool = False) -> set[GraphNode]:
+    def update_point_cloud(self, new_points: np.ndarray, run_dbscan: bool = False, remove_outliers: bool | None = None) -> set[GraphNode]:
         """ Returns nodes that might need to be deleted due to cleanup removing points..."""
 
         # =========== Add to Point Cloud ============
@@ -586,11 +611,14 @@ class GraphNode():
         # Necessary to limit sizes of point clouds for computation purposes and for ensuring incoming point clouds only represent a single object.
         # Considers child cloud as part of self for determining how to downsample, remove outliers, and cluster. 
 
-        # Perform DBSCAN clustering (if desired)
-        if run_dbscan:
-            # Remove statistical outliers first so they don't interfere with clustering
+        # Remove statistical outliers
+        if remove_outliers is None:
+            remove_outliers = self.params.enable_remove_statistical_outliers
+        if remove_outliers:
             self._remove_statistical_outliers()
 
+        # Perform DBSCAN clustering (if desired)
+        if run_dbscan:
             # Now perform clustering
             self._dbscan_clustering()
 
@@ -599,7 +627,11 @@ class GraphNode():
         pcd.points = o3d.utility.Vector3dVector(self.get_point_cloud())
         length = self.get_longest_line_size()
         if length > 0:
-            pcd_sampled = pcd.voxel_down_sample(length * self.sample_voxel_size_to_longest_line_ratio)
+            voxel_size = self.params.voxel_size_not_variable
+            if self.params.enable_variable_voxel_size:
+                voxel_size = length * self.params.voxel_size_variable_ratio_to_length
+
+            pcd_sampled = pcd.voxel_down_sample(voxel_size)
         else:
             return self.reset_saved_point_vars()
         
@@ -620,7 +652,12 @@ class GraphNode():
 
         # Perform clustering
         length = self.get_longest_line_size()
-        labels = np.array(pcd.cluster_dbscan(eps=length * self.sample_epsilon_to_longest_line_ratio, min_points=4))
+
+        epsilon = self.params.epsilon_not_variable
+        if self.params.enable_variable_epsilon:
+            epsilon = length * self.params.epsilon_variable_ratio_to_length
+
+        labels = np.array(pcd.cluster_dbscan(eps=epsilon, min_points=self.params.min_points))
         max_cluster_index = labels.max()
         if max_cluster_index == -1:
             logger.info(f"[bright_red]WARNING[/bright_red]: All points in this node {self.get_id()} have been detected as noise!")
@@ -632,7 +669,7 @@ class GraphNode():
         max_cluster_size = np.sum(labels == max_cluster_index)
         cluster_size_ratio = max_cluster_size / len(pcd.points)
         logger.debug(f"Cluster Size Ratio: {cluster_size_ratio}")
-        if cluster_size_ratio < self.cluster_percentage_of_full:
+        if cluster_size_ratio < self.params.cluster_percentage_of_full:
 
             # Since this cluster is too small, the semantic embedding will not be 
             # representative. Thus, we must delete this node, so wipe our point cloud.
@@ -660,7 +697,7 @@ class GraphNode():
         pcd.points = o3d.utility.Vector3dVector(self.get_point_cloud())
 
         # Remove statistical outliers
-        pcd_sampled, _ = pcd.remove_statistical_outlier(self.stat_out_num_neighbors, self.std_ratio)
+        pcd_sampled, _ = pcd.remove_statistical_outlier(self.params.stat_out_num_neighbors, self.params.std_ratio)
 
         # Save the new sampled point cloud 
         self.point_cloud = GraphNode._intersect_rows(self.point_cloud, np.asarray(pcd_sampled.points))
@@ -708,6 +745,10 @@ class GraphNode():
                         first_pose, self.curr_pose, run_dbscan=False)
         if new_node is None:
             return None
+        
+        # Update the number of sightings
+        total_sightings = self.get_num_sightings() + other.get_num_sightings()
+        new_node.num_sightings = total_sightings
             
         # Tell our children who their new parent is
         for child in combined_children:
@@ -733,7 +774,6 @@ class GraphNode():
             hulls.append(child.get_convex_hull())
         
         # Get masks of which points fall into which hulls
-        logger.info(f"Current Node: {self.get_id()}")
         contain_masks = find_point_overlap_with_hulls(new_pc, hulls, fail_on_multi_assign=False)
         # TODO: Add statement to check if this multi-assignment happens too often!
 
@@ -749,9 +789,12 @@ class GraphNode():
 
         # If there are at least one point in this orphan point cloud, add them to this node's cloud
         if orphan_pc.shape[0] > 1:
-            to_delete = self.update_point_cloud(orphan_pc)
+            to_delete = self.update_point_cloud(orphan_pc, remove_outliers=False)
             if len(to_delete) > 0:
                 raise RuntimeError(f"Cannot merge_with_observation; Node {self.get_id()}'s point cloud invalid after adding additional points, which should never happen!")
+            
+        # Increase our sightings
+        self.num_sightings += 1
             
     def merge_parent_and_child(self, other: GraphNode) -> None:
         # Determine which node is the parent
@@ -772,9 +815,12 @@ class GraphNode():
         
         # Add semantic descriptors specific to child (not from grandchidren) to this node
         self.add_semantic_descriptors(other.semantic_descriptors)
+
+        # Increase our sightings
+        self.num_sightings += other.num_sightings
         
         # Do the same with point cloud specific to the child (not grandchildren)
-        to_delete = self.update_point_cloud(other.point_cloud)
+        to_delete = self.update_point_cloud(other.point_cloud, remove_outliers=False)
         if len(to_delete) > 0:
             raise RuntimeError(f"Cannot merge_child_with_self; New point cloud is invalid, this should never happen")
 
@@ -856,7 +902,7 @@ class GraphNode():
             prev_word = self._words.words[0]
 
         # Wipe variables
-        self._weighted_semantic_descriptor = None
+        self._semantic_descriptor = None
         self._words = None
 
         # Get the new word and see if it changed

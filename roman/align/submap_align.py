@@ -22,7 +22,9 @@ from roman.align.object_registration import InsufficientAssociationsException
 from roman.align.dist_reg_with_pruning import GravityConstraintError
 from roman.utils import object_list_bounds, transform_rm_roll_pitch, expandvars_recursive
 from roman.params.submap_align_params import SubmapAlignParams, SubmapAlignInputOutput
+from roman.params.system_params import SystemParams
 from roman.align.results import save_submap_align_results, SubmapAlignResults
+from roman.map.map import load_roman_map, ROMANMap
 from roman.object.segment import Segment
 from roman.scene_graph.graph_node import GraphNode
 from roman.scene_graph.scene_graph_3D import SceneGraph3D
@@ -44,7 +46,7 @@ def visualize_submap(map: Submap, name: str, color: np.ndarray):
     rr.log('/world/points/' + name, 
             rr.Points3D(positions=all_points, colors=colors))
 
-def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
+def submap_align(system_params: SystemParams, sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
     """
     Breaks maps into submaps and attempts to align each submap from one map with each submap from the second map.
 
@@ -64,37 +66,17 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
                     )
         rr.init("ROMAN: Submap Align Visualization", spawn=True, default_blueprint=blueprint)
     
-    # Load ground truth pose data
-    gt_pose_data = [None, None]
-    for i, yaml_file in enumerate(sm_io.input_gt_pose_yaml):
-        if yaml_file is not None:
-            # set environment variable so an individual param file is not needed
-            # for each robot / run
-            if sm_io.robot_env is not None:
-                os.environ[sm_io.robot_env] = sm_io.robot_names[i]
-            # load yaml file
-            with open(os.path.expanduser(yaml_file), 'r') as f:
-                gt_pose_args = yaml.safe_load(f)
-            if gt_pose_args['type'] == 'bag':
-                # expand variables
-                for k, v in gt_pose_args.items():
-                    if type(gt_pose_args[k]) == str:
-                        gt_pose_args[k] = expandvars_recursive(gt_pose_args[k])
-                print("Called from Submap_align.py: ", gt_pose_args)
-                gt_pose_data[i] = PoseData.from_bag(**{k: v for k, v in gt_pose_args.items() if k != 'type'})
-            elif gt_pose_args['type'] == 'csv':
-                gt_pose_data[i] = PoseData.from_csv(**{k: v for k, v in gt_pose_args.items() if k != 'type'})
-            elif gt_pose_args['type'] == 'bag_tf':
-                gt_pose_data[i] = PoseData.from_bag_tf(**{k: v for k, v in gt_pose_args.items() if k != 'type'})
-            else:
-                raise ValueError("Invalid pose data type")
-    
-    # Load ROMAN maps
+    # Load maps and split into Submaps
     submap_params = SubmapParams.from_submap_align_params(sm_params)
     submap_params.use_minimal_data = True
-    maps: list[SceneGraph3D] = [SceneGraph3D.load_map_from_pickle(sm_io.inputs[i]) for i in range(2)]
-    submaps: list[list[SceneGraph3DSubmap]] = [SceneGraph3DSubmap.generate_submaps(maps[i], 
-                                               submap_params, gt_pose_data[i]) for i in range(2)]
+    if system_params.use_roman_map_for_alignment:
+        maps: list[ROMANMap] = [load_roman_map(sm_io.inputs[i]) for i in range(2)]
+        submaps: list[list[Submap]] = [submaps_from_roman_map(
+            maps[i], submap_params, sm_io.gt_pose_data[i]) for i in range(2)]
+    else:
+        maps: list[SceneGraph3D] = [SceneGraph3D.load_map_from_pickle(sm_io.inputs[i]) for i in range(2)]
+        submaps: list[list[SceneGraph3DSubmap]] = [SceneGraph3DSubmap.generate_submaps(maps[i],
+                                                submap_params, sm_io.gt_pose_data[i]) for i in range(2)]
     print("Total Number of Submaps-  ROBOT1: ", len(submaps[0]), " ROBOT2: ", len(submaps[1]))
 
     # Registration setup
@@ -152,12 +134,12 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
                         submap.inactive_nodes.remove(node)
 
             # Extract poses of robots with respect to the world (removing roll & pitch), using GT if available
-            if gt_pose_data[0] is not None:
+            if sm_io.gt_pose_data[0] is not None:
                 H_i_wrt_w = submaps[0][i].pose_gravity_aligned_gt
             else:
                 H_i_wrt_w = submaps[0][i].pose_gravity_aligned
 
-            if gt_pose_data[1] is not None:
+            if sm_io.gt_pose_data[1] is not None:
                 H_j_wrt_w = submaps[1][j].pose_gravity_aligned_gt
             else:
                 H_j_wrt_w = submaps[1][j].pose_gravity_aligned
@@ -214,9 +196,9 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
                 clipper_dist_mat[i, j] = np.nan
 
             clipper_num_associations[i, j] = len(associations)
-            if clipper_num_associations[i, j] > 0:
-                print("# of associations: ", len(associations))
-            clipper_percent_associations[i, j] = len(associations) / np.mean([len(submap_i), len(submap_j)])
+            avg_num_objs = np.mean([len(submap_i), len(submap_j)])
+            if avg_num_objs > 0: clipper_percent_associations[i, j] = len(associations) / avg_num_objs
+            else: clipper_percent_associations[i, j] = 0
             
             T_ij_mat[i, j] = H_j_wrt_i
             T_ij_hat_mat[i, j] = T_ij_hat

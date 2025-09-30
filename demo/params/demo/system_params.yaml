@@ -1,0 +1,3 @@
+num_req_assoc: 4
+use_scene_graph: False
+use_roman_map_for_alignment: True

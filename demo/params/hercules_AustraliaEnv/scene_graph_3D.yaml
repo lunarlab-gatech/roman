@@ -1,0 +1,23 @@
+enable_rerun_viz: False
+
+use_convex_hull_for_iou: False
+min_iou_for_association: 0.25
+voxel_size_for_voxel_grid_iou: 0.2
+
+enable_synonym_merges: False
+min_sem_con_for_association: 0.94
+ratio_dist2length_threshold_nearby_node_semantic_merge: 0.025
+
+enable_resolve_overlapping_nodes: False
+iou_threshold_overlapping_obj: 0.2
+enc_threshold_overlapping_obj: 0.2
+
+enable_meronomy_relationship_inference: False
+ratio_dist2length_threshold_shared_holonym: 0.05
+ratio_dist2length_threshold_holonym_meronym: 0.05
+ratio_relationship_weight_2_total_weight: 2
+
+max_t_active_for_node: 15
+max_dist_active_for_node: 10
+run_dbscan_when_retiring_node: True
+delete_nodes_only_seen_once: True

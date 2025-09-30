@@ -1,0 +1,21 @@
+num_words_to_consider_ourselves: 1
+
+enable_variable_voxel_size: False
+voxel_size_not_variable: 0.05
+voxel_size_variable_ratio_to_length: 0.01
+
+run_dbscan_when_creating_node: False
+enable_variable_epsilon: False
+epsilon_not_variable: 0.25
+epsilon_variable_ratio_to_length: 0.1
+min_points: 10
+cluster_percentage_of_full: 0.8
+
+enable_remove_statistical_outliers: True
+stat_out_num_neighbors: 10
+std_ratio: 1.0
+
+use_weighted_average_for_descriptor: False
+get_semantic_descriptors_includes_children: False
+
+get_point_cloud_includes_children: False

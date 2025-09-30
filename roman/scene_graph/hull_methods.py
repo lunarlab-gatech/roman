@@ -113,12 +113,14 @@ def convex_hull_geometric_overlap(a: trimesh.Trimesh | None, b: trimesh.Trimesh 
     intersection = a.intersection(b, engine='manifold')
 
     # Calculate the IOU value
-    inter_vol = intersection.volume
-    iou = min(inter_vol / (a.volume + b.volume - inter_vol), 1.0)
+    inter_vol = np.clip(intersection.volume, 0.0, 1.0)
+    a_volume_safe = np.clip(a.volume, 0.0, 1.0)
+    b_volume_safe = np.clip(b.volume, 0.0, 1.0)
+    iou = min(inter_vol / (a_volume_safe + b_volume_safe - inter_vol), 1.0)
 
     # Calculate the relative enclosure ratios
-    enc_a_ratio = min(inter_vol / a.volume, 1.0)
-    enc_b_ratio = min(inter_vol / b.volume, 1.0)
+    enc_a_ratio = min(inter_vol / a_volume_safe, 1.0)
+    enc_b_ratio = min(inter_vol / b_volume_safe, 1.0)
 
     return iou, enc_a_ratio, enc_b_ratio
 

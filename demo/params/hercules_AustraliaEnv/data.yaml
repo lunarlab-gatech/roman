@@ -2,7 +2,7 @@
 dt: 0.166666666666666667
 
 # Robots for which to include in the experiment
-runs: ["Husky1", "Husky2"]
+runs: ["Husky1", "Drone1"]
 
 # Environment variable to make parameters below work for each robot
 run_env: "ROBOT" 
@@ -11,8 +11,8 @@ img_data:
   # Specify that we want to load data from .npy files with memory-mapping
   # Allows us to avoid loading all images into RAM
   type: "npy"
-  path: "/home/${USER}/data/Hercules_datasets/V1.4.1/extract/files_for_roman_baseline/${ROBOT}/rgb/imgs.npy"
-  path_times: "/home/${USER}/data/Hercules_datasets/V1.4.1/extract/files_for_roman_baseline/${ROBOT}/rgb/times.npy"
+  path: "/home/${USER}/data/Hercules_datasets/V1.5/extract/files_for_roman_baseline/${ROBOT}/rgb/imgs.npy"
+  path_times: "/home/${USER}/data/Hercules_datasets/V1.5/extract/files_for_roman_baseline/${ROBOT}/rgb/times.npy"
 
   # Camera parameters
   K: [376,   0, 376,
@@ -25,8 +25,8 @@ img_data:
 
 depth_data:
   type: "npy"
-  path: "/home/${USER}/data/Hercules_datasets/V1.4.1/extract/files_for_roman_baseline/${ROBOT}/depth/imgs.npy"
-  path_times: "/home/${USER}/data/Hercules_datasets/V1.4.1/extract/files_for_roman_baseline/${ROBOT}/depth/times.npy"
+  path: "/home/${USER}/data/Hercules_datasets/V1.5/extract/files_for_roman_baseline/${ROBOT}/depth/imgs.npy"
+  path_times: "/home/${USER}/data/Hercules_datasets/V1.5/extract/files_for_roman_baseline/${ROBOT}/depth/times.npy"
   K: [376,   0, 376,
         0, 376, 240,
         0,   0,   1]
@@ -38,12 +38,12 @@ depth_data:
 pose_data:
   # Load from csv to avoid expensive rosbag search
   type: "csv"
-  path: "/home/${USER}/data/Hercules_datasets/V1.4.1/extract/files_for_roman_baseline/${ROBOT}/poseGT.csv"
+  path: "/home/${USER}/data/Hercules_datasets/V1.5/extract/files_for_roman_baseline/${ROBOT}/vins_result_no_loop_reformatted.csv"
 
   # Time tolerance used to reject available data if no pose data is within the time tolerance value
-  time_tol: 0.03
-  interp: False # Don't interpolate between poses
-  causal: True  # Can't use more than one pose for multiple frames
+  time_tol: 0.0249 # For a value right between both, won't do either. Thus, we enforce causality.
+  interp: False # Don't interpolate between poses.
+  causal: False # We enforce causality with time_tol, this allows us to get closest pose and not just the latest pose.
 
   # Options that inform the algorithm where data is saved in the CSV file
   csv_options:

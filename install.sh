@@ -6,6 +6,7 @@ set -euo pipefail
 # Navigate into the directory
 ROMAN_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 cd $ROMAN_DIR
+
 # Install gdown if not already installed
 pip install gdown
 

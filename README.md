@@ -57,9 +57,7 @@ Run the following commands:
 export YOLO_VERBOSE=False
 export ROMAN_DEMO_DATA=/home/$USER/data/ROMAN_Kimera_Multi_Data
 export ROMAN_WEIGHTS=/home/$USER/roman/weights
-python3 demo/demo.py -p demo/params/demo -o demo_output/demo --skip-align --skip-rpgo
-python3 demo/demo.py -p demo/params/demo -o demo_output/demo --skip-map --skip-rpgo
-python3 demo/demo.py -p demo/params/demo -o demo_output/demo --skip-map --skip-align
+python3 demo/demo.py -p demo/params/demo
 ```
 
 For faster processing, run the following command first:
@@ -73,14 +71,7 @@ Run the following command to run this demo:
 
 ```
 export YOLO_VERBOSE=False
-python3 demo/demo.py -p demo/params/hercules_AustraliaEnv -o demo_output/hercules_AustraliaEnv --skip-align --skip-rpgo
-python3 demo/demo.py -p demo/params/hercules_AustraliaEnv -o demo_output/hercules_AustraliaEnv --skip-map --skip-rpgo    
-python3 demo/demo.py -p demo/params/hercules_AustraliaEnv -o demo_output/hercules_AustraliaEnv --skip-map --skip-align
-```
-
-If you want to enable visualizations of the mapping step:
-```
-python3 demo/demo.py -p demo/params/hercules_AustraliaEnv -o demo_output/hercules_AustraliaEnv --viz-observations --viz-map --viz-3d --skip-align --skip-rpgo
+python3 demo/demo.py -p demo/params/hercules_AustraliaEnv
 ```
 
 In the output directory, the 'map' folder will contain .mp4 files with visualizations, and .pkl files with the stored ROMAN maps. 
@@ -92,6 +83,11 @@ python3 demo/o3d_viz.py demo_output/hercules_AustraliaEnv/map/<robot_name>.pkl
 ```
 
 In the 'align' folder, the file 'align.png' will contain a plot titled "Number of CLIPPER associations". If this plot is a single color, there's a high likelihood that no associations were found, and thus no loop closures. Each detected loop closure can be found in `align.json`.
+
+To visualize the loop closures after the alignment set and see error compared to GT, run the following command:
+```
+python3 demo/loop_closure_viz.py demo_output/hercules_AustraliaEnv/align/Husky1_Husky2/align.json /home/${USER}/data/Hercules_datasets/V1.5/extract/files_for_roman_baseline/Husky1/poseGT.csv /home/${USER}/data/Hercules_datasets/V1.5/extract/files_for_roman_baseline/Husky2/poseGT.csv
+```
 
 To visualize the .g2o files in the output, you can use the g2o_viewer binary from (g2o)[https://github.com/RainerKuemmerle/g2o]. If not on the path, you can find it in the `build/bin` directory of the repository after building:
 

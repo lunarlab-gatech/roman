@@ -4,16 +4,16 @@ import pickle
 from dataclasses import dataclass
 from typing import List
 import json
+import numpy as np
 
 from robotdatapy.transform import transform_to_xytheta, transform_to_xyz_quat, \
     transform_to_xyzrpy
 from robotdatapy.data.pose_data import PoseData
-
 from roman.utils import transform_rm_roll_pitch
 from roman.map.map import ROMANMap, SubmapParams
 from roman.params.submap_align_params import SubmapAlignInputOutput, SubmapAlignParams
-
 from roman.object.segment import Segment
+from scipy.spatial.transform import Rotation
 
 @dataclass
 class SubmapAlignResults:
@@ -207,3 +207,87 @@ def save_submap_align_results(results: SubmapAlignResults, submaps, roman_maps: 
                         })
                     json.dump(sm_json, f, indent=4)
                     f.close()
+
+def extract_num_loop_closures(json_file: str) -> int:
+    with open(json_file, 'r') as f:
+        loops = json.load(f)
+        return len(loops)
+
+def calculate_loop_closure_error(json_file: str, gt_pose0: PoseData, gt_pose1: PoseData) -> list[float]:
+
+    def extract_T_R_from_transform(H: np.ndarray) -> tuple[np.ndarray, Rotation]:
+        T = H[:3, 3] 
+        R = Rotation.from_matrix(H[:3, :3])
+        return T, R
+    
+    def relative_transform(t1: np.ndarray, r1: Rotation, t2: np.ndarray, r2: Rotation):
+        r_rel = r1.inv() * r2
+        t_rel = r1.inv().apply(t2 - t1)
+        return t_rel, r_rel
+
+    # Load the calculated loop closure data
+    with open(json_file, 'r') as f:
+        loops = json.load(f)
+
+    # If there are no loops, return infinite error
+    if len(loops) == 0:
+        return [np.inf, np.inf, np.inf, np.inf, np.inf, np.inf]
+
+    # Create lists to store errors
+    trans_errors: list[float] = []
+    rot_errors: list[float] = []
+
+    # For each loop closure
+    for loop in loops:
+        # Calculate the time in both robots maps
+        t0_sec, t1_sec = loop["seconds"]
+        t0_ns, t1_ns = loop["nanoseconds"]
+        t0 = t0_sec + t0_ns * 1e-9
+        t1 = t1_sec + t1_ns * 1e-9
+
+        # Get GT poses at those times
+        H_gt0 = gt_pose0.T_WB(t0)
+        H_gt1 = gt_pose1.T_WB(t1)
+        t_gt0, r_gt0 = extract_T_R_from_transform(H_gt0)
+        t_gt1, r_gt1 = extract_T_R_from_transform(H_gt1)
+
+        # Compute GT relative transform
+        gt_t_rel, gt_r_rel = relative_transform(t_gt0, r_gt0, t_gt1, r_gt1)
+
+        #print("GT Tranlsation: ", gt_t_rel)
+        #print("GT Rotation: ", gt_r_rel.as_matrix())
+
+        # Predicted transform
+        pred_t = np.array(loop["translation"])
+        pred_r = Rotation.from_quat(loop["rotation"])
+
+        #print("Predicted Translation: ", pred_t)
+        #print("Predicted Rotation: ", pred_r.as_matrix())
+
+        # Compute errors
+        t_err = np.linalg.norm(pred_t - gt_t_rel)
+        r_diff = pred_r.inv() * gt_r_rel
+        angle_error = r_diff.magnitude() * 180/np.pi
+        trans_errors.append(t_err)
+        rot_errors.append(angle_error)
+
+
+    mean_trans_error = np.mean(trans_errors)
+    median_trans_error = np.median(trans_errors)
+    std_trans_error = np.std(trans_errors)
+    mean_rot_error_deg = np.mean(rot_errors)
+    median_rot_error_deg = np.median(rot_errors)
+    std_rot_error_deg = np.std(rot_errors)
+
+    print("=======================")
+    print("Translation errors:", trans_errors, end="\n")
+    print("Rotation errors (deg):", rot_errors, end="\n")
+    print("=======================")
+    print("Mean translation error:",  mean_trans_error)
+    print("Median translation error:", median_trans_error)
+    print("Standard Deviation translation error: ", std_trans_error)
+    print("Mean rotation error (deg):", mean_rot_error_deg)
+    print("Median rotation error (deg): ", median_rot_error_deg)
+    print("Standard Deviation rotation error (deg):", std_rot_error_deg)
+    print("=======================")
+    return [mean_trans_error, median_trans_error, std_trans_error, mean_rot_error_deg, median_rot_error_deg, std_rot_error_deg]

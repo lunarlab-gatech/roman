@@ -34,3 +34,7 @@ force_rm_upside_down: True
 # If true, use bottom middle of object as reference point
 # for registration rather than the center of the object
 use_object_bottom_middle: True
+
+# Increase both by 5.0x since the map is bigger
+sigma: 2.0
+epsilon: 3.0
