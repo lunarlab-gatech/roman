@@ -10,6 +10,7 @@ from ..params.scene_graph_3D_params import GraphNodeParams
 from robotdatapy.camera import xyz_2_pixel
 from robotdatapy.transform import transform
 from roman.map.observation import Observation
+from roman.map.voxel_grid import VoxelGrid
 from roman.object.segment import Segment
 import trimesh
 from typing import Iterator
@@ -176,12 +177,17 @@ class GraphNode():
         """ Returns True if self is the child of other. """
         return other.is_parent(self)
     
-    def get_convex_hull(self)-> trimesh.Trimesh | None:
+    def get_convex_hull(self) -> trimesh.Trimesh | None:
         if self.is_RootGraphNode():
             return None
         if self._convex_hull is None:
             self._convex_hull = get_convex_hull_from_point_cloud(self.get_point_cloud())
         return self._convex_hull
+    
+    def get_voxel_grid(self, voxel_size: float) -> VoxelGrid | None:
+        if self.is_RootGraphNode():
+            return None
+        return VoxelGrid.from_points(self.get_point_cloud(), voxel_size)
     
     def get_semantic_descriptor(self) -> np.ndarray | None:
         if self._semantic_descriptor is None:

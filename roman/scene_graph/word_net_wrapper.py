@@ -292,7 +292,7 @@ class WordNetWrapper():
 
         self.word_list.sort()
         self.num_of_words: int = len(self.word_list)
-        logger.debug(f"{self.word_list}")
+        logger.debug(f"Final Word List: {self.word_list}")
         logger.info(f"Number of Words in dictionary: {len(self.word_list)}")
 
         # Check if we have access to cupy
@@ -371,9 +371,14 @@ class WordNetWrapper():
     
 def main():
 
-    words = ["shoebird"]
+    words = ["automotive vehicle"]
     for word in words:
         print(WordWrapper.from_word(word))
+
+    wordnetWrapper = WordNetWrapper(["curb", "tree", "garbage can", "door", "window", "pole", "street lamp", "trunk", "wall", "sign", "crosswalk", "sidewalk", "mulch", "leaves", "grass", "retaining wall", "railing", "curbstone", "bush", "hedge" "floor marking", "stairs", "column", "car", "wheel", "bike", "street", "manhole", "parking meter", "tree pit", "fire hydrant", "road marking", "zebra strips"])
+    
+    wrapped = WordWrapper.from_word('car')
+    print(wrapped.get_all_holonyms(True, 2))
 
 if __name__ == "__main__":
     main()

@@ -2,7 +2,7 @@
 dt: 0.166666666666666667
 
 # Robots for which to include in the experiment
-runs: ["Husky1", "Husky2"]
+runs: ["Drone1", "Drone2"]
 
 # Environment variable to make parameters below work for each robot
 run_env: "ROBOT" 

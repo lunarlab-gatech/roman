@@ -54,6 +54,7 @@ class SceneGraph3D():
         self.shortest_dist_dist: defaultdict = defaultdict(lambda: defaultdict(lambda: None))
 
         # TODO: Are there cases where we don't want to call remove from graph complete, as we want to retire the node instead?
+        # TODO: I might need a mechanism to merge hypernyms/hyponyms in the graph.
 
     @typechecked
     def len(self) -> int:
@@ -191,7 +192,7 @@ class SceneGraph3D():
                     continue
                 
                 # Calculate IOU
-                iou, _, _ = self.convex_hull_overlap_cached(node, new_node)
+                iou, _, _ = self.geometric_overlap_cached(node, new_node)
 
                 # Check if it passes minimum requirements for association
                 logger.debug(f"Currently comparing Node {new_node.get_id()} to Node {node.get_id()} with IOU: {iou}")
@@ -224,7 +225,7 @@ class SceneGraph3D():
         return new_pairs
     
     @typechecked
-    def convex_hull_overlap_cached(self, a: GraphNode, b: GraphNode) -> tuple[float, float, float]:
+    def geometric_overlap_cached(self, a: GraphNode, b: GraphNode) -> tuple[float, float, float]:
         """ Wrapper around convex_hull_geometric_overlap that caches results for reuse. """
 
         # Rearrange so that a is the node with the smaller id
@@ -239,7 +240,17 @@ class SceneGraph3D():
 
         # Calculate (or recalculate) the overlap if necessary
         if result is None or a._redo_convex_hull_geometric_overlap or b._redo_convex_hull_geometric_overlap:
+
+            # Calculate geometric overlap using hulls
             result: tuple[float, float, float] = convex_hull_geometric_overlap(a.get_convex_hull(), b.get_convex_hull())
+
+            # Use Voxel Grid for IOU if specified
+            if not self.params.use_convex_hull_for_iou:
+                voxel_size = self.params.voxel_size_for_voxel_grid_iou
+                voxel_iou = a.get_voxel_grid(voxel_size).iou(b.get_voxel_grid(voxel_size))
+                result = (voxel_iou, result[1], result[2])
+
+            # Save the results
             self.overlap_dict[a.get_id()][b.get_id()] = result
 
             # Tell nodes that we've updated our cache with their latest info
@@ -321,7 +332,7 @@ class SceneGraph3D():
                             continue
 
                         # Calculate the geometric overlap between them
-                        iou, enc_i, enc_j = self.convex_hull_overlap_cached(node_i, node_j)
+                        iou, enc_i, enc_j = self.geometric_overlap_cached(node_i, node_j)
 
                         # If this is above a threshold, then we've found an overlap
                         if iou > self.params.iou_threshold_overlapping_obj or enc_i > self.params.enc_threshold_overlapping_obj \
@@ -451,12 +462,12 @@ class SceneGraph3D():
                 # Objects at least half encompassed by other node should be assigned there, no matter how small.
                 parent_iou, parent_encompassment = 0.0, 0.5 
             else:
-                parent_iou, _, parent_encompassment = self.convex_hull_overlap_cached(pos_parent_node, node)
+                parent_iou, _, parent_encompassment = self.geometric_overlap_cached(pos_parent_node, node)
 
             # Add similarities for geometric overlaps with children
             children_iou, children_enclosure = [], []
             for child in children:
-                iou, child_enc, _ = self.convex_hull_overlap_cached(child, node)
+                iou, child_enc, _ = self.geometric_overlap_cached(child, node)
                 children_iou.append(iou)
                 children_enclosure.append(child_enc)
 
@@ -481,7 +492,7 @@ class SceneGraph3D():
         new_children: list[GraphNode] = []
         if not only_leaf:
             for child in new_parent.get_children():
-                _, child_enc, _ = self.convex_hull_overlap_cached(child, node)
+                _, child_enc, _ = self.geometric_overlap_cached(child, node)
                 if child_enc >= 0.5:
                     new_children.append(child)
 
@@ -604,7 +615,7 @@ class SceneGraph3D():
                     if not node_i.is_descendent_or_ascendent(node_j):
                         
                         # Calculate IOU and Semantic Similarity
-                        iou, _, _ = self.convex_hull_overlap_cached(node_i, node_j)
+                        iou, _, _ = self.geometric_overlap_cached(node_i, node_j)
     
                         # See if they pass minimum requirements for association
                         if self.pass_minimum_requirements_for_association(iou):

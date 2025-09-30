@@ -68,21 +68,26 @@ if __name__ == '__main__':
     parser.add_argument('--skip-align', action='store_true', help='Skip alignment')
     parser.add_argument('--skip-rpgo', action='store_true', help='Skip robust pose graph optimization')
     parser.add_argument('--skip-indices', type=int, nargs='+', help='Skip specific runs in mapping and alignment', default=[])
+    parser.add_argument('--disable-wandb', action='store_true', help='Skip logging to W&B')
     args = parser.parse_args()
 
     # Setup parameters
     system_params = SystemParams.from_param_dir(args.params)
 
     # Setup WandB to track this run
-    def shorten(d):
-        return {(''.join([w[0] for w in k.split('_')]) if isinstance(v, dict) else k): (shorten(v) if isinstance(v, dict) else v) for k, v in d.items()}
-    config_dict = shorten({'system_params': system_params.model_dump()})
-    wandb_run = wandb.init(project='ROMAN + MeronomyMapping Ablations',
-                     config=config_dict)
+    if not args.disable_wandb:
+        def shorten(d):
+            return {(''.join([w[0] for w in k.split('_')]) if isinstance(v, dict) else k): (shorten(v) if isinstance(v, dict) else v) for k, v in d.items()}
+        config_dict = shorten({'system_params': system_params.model_dump()})
+        wandb_run = wandb.init(project='HERCULES Experiment',
+                        config=config_dict)
+        run_name = wandb_run.name
+    else:
+        run_name = 'latest'
 
     # Create output directories
     params_path = Path(args.params)
-    output_path = params_path.parent.parent.parent / "demo_output" / params_path.name / wandb_run.name
+    output_path = params_path.parent.parent.parent / "demo_output" / params_path.name / run_name
     os.makedirs(os.path.join(output_path, "map"), exist_ok=True)
     os.makedirs(os.path.join(output_path, "align"), exist_ok=True)
     os.makedirs(os.path.join(output_path, "offline_rpgo"), exist_ok=True)
@@ -155,7 +160,7 @@ if __name__ == '__main__':
                 num_loop_closures = extract_num_loop_closures(json_path)       
                 print(f"Total Number of Loop Closures: {num_loop_closures}")
                 errors = calculate_loop_closure_error(json_path, gt_pose_data[i], gt_pose_data[j])
-                if i != j:
+                if not args.disable_wandb and i != j:
                     wandb_run.log({"LC: Total number": num_loop_closures,
                                    "LC: Mean Translation Error": errors[0], 
                                    "LC: Median Translation Error": errors[1],
@@ -292,7 +297,8 @@ if __name__ == '__main__':
             print("ATE results:")
             print("============")
             print(ate_rmse)
-            wandb_run.log({"RMS ATE": ate_rmse})
+            if not args.disable_wandb:
+                wandb_run.log({"RMS ATE": ate_rmse})
             with open(os.path.join(output_path, "offline_rpgo", "ate_rmse.txt"), 'w') as f:
                 print(ate_rmse, file=f)
                 f.close()

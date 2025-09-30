@@ -6,29 +6,15 @@ import yaml
 class SceneGraph3DParams(BaseModel):
     """
     Params for 3D Scene Graph association, merging, and relationship inference.
-
-    Args:
-        min_iou_for_association (float): Minimum IOU for associating an observation with a node or merging two nodes.
-        enable_semantic_merges (bool): Whether to enable semantic merges.
-        min_sem_con_for_association (float): Minimum cosine similarity that triggers a semantic merge.
-        ratio_dist2length_threshold_nearby_node_semantic_merge (float): Threshold for ratio of distance/length to trigger
-            a semantic merge with a nearby node.
-        enable_resolve_overlapping_nodes (bool): Whether to enable resolving overlapping nodes.
-        iou_threshold_overlapping_obj (float): IOU threshold that detects overlapping objects.
-        enc_threshold_overlapping_obj (float): Enclosure threshold that detects overlapping objects.
-        enable_meronomy_relationship_inference (bool): Whether to enable meronomy relationship inference.
-        ratio_dist2length_threshold_shared_holonym (float): Ratio of distance to object volume threshold for inferring shared holonym relationships.
-        ratio_dist2length_threshold_holonym_meronym (float): Ratio of distance to object volume threshold for inferring holonym-meronym relationships.
-        ratio_relationship_weight_2_total_weight (float): Ratio of previous semantic weight to weight for the detected word.
-        max_t_active_for_node (float): Maximum time since first seen for a node to remain active.
-        max_dist_active_for_node (float): Maximum distance traveled since first seen for a node to remain active.
     """
 
     # ======================= Visualization =======================
     enable_rerun_viz: bool
 
     # ======================= Node Association =======================
+    use_convex_hull_for_iou: bool
     min_iou_for_association: float
+    voxel_size_for_voxel_grid_iou: float
 
     # ======================= Semantic Merges =======================
     enable_semantic_merges: bool
