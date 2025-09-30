@@ -165,7 +165,7 @@ if __name__ == '__main__':
                 system_params.submap_align_params.single_robot_lc = (i == j)
 
                 # Run the alignment process
-                submap_align(sm_params=system_params.submap_align_params, sm_io=sm_io)
+                submap_align(system_params=system_params, sm_params=system_params.submap_align_params, sm_io=sm_io)
 
                 # Calculate loop closure errors
                 json_path = os.path.join(align_path, "align.json")      
