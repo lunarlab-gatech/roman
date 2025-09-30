@@ -18,6 +18,7 @@ import os
 import yaml
 
 import clipperpy
+from roman.align.object_registration import ObjectRegistration
 from roman.align.roman_registration import ROMANRegistration, ROMANParams
 from roman.align.ransac_reg import RansacReg
 from roman.align.dist_reg_with_pruning import DistRegWithPruning, GravityConstraintError
@@ -60,7 +61,7 @@ class SubmapAlignParams:
             params = yaml.full_load(f)
         return cls(**params)
     
-    def get_object_registration(self) -> ROMANRegistration:
+    def get_object_registration(self) -> ObjectRegistration:
         if self.fusion_method == 'geometric_mean':
             sim_fusion_method = clipperpy.invariants.ROMAN.GEOMETRIC_MEAN
         else:

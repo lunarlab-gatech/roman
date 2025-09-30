@@ -18,7 +18,7 @@ from robotdatapy.transform import transform_to_xytheta, transform_to_xyzrpy
 from robotdatapy.transform import transform
 
 from roman.map.map import Submap, SubmapParams, submaps_from_roman_map
-from roman.align.object_registration import InsufficientAssociationsException
+from roman.align.object_registration import InsufficientAssociationsException, ObjectRegistration
 from roman.align.dist_reg_with_pruning import GravityConstraintError
 from roman.utils import object_list_bounds, transform_rm_roll_pitch, expandvars_recursive
 from roman.params.submap_align_params import SubmapAlignParams, SubmapAlignInputOutput
@@ -93,7 +93,7 @@ def submap_align(system_params: SystemParams, sm_params: SubmapAlignParams, sm_i
     associated_objs_mat = [[[] for _ in range(len(submaps[1]))] for _ in range(len(submaps[0]))] # cannot be numpy array since each element is a different sized array
 
     # Registration method
-    registration: ROMANRegistration = sm_params.get_object_registration()
+    registration: ObjectRegistration = sm_params.get_object_registration()
 
     # iterate over pairs of submaps and create registration results
     update_frame = 0
