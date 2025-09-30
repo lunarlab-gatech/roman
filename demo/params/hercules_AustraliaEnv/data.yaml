@@ -2,7 +2,7 @@
 dt: 0.166666666666666667
 
 # Robots for which to include in the experiment
-runs: ["Drone1", "Drone2"]
+runs: ["Husky1", "Drone1"]
 
 # Environment variable to make parameters below work for each robot
 run_env: "ROBOT" 
@@ -41,9 +41,9 @@ pose_data:
   path: "/home/${USER}/data/Hercules_datasets/V1.5/extract/files_for_roman_baseline/${ROBOT}/vins_result_no_loop_reformatted.csv"
 
   # Time tolerance used to reject available data if no pose data is within the time tolerance value
-  time_tol: 0.03
-  interp: False # Don't interpolate between poses
-  causal: True  # Can't use more than one pose for multiple frames
+  time_tol: 0.0249 # For a value right between both, won't do either. Thus, we enforce causality.
+  interp: False # Don't interpolate between poses.
+  causal: False # We enforce causality with time_tol, this allows us to get closest pose and not just the latest pose.
 
   # Options that inform the algorithm where data is saved in the CSV file
   csv_options:

@@ -71,14 +71,7 @@ Run the following command to run this demo:
 
 ```
 export YOLO_VERBOSE=False
-python3 demo/demo.py -p demo/params/hercules_AustraliaEnv -o demo_output/hercules_AustraliaEnv --skip-align --skip-rpgo
-python3 demo/demo.py -p demo/params/hercules_AustraliaEnv -o demo_output/hercules_AustraliaEnv --skip-map --skip-rpgo    
-python3 demo/demo.py -p demo/params/hercules_AustraliaEnv -o demo_output/hercules_AustraliaEnv --skip-map --skip-align
-```
-
-If you want to enable visualizations of the mapping step:
-```
-python3 demo/demo.py -p demo/params/hercules_AustraliaEnv -o demo_output/hercules_AustraliaEnv --viz-observations --viz-map --viz-3d --skip-align --skip-rpgo
+python3 demo/demo.py -p demo/params/hercules_AustraliaEnv
 ```
 
 In the output directory, the 'map' folder will contain .mp4 files with visualizations, and .pkl files with the stored ROMAN maps. 

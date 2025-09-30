@@ -69,7 +69,12 @@ if __name__ == '__main__':
     parser.add_argument('--skip-rpgo', action='store_true', help='Skip robust pose graph optimization')
     parser.add_argument('--skip-indices', type=int, nargs='+', help='Skip specific runs in mapping and alignment', default=[])
     parser.add_argument('--disable-wandb', action='store_true', help='Skip logging to W&B')
+    parser.add_argument('--use-map', type=str, help='Run name with map we want to use', default=None)
     args = parser.parse_args()
+    if not args.skip_map and args.use_map is not None:
+        raise ValueError("Can't set --use-map without --skip-map")
+    if args.skip_map and args.use_map is None:
+        raise ValueError("User specified --skip-map but provided no map to use instead with --use-map")
 
     # Setup parameters
     system_params = SystemParams.from_param_dir(args.params)
@@ -79,6 +84,8 @@ if __name__ == '__main__':
         def shorten(d):
             return {(''.join([w[0] for w in k.split('_')]) if isinstance(v, dict) else k): (shorten(v) if isinstance(v, dict) else v) for k, v in d.items()}
         config_dict = shorten({'system_params': system_params.model_dump()})
+        config_dict['skip_map'] = args.skip_map
+        config_dict['use_map'] = args.use_map
         wandb_run = wandb.init(project='HERCULES Experiment',
                         config=config_dict)
         run_name = wandb_run.name
@@ -95,6 +102,11 @@ if __name__ == '__main__':
     os.makedirs(os.path.join(output_path, "offline_rpgo/dense"), exist_ok=True)
     params_output_path = output_path / "params.yaml"
     params_output_path.write_text(yaml.safe_dump(convert_paths(system_params.model_dump())))
+
+    # Set the directory with the map to use
+    input_map_path = output_path
+    if args.use_map is not None:
+        input_map_path = input_map_path.parent / args.use_map
 
     # Extract GT Pose Data
     gt_pose_data: list[PoseData] = system_params.pose_data_gt_params.get_pose_data(system_params.data_params)
@@ -134,8 +146,8 @@ if __name__ == '__main__':
                 os.makedirs(align_path, exist_ok=True)
 
                 # Load the two pickle files containing the maps from the first step
-                input_files: list[str] = [os.path.join(output_path, "map", f"{system_params.data_params.runs[i]}.pkl"),
-                            os.path.join(output_path, "map", f"{system_params.data_params.runs[j]}.pkl")]
+                input_files: list[str] = [os.path.join(input_map_path, "map", f"{system_params.data_params.runs[i]}.pkl"),
+                            os.path.join(input_map_path, "map", f"{system_params.data_params.runs[j]}.pkl")]
 
                 # Create the Input/Output parameters
                 sm_io = SubmapAlignInputOutput(
@@ -174,7 +186,7 @@ if __name__ == '__main__':
         # Create g2o files for odometry
         for i, run in enumerate(system_params.data_params.runs):
             roman_map_pkl_to_g2o(
-                pkl_file=os.path.join(output_path, "map", f"{run}.pkl"),
+                pkl_file=os.path.join(input_map_path, "map", f"{run}.pkl"),
                 g2o_file=os.path.join(output_path, "offline_rpgo/sparse", f"{run}.g2o"),
                 time_file=os.path.join(output_path, "offline_rpgo/sparse", f"{run}.time.txt"),
                 robot_id=i,
@@ -186,7 +198,7 @@ if __name__ == '__main__':
             
             # create dense g2o file
             roman_map_pkl_to_g2o(
-                pkl_file=os.path.join(output_path, "map", f"{run}.pkl"),
+                pkl_file=os.path.join(input_map_path, "map", f"{run}.pkl"),
                 g2o_file=os.path.join(output_path, "offline_rpgo/dense", f"{run}.g2o"),
                 time_file=os.path.join(output_path, "offline_rpgo/dense", f"{run}.time.txt"),
                 robot_id=i,

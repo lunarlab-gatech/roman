@@ -35,6 +35,6 @@ force_rm_upside_down: True
 # for registration rather than the center of the object
 use_object_bottom_middle: True
 
-# Incrase both by 1.5x since the map is bigger
-sigma: 0.6
-epsilon: 0.9
+# Increase both by 5.0x since the map is bigger
+sigma: 2.0
+epsilon: 3.0
