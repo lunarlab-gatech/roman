@@ -125,13 +125,23 @@ def submap_align(system_params: SystemParams, sm_params: SubmapAlignParams, sm_i
             # I think single_robot_lc means that it will try to avoid doing loop closures at all for a single robot with itself.
             # TODO: Ask advisors; why would they do this?
             if sm_params.single_robot_lc:
-                ids_i = set([node.get_id() for node in submap_i.inactive_nodes])
-                ids_j = set([node.get_id() for node in submap_j.inactive_nodes])
-                common_ids = ids_i.intersection(ids_j)
-                for submap in [submap_i, submap_j]:
-                    to_rm: list[GraphNode] = [node for node in submap.inactive_nodes if node.get_id() in common_ids]
-                    for node in to_rm:
-                        submap.inactive_nodes.remove(node)
+
+                if system_params.use_roman_map_for_alignment:
+                    ids_i = set([seg.id for seg in submap_i.segments])
+                    ids_j = set([seg.id for seg in submap_j.segments])
+                    common_ids = ids_i.intersection(ids_j)
+                    for sm in [submap_i, submap_j]:
+                        to_rm = [seg for seg in sm.segments if seg.id in common_ids]
+                        for seg in to_rm:
+                            sm.segments.remove(seg)
+                else:
+                    ids_i = set([node.get_id() for node in submap_i.inactive_nodes])
+                    ids_j = set([node.get_id() for node in submap_j.inactive_nodes])
+                    common_ids = ids_i.intersection(ids_j)
+                    for submap in [submap_i, submap_j]:
+                        to_rm: list[GraphNode] = [node for node in submap.inactive_nodes if node.get_id() in common_ids]
+                        for node in to_rm:
+                            submap.inactive_nodes.remove(node)
 
             # Extract poses of robots with respect to the world (removing roll & pitch), using GT if available
             if sm_io.gt_pose_data[0] is not None:
@@ -158,6 +168,8 @@ def submap_align(system_params: SystemParams, sm_params: SubmapAlignParams, sm_i
             try:   
                 # Call the registration routine
                 start_t = time.time()
+                if not system_params.use_roman_map_for_alignment:
+                    raise NotImplementedError
                 associations = registration.register(submap_i.segments, submap_j.segments)
                 timing_list.append(time.time() - start_t)
                 
