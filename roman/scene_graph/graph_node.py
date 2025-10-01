@@ -71,7 +71,7 @@ class GraphNode():
         # Points that relate only to this object and not any children (expressed in world frame).
         self.point_cloud: np.ndarray = np.zeros((0, 3), dtype=np.float64)
 
-        # Points (could include childnre points) expressed in the robot frame aligned to gravity
+        # Points (could include children points) expressed in the robot frame aligned to gravity
         self.point_cloud_robot_aligned: np.ndarray | None = None
 
         # Tracks number of times we've been sighted
@@ -280,35 +280,6 @@ class GraphNode():
                 most_early_pose = child_first_pose
         return most_early_pose
     
-    def reprojected_bbox(self, pose: np.ndarray, K: np.ndarray, width: int, height: int) -> tuple[int, int] | None:
-        """Calculates the bounding box for a graph node given camera extrinsics & intrinsics"""
-
-        # Skip bbox calculation if we have no points
-        points = self.get_point_cloud()
-        if points.shape[0] == 0: return None
-
-        # Calculate points in camera frame and prune those behind the camera
-        points_c = transform(np.linalg.inv(pose), points, axis=0)
-        points_c = points_c[points_c[:,2] >= 0]
-        if points_c.shape[0] == 0: return None
-
-        # Convert xyz to pixels and prune those outside of the image
-        pixels = xyz_2_pixel(points_c, K)
-        pixels = pixels[np.bitwise_and(pixels[:,0] >= 0, pixels[:,0] < width), :]
-        pixels = pixels[np.bitwise_and(pixels[:,1] >= 0, pixels[:,1] < height), :]
-        if pixels.shape[0] == 0: return None
-
-        # Get upper left and lower right of bounding box
-        upper_left = np.max([np.min(pixels, axis=0).astype(int), [0, 0]], axis=0)
-        lower_right = np.min([np.max(pixels, axis=0).astype(int), [width, height]], axis=0)
-
-        # Check for wierd bugs
-        if lower_right[0] - upper_left[0] <= 0 or lower_right[1] - upper_left[1] <= 0:
-            raise RuntimeError("lower_right[0] - upper_left[0] <= 0 or lower_right[1] - upper_left[1] <= 0 in reprojected_bbox!")
-        
-        # Return the bounding box corners
-        return upper_left, lower_right
-    
     def request_new_ID(self) -> int:
         if self.is_RootGraphNode():
             new_id = self._next_id
@@ -366,6 +337,10 @@ class GraphNode():
                     logger.debug(f"[bright_yellow]UPDATE[/bright_yellow]: Current point cloud is {num_points} for Node {self.get_id()}")
             else:
                 self._point_cloud = self.point_cloud.copy()
+
+            # Sort Point Cloud Lexicographically to enforce determinism with Open3D
+            self._point_cloud = self._point_cloud[np.lexsort(self._point_cloud.T[::-1])]
+
         return self._point_cloud
     
     def get_point_cloud_robot_aligned(self) -> np.ndarray | None:
@@ -491,9 +466,10 @@ class GraphNode():
         deleted_ids = []
         to_delete = self.remove_from_graph(keep_children)
         while to_delete:
-            for node in to_delete:
-                deleted_ids.append(node.get_id())
-            to_delete.update(to_delete.pop().remove_from_graph(keep_children))
+            node_to_delete = min(to_delete, key=lambda n: n.get_id())
+            deleted_ids.append(node_to_delete.get_id())
+            to_delete.remove(node_to_delete)
+            to_delete.update(node_to_delete.remove_from_graph(keep_children))
         return deleted_ids
 
     def remove_points_from_self(self, pc_to_remove: np.ndarray) -> set[GraphNode]:
@@ -531,9 +507,11 @@ class GraphNode():
     
     def remove_points_complete(self, pc_to_remove: np.ndarray) -> None:
         """ Remove points and then delete any nodes that are no longer valid. """
-        to_delete = self.remove_points(pc_to_remove)
+        to_delete: set[GraphNode] = self.remove_points(pc_to_remove)
         while to_delete:
-            to_delete.update(to_delete.pop().remove_from_graph())
+            node_to_delete = min(to_delete, key=lambda n: n.get_id())
+            to_delete.remove(node_to_delete)
+            to_delete.update(node_to_delete.remove_from_graph())
     
     def remove_child(self, child: GraphNode) -> set[GraphNode]:
         if child in self.child_nodes:
@@ -650,20 +628,21 @@ class GraphNode():
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(self.get_point_cloud())
 
-        # Perform clustering
-        length = self.get_longest_line_size()
-
+        # Determine the epsilon to use
         epsilon = self.params.epsilon_not_variable
         if self.params.enable_variable_epsilon:
+            length = self.get_longest_line_size()
             epsilon = length * self.params.epsilon_variable_ratio_to_length
 
-        labels = np.array(pcd.cluster_dbscan(eps=epsilon, min_points=self.params.min_points))
-        max_cluster_index = labels.max()
-        if max_cluster_index == -1:
-            logger.info(f"[bright_red]WARNING[/bright_red]: All points in this node {self.get_id()} have been detected as noise!")
+        # Perform clustering
+        labels: np.ndarray = np.array(pcd.cluster_dbscan(eps=epsilon, min_points=self.params.min_points))
 
-            # Right now, lets just assume that our epsilon is off and thus every point should be kept
-            # Thus, let it continue the algorithm...
+        # Find cluster with largest size deterministically (break ties by smaller cluster ID)
+        cluster_ids, counts = np.unique(labels, return_counts=True)
+        cluster_id_to_count: dict = dict(zip(cluster_ids, counts))
+        max_cluster_index = min([cid for cid, cnt in cluster_id_to_count.items() if cnt == max(cluster_id_to_count.values())])
+        if max_cluster_index == -1:
+            logger.info(f"[bright_red]WARNING[/bright_red]: Largest cluster in this node {self.get_id()} have been detected as noise!")
 
         # Check size of max cluster
         max_cluster_size = np.sum(labels == max_cluster_index)
@@ -931,7 +910,7 @@ class GraphNode():
 
     # ==================== Iterator ====================
     def __iter__(self) -> Iterator[GraphNode]:
-        stack = [self]
+        stack: list[GraphNode] = [self]
         while stack:            
             node = stack.pop()
             yield node
