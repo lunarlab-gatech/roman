@@ -51,7 +51,7 @@ def get_convex_hull_from_point_cloud(point_cloud: np.ndarray) -> trimesh.Trimesh
 
     # Calculate the convex hull
     try:  
-        hull = ConvexHull(point_cloud, qhull_options='Qx QJ')
+        hull = ConvexHull(point_cloud, qhull_options='Qx')
         faces, face_normals = fix_winding_and_calculate_normals(point_cloud, hull.simplices)
         mesh = trimesh.Trimesh(vertices=point_cloud, faces=faces, face_normals=face_normals, process=False)
         assert mesh.is_volume
@@ -110,7 +110,7 @@ def convex_hull_geometric_overlap(a: trimesh.Trimesh | None, b: trimesh.Trimesh 
     assert b.is_watertight
 
     # Calculate the intersection trimesh
-    intersection = a.intersection(b, engine='scad')
+    intersection = a.intersection(b, engine='manifold')
 
     # Calculate the IOU value
     inter_vol = np.clip(intersection.volume, 0.0, 1.0)

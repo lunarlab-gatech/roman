@@ -5,7 +5,7 @@ import rerun as rr
 
 class MyFilter(logging.Filter):
     def filter(self, record):
-        return record.name.startswith("Scene Graph 3D Logger")
+        return record.name.startswith("MeronomyGraph Logger")
     
 handler = RichHandler(markup=True, rich_tracebacks=True)
 handler.addFilter(MyFilter())
@@ -21,4 +21,4 @@ logging.basicConfig(
     ]
 )
 
-logger = logging.getLogger("Scene Graph 3D Logger")
+logger = logging.getLogger("MeronomyGraph Logger")

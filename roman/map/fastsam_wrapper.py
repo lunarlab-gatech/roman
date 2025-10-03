@@ -30,7 +30,7 @@ from roman.params.fastsam_params import FastSAMParams
 from roman.params.system_params import SystemParams
 from roman.utils import expandvars_recursive
 import rerun as rr
-from ..scene_graph.logger import logger 
+from ..logger import logger 
 from scipy.spatial.transform import Rotation as R
 
 
@@ -267,7 +267,7 @@ class FastSAMWrapper():
             mask = mask.astype(np.float32)
 
             # ============= Extract point cloud of object from RGBD =============
-            ptcld = None
+            pcd_array = None
             if img_depth is not None:
 
                 # Set depth to zero everywhere except detected object
@@ -287,33 +287,34 @@ class FastSAMWrapper():
                     stride=self.pcd_stride,
                     project_valid_depth_only=True
                 )
-                ptcld_test = np.asarray(pcd_test.points)
-                pre_truncate_len = len(ptcld_test)
-                ptcld_test = ptcld_test[ptcld_test[:,2] < self.max_depth]
+                pcd_test_array = np.asarray(pcd_test.points)
+                pre_truncate_len = len(pcd_test_array)
+                pcd_test_array = pcd_test_array[pcd_test_array[:,2] < self.max_depth] # Remove points past max depth
                 # require some fraction of the points to be within the max depth
-                if len(ptcld_test) < self.within_depth_frac*pre_truncate_len:
+                if len(pcd_test_array) < self.within_depth_frac*pre_truncate_len:
                     continue
                 
-                # Remove points past max depth, downsample, and remove non-finite points
-                pcd_test.remove_non_finite_points()
+                # Remove non-finite points and downsample
+                pcd_test_array = pcd_test_array[np.lexsort(pcd_test_array.T[::-1])]
+                pcd = o3d.geometry.PointCloud()
+                pcd.points = o3d.utility.Vector3dVector(pcd_test_array)
+                pcd.remove_non_finite_points()
 
-                # Downsample only if using ROMAN Mapper (SceneGraph will do its own downsampling)
-                if not self.system_params.use_scene_graph:
-                    pcd_test = pcd_test.voxel_down_sample(voxel_size=self.voxel_size)
+                # Downsample only if requested
+                if self.params.downsample_point_cloud:
+                    logger.debug(f"Downsampling point cloud with voxel size {self.voxel_size}")
+                    pcd = pcd.voxel_down_sample(voxel_size=self.voxel_size)
 
-                if not pcd_test.is_empty():
-                    ptcld = np.asarray(pcd_test.points)
-
-                    # Remove points past max depth
-                    ptcld = ptcld[ptcld[:,2] <= self.max_depth]
-                if ptcld is None:
+                if not pcd.is_empty():
+                    pcd_array = np.asarray(pcd.points)
+                if pcd_array is None:
                     continue
                 
                 if self.plane_filter_params is not None:
                     # Create oriented bounding box
                     try:
                         obb = o3d.geometry.OrientedBoundingBox.create_from_points(
-                                o3d.utility.Vector3dVector(ptcld))
+                                o3d.utility.Vector3dVector(pcd_array))
                         extent = np.sort(obb.extent)[::-1] # in descending order
                         if  extent[0] > self.plane_filter_params[0] and \
                             extent[1] > self.plane_filter_params[1] and \
@@ -330,7 +331,7 @@ class FastSAMWrapper():
             )).astype('uint8')
 
             # Save the observation
-            self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld))
+            self.observations.append(Observation(t, pose, mask, mask_downsampled, pcd_array))
 
         # ===== Generate CLIP embeddings for remaining observations in a single batch =====
         if self.clip_embedding and len(self.observations) > 0:

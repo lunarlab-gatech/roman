@@ -12,6 +12,17 @@ class VoxelGrid():
     max_corner: np.ndarray
     voxel_size: float
     voxels: np.ndarray
+
+    def __str__(self) -> str:
+        return (
+            f"VoxelGrid:\n"
+            f"  min_corner     = {self.min_corner.tolist()}\n"
+            f"  max_corner     = {self.max_corner.tolist()}\n"
+            f"  voxel_size     = {self.voxel_size}\n"
+            f"  grid_shape     = {self.voxels.shape}\n"
+            f"  num_occupied   = {self.num_occupied}\n"
+            f"  volume         = {self.volume:.6f}\n"
+        )
     
     @functools.cached_property
     def num_occupied(self):

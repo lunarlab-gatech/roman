@@ -81,6 +81,16 @@ class Segment(Object):
         
         self._integrate_points_from_observation(observation)
 
+    def __str__(self):
+        str_rep = ""
+        str_rep += f"Segment ID: {self.id}\n"
+        str_rep += f"Num Points: {self.num_points}\n"
+        str_rep += f"Volume: {self.volume}\n"
+        str_rep += f"First Seen: {self.first_seen}\n"
+        str_rep += f"Last Seen: {self.last_seen}\n"
+        str_rep += f"Num Sightings: {self.num_sightings}\n"
+        return str_rep
+
     def update(self, observation: Observation, integrate_points=True):
         """Update a 3D segment with a new observation
 
@@ -121,8 +131,12 @@ class Segment(Object):
             self.update(obs, integrate_points=False)
         self._integrate_points_from_segment(segment)
         if segment.semantic_descriptor is not None:
+            #print(f"Semantic Des first Five: {self.semantic_descriptor[:5]}")
+            #print(f"Semantic Des count: {self.semantic_descriptor_cnt}")
             self._add_semantic_descriptor(segment.semantic_descriptor, segment.semantic_descriptor_cnt)
-    
+            #print(f"Semantic Des first Five: {self.semantic_descriptor[:5]}")
+            #print(f"Semantic Des count: {self.semantic_descriptor_cnt}")
+
     def _integrate_points_from_observation(self, observation: Observation):
         """Integrate point cloud in the input observation object
 
@@ -192,13 +206,16 @@ class Segment(Object):
             labels = np.array(pcd.cluster_dbscan(eps=epsilon, min_points=min_points))
 
             # Number of clusters, ignoring noise if present
+            #print(f"labels {labels}")
             max_label = labels.max()
             
             # get largest cluster
             cluster_sizes = np.zeros(max_label + 1)
             for i in range(max_label + 1):
                 cluster_sizes[i] = np.sum(labels == i)
+            #print(f"cluster_sizes {cluster_sizes}")
             max_cluster = np.argmax(cluster_sizes)
+            #print(f"max_cluster {max_cluster}")
 
             # Filter out any points not belonging to max cluster
             filtered_indices = np.where(labels == max_cluster)[0]

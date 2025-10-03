@@ -1,7 +1,9 @@
 import numpy as np
 from scipy.optimize import linear_sum_assignment
+from roman.logger import logger
+from roman.object.segment import Segment
 
-def global_nearest_neighbor(data1: list, data2: list, similarity_fun: callable, min_similarity: float = None):
+def global_nearest_neighbor(data1: list[Segment], data2: list, similarity_fun: callable, min_similarity: float = None):
     """
     Associates data1 with data2 using the global nearest neighbor algorithm.
 
@@ -21,20 +23,25 @@ def global_nearest_neighbor(data1: list, data2: list, similarity_fun: callable, 
 
     for i in range(len1):
         for j in range(len2):
-            similarity = similarity_fun(data1[i], data2[j])
+            similarity = similarity_fun(data1[i], data2[j], j)
             
             # Geometry similarity value
+            logger.debug(f"Comparing Seg {data1[i].id} Obs {j} IOU: {similarity}")
             if min_similarity is not None and similarity < min_similarity:
                 score = M
             else:
                 score = -similarity
+                logger.debug(f"SCORE ({data1[i].id} & {j}): {score}")
             scores[i,j] = score # TODO: Hungarian is trying to associate low similarity values, score should maybe = - similarity....
 
     # augment cost to add option for no associations
     hungarian_cost = np.concatenate([
         np.concatenate([scores, np.ones(scores.shape)], axis=1),
         np.ones((scores.shape[0], 2*scores.shape[1]))], axis=0)
+    logger.debug(f"Hungarian Cost: {hungarian_cost}")
     row_ind, col_ind = linear_sum_assignment(hungarian_cost)
+    logger.debug(f"Hungarian Results: {row_ind} {col_ind}")
+    logger.debug(f"Len1: {len1} Len2: {len2}")
 
     pairs = []
     for idx1, idx2 in zip(row_ind, col_ind):
@@ -42,5 +49,6 @@ def global_nearest_neighbor(data1: list, data2: list, similarity_fun: callable, 
         if idx1 < len1 and idx2 < len2:
             assert scores[idx1,idx2] <= 1
             pairs.append((idx1, idx2))
+    logger.debug(f"Pairs: {pairs}")
 
     return pairs

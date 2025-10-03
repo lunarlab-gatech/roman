@@ -14,7 +14,10 @@ class SceneGraph3DParams(BaseModel):
     # ======================= Node Association =======================
     use_convex_hull_for_iou: bool
     min_iou_for_association: float
+    min_iou_2d_for_merging: float
     voxel_size_for_voxel_grid_iou: float
+
+    downsample_and_remove_outliers_after_hungarian_for_new_nodes: bool
 
     # ======================= Semantic Merges =======================
     enable_synonym_merges: bool
@@ -38,6 +41,8 @@ class SceneGraph3DParams(BaseModel):
     run_dbscan_when_retiring_node: bool
     delete_nodes_only_seen_once: bool
 
+    max_t_no_sightings: float # seconds
+
     @classmethod
     def from_yaml(cls, path: str) -> SceneGraph3DParams:
         with open(path, "r") as f:
@@ -48,12 +53,17 @@ class GraphNodeParams(BaseModel):
     # If using wordnet for semantic merging, number of words to simulatneously consider ourselves as
     num_words_to_consider_ourselves: int
 
+    require_valid_convex_hull: bool
+    check_minimum_node_size_during_creation: bool
+
     # ===== Voxel Downsampling ===== 
+    downsample_on_node_creation: bool
     enable_variable_voxel_size: bool
     voxel_size_not_variable: float
     voxel_size_variable_ratio_to_length: float
 
     # ===== DBSCAN Parameters ===== 
+    enable_roman_dbscan: bool
     run_dbscan_when_creating_node: bool
     enable_variable_epsilon: bool
     epsilon_not_variable: float
@@ -73,10 +83,13 @@ class GraphNodeParams(BaseModel):
 
     # ===== Semantic Descriptor =====
     use_weighted_average_for_descriptor: bool
-    get_semantic_descriptors_includes_children: bool
+    ignore_descriptors_from_observation: bool
+    calculate_descriptor_incrementally: bool
 
-    # ===== Point Clouds =====
-    get_point_cloud_includes_children: bool
+    # ===== Data inheritance from child nodes =====
+    parent_node_includes_child_node_for_data: bool
+
+    use_oriented_bbox_for_volume: bool
 
     @classmethod
     def from_yaml(cls, path: str) -> GraphNodeParams:

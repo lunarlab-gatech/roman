@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 from .graph_node import GraphNode
-from .logger import logger
+from ..logger import logger
 from ..map.map import SubmapParams
 import numpy as np
 from robotdatapy.data.pose_data import PoseData
@@ -68,8 +68,8 @@ class SceneGraph3DSubmap():
 
         # Define helper function for checking time constraints
         def meets_time_constraints(node: GraphNode, time_submap_before: float, time_submap_after: float) -> bool:
-            after_next_submap: bool = node.get_time_first_seen_recursive() > time_submap_after + submap_params.time_threshold
-            before_prev_submap: bool = node.get_time_last_updated_recursive() < time_submap_before - submap_params.time_threshold
+            after_next_submap: bool = node.get_time_first_seen() > time_submap_after + submap_params.time_threshold
+            before_prev_submap: bool = node.get_time_last_updated() < time_submap_before - submap_params.time_threshold
             return not (after_next_submap or before_prev_submap)
 
         # Add GraphNodes to submaps

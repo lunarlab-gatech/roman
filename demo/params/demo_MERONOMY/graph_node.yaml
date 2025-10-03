@@ -8,6 +8,7 @@ enable_variable_voxel_size: False
 voxel_size_not_variable: 0.05
 voxel_size_variable_ratio_to_length: 0.01
 
+enable_roman_dbscan: True
 run_dbscan_when_creating_node: False
 enable_variable_epsilon: False
 epsilon_not_variable: 0.25
@@ -20,6 +21,9 @@ stat_out_num_neighbors: 10
 std_ratio: 1.0
 
 use_weighted_average_for_descriptor: False
-get_semantic_descriptors_includes_children: False
+ignore_descriptors_from_observation: True
+calculate_descriptor_incrementally: True
 
-get_point_cloud_includes_children: False
+parent_node_includes_child_node_for_data: False
+
+use_oriented_bbox_for_volume: True

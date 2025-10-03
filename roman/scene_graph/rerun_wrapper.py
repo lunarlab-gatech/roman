@@ -6,14 +6,16 @@ import cv2
 from dataclasses import dataclass
 from .graph_node import GraphNode
 import hashlib
-from .logger import logger
+from ..logger import logger
 import numpy as np
 from ..params.data_params import ImgDataParams
 import random
 import rerun as rr
 import rerun.blueprint as rrb
 from roman.params.fastsam_params import FastSAMParams
+from roman.scene_graph.word_net_wrapper import WordListWrapper
 from scipy.spatial.transform import Rotation as R
+import trimesh
 from typeguard import typechecked
 
 
@@ -250,22 +252,25 @@ class RerunWrapper():
             color = self._hsv_to_rgb255(h, s, v)
             box_colors.append(color)
             box_ids.append(node.get_id())
-            box_words.append(node.get_words().to_list())
+            words: WordListWrapper | None = node.get_words()
+            if words is not None: box_words.append(words.to_list())
+            else: box_words.append([])
 
             # Line segments
-            mesh = node.get_convex_hull()
+            mesh: trimesh.Trimesh | None = node.get_convex_hull()
             line_edges: set[tuple] = set()
-            for face in mesh.faces:
-                a, b, c = face
-                line_edges.add(tuple(sorted((a, b))))
-                line_edges.add(tuple(sorted((b, c))))
-                line_edges.add(tuple(sorted((c, a))))
+            if mesh is not None:
+                for face in mesh.faces:
+                    a, b, c = face
+                    line_edges.add(tuple(sorted((a, b))))
+                    line_edges.add(tuple(sorted((b, c))))
+                    line_edges.add(tuple(sorted((c, a))))
 
-            for i1, i2 in line_edges:
-                v1 = mesh.vertices[i1].tolist()
-                v2 = mesh.vertices[i2].tolist()
-                line_ends.append([v1, v2])  # a strip of 2 points = one line
-                line_colors.append(color)
+                for i1, i2 in line_edges:
+                    v1 = mesh.vertices[i1].tolist()
+                    v2 = mesh.vertices[i2].tolist()
+                    line_ends.append([v1, v2])  # a strip of 2 points = one line
+                    line_colors.append(color)
 
 
         # Send the data to Rerun
