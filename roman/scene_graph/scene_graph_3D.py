@@ -178,10 +178,10 @@ class SceneGraph3D():
         # Run merging operations
         self.association_merges()
 
-        logger.info(f"Segment nursery Ids: {[seg.get_id() for seg in self.get_nodes_with_status(GraphNode.SegmentStatus.NURSERY)]}")
-        logger.info(f"Active segments Ids: {[seg.get_id() for seg in self.get_nodes_with_status(GraphNode.SegmentStatus.SEGMENT)]}")
-        logger.info(f"Inactive segments Ids: {[seg.get_id() for seg in self.get_nodes_with_status(GraphNode.SegmentStatus.INACTIVE)]}")
-        logger.info(f"Segment graveyard Ids: {[seg.get_id() for seg in self.get_nodes_with_status(GraphNode.SegmentStatus.GRAVEYARD)]}")
+        logger.debug(f"Segment nursery Ids: {[seg.get_id() for seg in self.get_nodes_with_status(GraphNode.SegmentStatus.NURSERY)]}")
+        logger.debug(f"Active segments Ids: {[seg.get_id() for seg in self.get_nodes_with_status(GraphNode.SegmentStatus.SEGMENT)]}")
+        logger.debug(f"Inactive segments Ids: {[seg.get_id() for seg in self.get_nodes_with_status(GraphNode.SegmentStatus.INACTIVE)]}")
+        logger.debug(f"Segment graveyard Ids: {[seg.get_id() for seg in self.get_nodes_with_status(GraphNode.SegmentStatus.GRAVEYARD)]}")
 
         for node in self.get_nodes_with_status(GraphNode.SegmentStatus.SEGMENT):
             logger.debug(f"Segment {node.get_id()}: num_points={node.get_num_points()}")
@@ -245,7 +245,7 @@ class SceneGraph3D():
                 
                 # Calculate IOU
                 logger.debug(f"CURRENT J VAL: {j}")
-                iou, _, _ = self.geometric_overlap(node, new_node, j)
+                iou, _, _ = self.geometric_overlap(node, new_node)
 
                 # Check if it passes minimum requirements for association
                 logger.debug(f"Comparing Seg {node.get_id()} to Obs {j} IOU: {iou}")
@@ -282,7 +282,7 @@ class SceneGraph3D():
 
         return new_pairs
     
-    def geometric_overlap(self, a: GraphNode, b: GraphNode, obs_id: int) -> tuple[float, float | None, float | None]:
+    def geometric_overlap(self, a: GraphNode, b: GraphNode) -> tuple[float, float | None, float | None]:
 
         # Calculate geometric overlap using hulls
         result = (None, None, None)
@@ -321,10 +321,8 @@ class SceneGraph3D():
                 inner_dict.pop(node_id, None)
 
     @typechecked
-    def geometric_overlap_cached(self, a: GraphNode, b: GraphNode, obs_id: int = -1) -> tuple[float, float | None, float | None]:
+    def geometric_overlap_cached(self, a: GraphNode, b: GraphNode) -> tuple[float, float | None, float | None]:
         """ Wrapper around convex_hull_geometric_overlap that caches results for reuse. """
-
-        # TODO: Enclosure calculation is broken due to rearranging of node ids! Fix it!
 
         # Rearrange so that a is the node with the smaller id
         swap_enclosures = False
@@ -349,7 +347,7 @@ class SceneGraph3D():
         # Calculate (or recalculate) the overlap if necessary
         if result is None:
             # Calculate geometric overlap and save
-            result: tuple[float, float | None, float | None] = self.geometric_overlap(a, b, obs_id)
+            result: tuple[float, float | None, float | None] = self.geometric_overlap(a, b)
             self.overlap_dict[a.get_id()][b.get_id()] = result
 
         # Swap enclosure values if necessary
@@ -472,8 +470,6 @@ class SceneGraph3D():
                                 assert node_i.get_id() != node_j.get_id(), f"Same node {node_i.get_id()} referred to as child of two parents!"
 
                                 # Remove these points from their parents
-                                logger.info(f"Node_i: {node_i.get_id()}")
-                                logger.info(f"Node_j: {node_j.get_id()}")
                                 node_i.remove_points_complete(pc_overlap)
                                 node_j.remove_points_complete(pc_overlap)
 
@@ -738,9 +734,9 @@ class SceneGraph3D():
                 continue
             try:
                 logger.info(f"Moving Segment {node.get_id()} from normal to inactive")
-                to_delete = node.update_point_cloud(np.zeros((0, 3)), run_dbscan=True, remove_outliers=False, downsample=False)
-                if len(to_delete) > 0:
-                    raise RuntimeError("Node is no longer valid after running DBSCAN!")
+                logger.debug(f"Node Point cloud: {node.get_point_cloud()[0:3]}")
+                node._dbscan_clustering(reset_voxel_grid=False) # Don't update voxel grid, as ROMAN keeps old one even though points are updated.
+                logger.debug(f"Node Point cloud: {node.get_point_cloud()[0:3]}")
 
                 node.set_status(GraphNode.SegmentStatus.INACTIVE)
             except Exception as e: # too few points to form clusters
@@ -803,8 +799,20 @@ class SceneGraph3D():
                     union2d = np.logical_or(mask1, mask2).sum()
                     iou2d = intersection2d / union2d
 
+                    if node1.id == 301 and node2.id == 291:
+                        logger.debug(f"{node1.id} Point cloud: {node1.get_point_cloud()[0:3]}")
+                        logger.debug(f"{node2.id} Point cloud: {node2.get_point_cloud()[0:3]}")
+                        if self.times[-1] == 1665777947.8362014:
+                            np.save(f"meronomy1_{n}.npy", node1.get_point_cloud())
+                            np.save(f"meronomy2_{n}.npy", node2.get_point_cloud())
+
+                        logger.debug(f"A Voxel Grid: {node1.get_voxel_grid(self.params.voxel_size_for_voxel_grid_iou)}")
+                        logger.debug(f"B Voxel Grid: {node2.get_voxel_grid(self.params.voxel_size_for_voxel_grid_iou)}")
+
                     iou3d, _, _ = self.geometric_overlap_cached(node1, node2)
-                    logger.debug(f"MERGING CHECK: Seg {node1.id} and Seg {node2.id} with 3D IOU {iou3d} and 2D IOU {iou2d}")
+
+                    if node1.get_id() == 301 and node2.get_id() == 291:
+                        logger.debug(f"MERGING CHECK {node1.id} and {node2.id} : 3D IoU {iou3d:.2f} and 2D IoU {iou2d:.2f}")
 
                     if iou3d > self.params.min_iou_for_association or iou2d > self.params.min_iou_2d_for_merging:
                         logger.info(f"Merging segments {node1.id} and {node2.id} with 3D IoU {iou3d:.2f} and 2D IoU {iou2d:.2f}")
@@ -827,6 +835,10 @@ class SceneGraph3D():
         to_delete: list[GraphNode] = []
         for node in nodes:
             try:
+                if node.id == 816:
+                    logger.info("DATA FOR node 816 in remove")
+                    logger.info(np.sort(node.get_extent()))
+                    logger.info(node.get_num_points())
                 extent = np.sort(node.get_extent())
                 if node.get_num_points() == 0:
                     to_delete.append(node)

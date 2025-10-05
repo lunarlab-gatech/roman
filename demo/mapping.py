@@ -43,8 +43,6 @@ def run(system_params: SystemParams, output_path: str):
     for t in runner.times():
         runner.update(t)
         bar.update()
-        if bar.n >= 50:
-            break
 
     print(f"Segment tracking took {time.time() - wc_t0:.2f} seconds")
     print(f"Run duration was {runner.tf - runner.t0:.2f} seconds")

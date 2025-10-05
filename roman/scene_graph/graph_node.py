@@ -105,6 +105,7 @@ class GraphNode():
 
         # Holds values for reuse to avoid recalculating them
         self._convex_hull: trimesh.Trimesh = None
+        self._voxel_grid: VoxelGrid = None
         self._point_cloud: np.ndarray = None
         self._longest_line_size: float = None
         self._centroid: np.ndarray = None
@@ -235,7 +236,9 @@ class GraphNode():
     def get_voxel_grid(self, voxel_size: float) -> VoxelGrid | None:
         if self.is_RootGraphNode():
             return None
-        return VoxelGrid.from_points(self.get_point_cloud(), voxel_size)
+        if self._voxel_grid is None:
+            self._voxel_grid = VoxelGrid.from_points(self.get_point_cloud(), voxel_size)
+        return self._voxel_grid
     
     def get_num_points(self):
         if self.get_point_cloud() is None:
@@ -470,7 +473,6 @@ class GraphNode():
             for child in self.get_children():
                 descriptors += child.get_semantic_descriptors()
 
-        logger.info("Semantic Descriptors number: " + str(len(self.semantic_descriptors)))
         if self.params.ignore_descriptors_from_observation:
             descriptors += self.semantic_descriptors[1:] # Skip first descriptor, which is from observation
         else:
@@ -636,6 +638,8 @@ class GraphNode():
         """ Does so by disconnecting self from parent both ways. Also immediately deletes any parent nodes that are now invalid. 
             Returns ids of additional nodes that were also removed (not including self). """
 
+        # TODO: If keep_children is false, then need to update saved variables
+
         deleted_ids = []
         to_delete = self.remove_from_graph(keep_children)
         while to_delete:
@@ -659,8 +663,6 @@ class GraphNode():
             self.point_cloud = self.point_cloud[mask]
             num_points_after = self.point_cloud.shape[0]
             logger.debug(f"NODE: {self.get_id()}, POINT CLOUD UPDATED from {num_points_before} to {num_points_after}")
-            self.last_updated = self.curr_time
-            self.last_pose = self.curr_pose
             logger.debug(f"remove_points_from_self(): Resetting Point Cloud for Node {self.get_id()}")
             return self.reset_saved_point_vars()
 
@@ -691,9 +693,13 @@ class GraphNode():
         if child in self.child_nodes:
             self.child_nodes.remove(child)
             logger.debug(f"remove_child(): Resetting Point Cloud for Node {self.get_id()}")
-            self.reset_saved_descriptor_vars()
-            self.reset_saved_inheritance_vars()
-            return self.reset_saved_point_vars()
+
+            if self.params.parent_node_includes_child_node_for_data:
+                self.reset_saved_descriptor_vars()
+                self.reset_saved_inheritance_vars()
+                return self.reset_saved_point_vars()
+            else:
+                return set()
         else:
             raise ValueError(f"Tried to remove {child} from {self}, but {child} not in self.child_nodes: {self.child_nodes}")
         
@@ -719,9 +725,10 @@ class GraphNode():
             return # Shouldn't add children more than once
         self.child_nodes.append(new_child)
         logger.debug(f"add_child(): Resetting Point Cloud for Node {self.get_id()}")
-        self.reset_saved_descriptor_vars()
-        self.reset_saved_inheritance_vars()
-        self.reset_saved_point_vars_safe()
+        if self.params.parent_node_includes_child_node_for_data:
+            self.reset_saved_descriptor_vars()
+            self.reset_saved_inheritance_vars()
+            self.reset_saved_point_vars_safe()
 
     def add_children(self, new_children: list[GraphNode]) -> None:
         for new_child in new_children:
@@ -730,8 +737,6 @@ class GraphNode():
     def add_semantic_descriptors(self, descriptors: list[tuple[np.ndarray, float]]) -> None:
         """ Keep track of all descriptors for batched calculation """
         self.semantic_descriptors += descriptors
-        self.last_updated = self.curr_time
-        self.last_pose = self.curr_pose
         self.reset_saved_descriptor_vars()
 
     def add_semantic_descriptors_incremental(self, descriptor: np.ndarray, count: int) -> None:
@@ -758,8 +763,6 @@ class GraphNode():
             self.semantic_descriptor_inc_count += count
         self.semantic_descriptor_inc /= np.linalg.norm(self.semantic_descriptor_inc) # renormalize
 
-        self.last_updated = self.curr_time
-        self.last_pose = self.curr_pose
         self.reset_saved_descriptor_vars()
 
     def update_point_cloud(self, new_points: np.ndarray, run_dbscan: bool = False, remove_outliers: bool | None = None,
@@ -781,8 +784,6 @@ class GraphNode():
             # Append them to our point cloud
             self.point_cloud = np.concatenate((self.point_cloud, new_points), axis=0)
             # self.point_cloud = np.unique(self.point_cloud, axis=0) # Prune any duplicates
-            self.last_updated = self.curr_time
-            self.last_pose = self.curr_pose
             self.reset_saved_point_vars_safe() # Wipe saved point cloud for next steps
 
         if not self.is_RootGraphNode():
@@ -817,8 +818,6 @@ class GraphNode():
 
             # Update the point cloud
             self.point_cloud = np.asarray(pcd_sampled.points)
-            self.last_updated = self.curr_time
-            self.last_pose = self.curr_pose
             self.reset_saved_point_vars_safe()
 
         if not self.is_RootGraphNode():
@@ -836,7 +835,7 @@ class GraphNode():
         # Reset point cloud dependent saved variables and return nodes to delete
         return self.reset_saved_point_vars()
 
-    def _dbscan_clustering(self) -> None:
+    def _dbscan_clustering(self, reset_voxel_grid: bool = True) -> None:
         """ Run DBScan clustering to cleanup the point cloud"""
         # NOTE: This actually ISN'T a safe operation, so calling method MUST call reset_saved_point_vars().
 
@@ -872,7 +871,7 @@ class GraphNode():
                 # Filter out any points not belonging to max cluster
                 filtered_indices = np.where(labels == max_cluster)[0]
                 self.point_cloud = self.point_cloud[filtered_indices]
-
+                self.reset_saved_point_vars_safe(reset_voxel_grid)
             else:
 
                 # Find cluster with largest size deterministically (break ties by smaller cluster ID)
@@ -892,7 +891,7 @@ class GraphNode():
                     # representative. Thus, we must delete this node, so wipe our point cloud.
                     self.point_cloud = np.zeros((0, 3), dtype=np.float64)
                     logger.debug(f"Cluster size too small, rejecting...")
-                    self.reset_saved_point_vars_safe()
+                    self.reset_saved_point_vars_safe(reset_voxel_grid)
                     return
 
                 # Filter out any points not belonging to max cluster
@@ -902,11 +901,7 @@ class GraphNode():
                 # Save the new sampled point cloud 
                 self.point_cloud = clustered_points
                 logger.debug(f"Point Cloud size after DBScan: {self.point_cloud.shape[0]}")
-            
-            # Increment the last_updated time
-            self.last_updated = self.curr_time
-            self.last_pose = self.curr_pose
-            self.reset_saved_point_vars_safe()
+                self.reset_saved_point_vars_safe(reset_voxel_grid)
 
     def _remove_statistical_outliers(self):
 
@@ -920,8 +915,6 @@ class GraphNode():
         # Save the new sampled point cloud 
         self.point_cloud = np.asarray(pcd_sampled.points)
         logger.debug(f"Point Cloud size after remove statistical outliers: {self.point_cloud.shape[0]}")
-        self.last_updated = self.curr_time
-        self.last_pose = self.curr_pose
         self.reset_saved_point_vars_safe()
 
         # NOTE: This actually ISN'T a safe operation, so calling method MUST call reset_saved_point_vars().
@@ -954,30 +947,32 @@ class GraphNode():
         combined_children = (self.get_children() + other.get_children())
 
         # Calculate the first seen time as earliest from the two nodes
-        first_seen = min(self.get_time_first_seen(), other.get_time_first_seen())
+        if self.params.merge_with_node_keep_first_seen_of_self:
+            first_seen = self.get_time_first_seen()
+        else:
+            first_seen = min(self.get_time_first_seen(), other.get_time_first_seen())
 
         # Also calculate the first pose
         if first_seen == self.get_time_first_seen(): first_pose = self.get_first_pose()
         else: first_pose = other.get_first_pose()
 
+        # Caluclate the last updated time
+        last_updated = max(self.get_time_last_updated(), other.get_time_last_updated())
+
         # Create a new node representing the merge
         smallest_id = self.get_id() if self.get_id() < other.get_id() else other.get_id()
         new_node = GraphNode.create_node_if_possible(smallest_id, None, combined_descriptors, self.semantic_descriptor_inc,
                         self.semantic_descriptor_inc_count, combined_pc, combined_children, first_seen, 
-                        self.curr_time, self.curr_time, first_pose, self.curr_pose, self.curr_pose, run_dbscan=False)
+                        last_updated, self.curr_time, first_pose, self.curr_pose, self.curr_pose, run_dbscan=False)
         if new_node is None:
             return None
         to_delete = new_node.update_point_cloud(np.zeros((0,3)), run_dbscan=False, remove_outliers=True, downsample=True)
         if len(to_delete) > 0:
             raise RuntimeError("Need to delete some nodes after downsampling point cloud!")
         if other.semantic_descriptor_inc is not None:
-            #print(f"Semantic Des first Five: {new_node.get_semantic_descriptor()[:5]}")
-            #print(f"Semantic Des count: {new_node.semantic_descriptor_inc_count}")
             new_node.obs_descriptor = np.zeros((0, 1))
             new_node.add_semantic_descriptors_incremental(other.semantic_descriptor_inc, other.semantic_descriptor_inc_count)
-            #print(f"Semantic Des first Five: {new_node.get_semantic_descriptor()[:5]}")
-            #print(f"Semantic Des count: {new_node.semantic_descriptor_inc_count}")
-        
+
         # Update the number of sightings
         total_sightings = self.get_num_sightings() + other.get_num_sightings()
         new_node.num_sightings = total_sightings
@@ -1037,6 +1032,13 @@ class GraphNode():
             
         # Increase our sightings
         self.num_sightings += 1
+
+        # Update our last seen time and pose
+        self.last_updated = self.curr_time
+        self.last_pose = self.curr_pose
+
+        if self.get_id() == 110 or self.get_id() == 111:
+            print(f"ID: {self.get_id()} -> Number of points in cloud: {self.get_point_cloud().shape[0]}")
             
     def merge_parent_and_child(self, other: GraphNode) -> None:
         # Determine which node is the parent
@@ -1077,7 +1079,7 @@ class GraphNode():
         logger.debug(f"[bright_blue]Parent-Child Merge[/bright_blue]: Merged Node {other.get_id()} into Parent Node {self.get_id()}")
 
     # ==================== Resetting Vars ====================
-    def reset_saved_point_vars(self) -> set[GraphNode]:
+    def reset_saved_point_vars(self, reset_voxel_grid: bool = True) -> set[GraphNode]:
         """ 
         Wipes saved point variables since they need to be recalculated. 
         Returns list of nodes that are no longer valid and should be removed. 
@@ -1089,10 +1091,12 @@ class GraphNode():
         
         # Wipe all variables
         self._convex_hull = None
+        if reset_voxel_grid:
+            self._voxel_grid = None
+            self._oriented_bbox = None
         self._point_cloud = None
         self._longest_line_size = None
         self._centroid = None
-        self._oriented_bbox = None
 
         # Make sure SceneGraph3D knows to redo some calculations
         self._redo_convex_hull_geometric_overlap = True
@@ -1109,14 +1113,14 @@ class GraphNode():
             logger.debug(f"We can still get Convex Hull for Node {self.get_id()}")
 
         # Reset variables in parents and get any of those that need to be deleted.
-        if self.parent_node is not None:
+        if self.parent_node is not None and self.params.parent_node_includes_child_node_for_data:
             logger.debug(f"reset_saved_point_vars(): Resetting Point Cloud for Parent node {self.parent_node.get_id()}")
-            to_delete.update(self.parent_node.reset_saved_point_vars())
+            to_delete.update(self.parent_node.reset_saved_point_vars(reset_voxel_grid))
 
         # Return nodes that need to be deleted
         return to_delete
     
-    def reset_saved_point_vars_safe(self) -> None:
+    def reset_saved_point_vars_safe(self, reset_voxel_grid: bool = True) -> None:
         """ 
         Similar to reset_saved_point_vars(), but called if points were only
         possibly added to a node. Thus, no need to check node validity
@@ -1125,18 +1129,20 @@ class GraphNode():
         
         # Wipe all variables
         self._convex_hull = None
+        if reset_voxel_grid:
+            self._voxel_grid = None
+            self._oriented_bbox = None
         self._point_cloud = None
         self._longest_line_size = None
         self._centroid = None
-        self.__oriented_bbox = None
 
         # Make sure SceneGraph3D knows to redo some calculations
         self._redo_convex_hull_geometric_overlap = True
         self._redo_shortest_dist_between_convex_hulls = True
 
         # Reset variables in parents 
-        if self.parent_node is not None:
-            self.parent_node.reset_saved_point_vars_safe()
+        if self.parent_node is not None and self.params.parent_node_includes_child_node_for_data:
+            self.parent_node.reset_saved_point_vars_safe(reset_voxel_grid)
     
     def reset_saved_descriptor_vars(self) -> None:
         """ Wipes saved descriptor variables as they need to be recalculated """

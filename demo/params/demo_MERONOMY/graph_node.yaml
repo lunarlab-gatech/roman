@@ -27,3 +27,5 @@ calculate_descriptor_incrementally: True
 parent_node_includes_child_node_for_data: False
 
 use_oriented_bbox_for_volume: True
+
+merge_with_node_keep_first_seen_of_self: True

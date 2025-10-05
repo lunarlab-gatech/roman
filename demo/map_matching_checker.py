@@ -11,7 +11,7 @@ def compare_segments(
     seg2: Segment, 
     path: str = "Segment", 
     atol: float = 1e-6, 
-    rtol: float = 1e-6
+    rtol: float = 0.0
 ) -> List[str]:
     diffs: List[str] = []
 
@@ -29,13 +29,25 @@ def compare_segments(
 
     # Compare scalar attributes
     for attr in ["volume", "first_seen", "last_seen", "num_sightings"]:
+        #print(f"Checking attribute {attr}...")
         val1: float = getattr(seg1, attr)
         val2: float = getattr(seg2, attr)
         if not np.isclose(val1, val2, atol=atol, rtol=rtol):
             diffs.append(f"{path}.{attr}: {val1} != {val2}")
 
+    # Compare function attributes
+    for fun in ["linearity", "planarity", "scattering"]:
+        #print(f"Checking function {fun}...")
+        fun1: float = getattr(seg1, fun)
+        fun2: float = getattr(seg2, fun)
+        val1 = fun1()
+        val2 = fun2()
+        if not np.isclose(val1, val2, atol=atol, rtol=rtol):
+            diffs.append(f"{path}.{attr}: {val1} != {val2}")
+
     # Compare vector attributes
     for attr in ["center", "extent", "semantic_descriptor"]:
+        #print(f"Checking vector {attr}...")
         val1: Optional[np.ndarray] = getattr(seg1, attr)
         val2: Optional[np.ndarray] = getattr(seg2, attr)
         if val1 is None and val2 is None:
@@ -65,6 +77,8 @@ def compare_roman_maps(map1: ROMANMap, map2: ROMANMap) -> List[str]:
     # Compare segments by ID
     seg_ids_1 = {seg.id for seg in map1.segments}
     seg_ids_2 = {seg.id for seg in map2.segments}
+    print("Seg IDS 1: ", seg_ids_1)
+    print("Seg IDS 2: ", seg_ids_2)
     if seg_ids_1 != seg_ids_2:
         diffs.append(f"Segment ID sets do not match: {seg_ids_1} vs {seg_ids_2}")
 
@@ -73,6 +87,7 @@ def compare_roman_maps(map1: ROMANMap, map2: ROMANMap) -> List[str]:
         if seg2 is None:
             diffs.append(f"Segment with ID {seg.id} missing in second map")
         else:
+            # print(f"Comparing Segments with ID {seg.id}")
             diffs += compare_segments(seg, seg2, path=f"Segment[{seg.id}->{seg2.id}]")
 
     return diffs

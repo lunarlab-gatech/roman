@@ -91,6 +91,8 @@ class GraphNodeParams(BaseModel):
 
     use_oriented_bbox_for_volume: bool
 
+    merge_with_node_keep_first_seen_of_self: bool
+
     @classmethod
     def from_yaml(cls, path: str) -> GraphNodeParams:
         with open(path, "r") as f:

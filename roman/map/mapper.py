@@ -52,14 +52,6 @@ class Mapper():
         # store last pose
         self.last_pose = pose.copy()
 
-        # Print each segment and its information
-        for seg in self.segments:
-            logger.debug(f"Segment {seg.id}: num_points={seg.num_points}, volume={seg.volume}, extent={seg.extent}, last_seen={seg.last_seen}, num_sightings={seg.num_sightings}")
-        for seg in self.segment_nursery:
-            logger.debug(f"Nursery Segment {seg.id}: num_points={seg.num_points}, volume={seg.volume}, extent={seg.extent}, last_seen={seg.last_seen}, num_sightings={seg.num_sightings}")
-        for obs in observations:
-            logger.debug(f"Observation at time {obs.time}: num_points={obs.point_cloud.shape[0]}")
-        
         # associate observations with segments
         # mask_similarity = lambda seg, obs: max(self.mask_similarity(seg, obs, projected=False), 
         #                                        self.mask_similarity(seg, obs, projected=True))
@@ -67,9 +59,9 @@ class Mapper():
         for i, obs in enumerate(observations):
             logger.info(f"Observation {i} num of points: {obs.point_cloud.shape[0]}")
 
-        segments_to_associate = sorted(self.segments, key=lambda s: s.id) + sorted(self.segment_nursery, key=lambda s: s.id)
+        #segments_to_associate = sorted(self.segments, key=lambda s: s.id) + sorted(self.segment_nursery, key=lambda s: s.id)
         associated_pairs = global_nearest_neighbor(
-            segments_to_associate, observations, self.voxel_grid_similarity, self.params.min_iou
+            self.segments + self.segment_nursery, observations, self.voxel_grid_similarity, self.params.min_iou
         )
 
         # Print associated pairs
@@ -108,8 +100,10 @@ class Mapper():
                 self.segments.remove(seg)
                 continue
             try:
+                logger.debug(f"Node Point cloud: {seg.points[0:3]}")
                 logger.info(f"Moving Segment {seg.id} from normal to inactive")
                 seg.final_cleanup(epsilon=self.params.segment_voxel_size*5.0)
+                logger.debug(f"Node Point cloud: {seg.points[0:3]}")
                 self.inactive_segments.append(seg)
                 self.segments.remove(seg)
             except: # too few points to form clusters
@@ -162,13 +156,13 @@ class Mapper():
         logger.debug(f"Segment graveyard Ids: {[seg.id for seg in self.segment_graveyard]}")
 
         logger.debug(f"Starting merging process")
-        self.merge()
+        self.merge(t)
     
         # Print Ids of nodes in each category
-        logger.info(f"Segment nursery Ids: {[seg.id for seg in self.segment_nursery]}")
-        logger.info(f"Active segments Ids: {[seg.id for seg in self.segments]}")
-        logger.info(f"Inactive segments Ids: {[seg.id for seg in self.inactive_segments]}")
-        logger.info(f"Segment graveyard Ids: {[seg.id for seg in self.segment_graveyard]}")
+        logger.debug(f"Segment nursery Ids: {sorted([seg.id for seg in self.segment_nursery])}")
+        logger.debug(f"Active segments Ids: {sorted([seg.id for seg in self.segments])}")
+        logger.debug(f"Inactive segments Ids: {sorted([seg.id for seg in self.inactive_segments])}")
+        logger.debug(f"Segment graveyard Ids: {sorted([seg.id for seg in self.segment_graveyard])}")
 
         # Print the current number of points in each segment
         for seg in self.segments:
@@ -244,6 +238,10 @@ class Mapper():
         to_delete = []
         # reason = []
         for seg in segments:
+            if seg.id == 816:
+                logger.info("DATA FOR SEG 816 in remove")
+                logger.info(np.sort(seg.extent))
+                logger.info(seg.num_points)
             try:
                 extent = np.sort(seg.extent) # in ascending order
                 if seg.num_points == 0:
@@ -269,7 +267,7 @@ class Mapper():
             #     print(r)
         return segments
     
-    def merge(self):
+    def merge(self, t):
         """
         Merge segments with high overlap
         """
@@ -294,8 +292,9 @@ class Mapper():
             edited = False
             n += 1
 
-            for i, seg1 in enumerate(self.segments):
-                for j, seg2 in enumerate(self.segments + self.inactive_segments):
+            # TODO: This was changed temporarily. Will need to change back AND ensure Meronomy matches!
+            for i, seg1 in enumerate(sorted(self.segments, key=lambda s: s.id)):
+                for j, seg2 in enumerate(sorted(self.segments, key=lambda s: s.id) + sorted(self.inactive_segments, key=lambda s: s.id)):
                     if i >= j:
                         continue
 
@@ -310,21 +309,32 @@ class Mapper():
                     union2d = np.logical_or(maks1, maks2).sum()
                     iou2d = intersection2d / union2d
 
+                    if seg1.id == 301 and seg2.id == 291:
+                        logger.debug(f"{seg1.id} Point cloud: {seg1.points[0:3]}")
+                        logger.debug(f"{seg2.id} Point cloud: {seg2.points[0:3]}")
+                        if t == 1665777947.8362014:
+                            np.save(f"roman1_{n}.npy", seg1.points)
+                            np.save(f"roman2_{n}.npy", seg2.points)
+
+                        logger.debug(f"A Voxel Grid: {seg1.get_voxel_grid(self.params.iou_voxel_size)}")
+                        logger.debug(f"B Voxel Grid: {seg2.get_voxel_grid(self.params.iou_voxel_size)}")
+
                     iou3d = seg1.get_voxel_grid(self.params.iou_voxel_size).iou(
                         seg2.get_voxel_grid(self.params.iou_voxel_size))
                     
-                    logger.debug(f"MERGING CHECK: Seg {seg1.id} and Seg {seg2.id} with 3D IOU {iou3d} and 2D IOU {iou2d}")
+                    if seg1.id == 301 and seg2.id == 291:
+                        logger.debug(f"MERGING CHECK: Seg {seg1.id} and Seg {seg2.id} with 3D IOU {iou3d} and 2D IOU {iou2d}")
 
                     if iou3d > self.params.merge_objects_iou_3d or iou2d > self.params.merge_objects_iou_2d:
                         logger.info(f"Merging segments {seg1.id} and {seg2.id} with 3D IoU {iou3d:.2f} and 2D IoU {iou2d:.2f}")
                         seg1.update_from_segment(seg2)
                         seg1.id = min(seg1.id, seg2.id)
                         if seg1.num_points == 0:
-                            self.segments.pop(i)
+                            self.segments.remove(seg1)
                         elif j < len(self.segments):
-                            self.segments.pop(j)
+                            self.segments.remove(seg2)
                         else:
-                            self.inactive_segments.pop(j - len(self.segments))
+                            self.inactive_segments.remove(seg2)
                         edited = True
                         break
                 if edited:

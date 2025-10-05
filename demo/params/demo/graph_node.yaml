@@ -23,3 +23,5 @@ use_weighted_average_for_descriptor: False
 get_semantic_descriptors_includes_children: False
 
 get_point_cloud_includes_children: False
+
+merge_with_node_keep_first_seen_of_self: True

@@ -13,6 +13,7 @@ import open3d as o3d
 from roman.map.observation import Observation
 from roman.map.voxel_grid import VoxelGrid
 from roman.object.object import Object
+from roman.logger import logger
 
 # TODO: use edited to help save computation in computing things 
 # like volume, extent, and pca shape attributes
@@ -65,6 +66,8 @@ class Segment(Object):
         self.observations = [observation.copy(include_mask=False)]
         self.first_seen = observation.time
         self.last_seen = observation.time
+        if self.id == 1 or self.id == 25:
+            logger.info(f"Seg {self.id} updating last_seen to {self.last_seen} in __init__()")
         self.camera_params = camera_params
         self.num_sightings = 1
         self.edited = True
@@ -121,7 +124,7 @@ class Segment(Object):
             self.last_observation = observation.copy(include_mask=True)
         else:
             self.observations.append(observation.copy(include_mask=False))
-            
+
     def update_from_segment(self, segment):
         for obs in segment.observations:
             # none of the observations will have masks, so need to update with 
@@ -232,6 +235,8 @@ class Segment(Object):
     def reset_obb(self):
         self._obb = None
         self.voxel_grid = dict()
+        if self.id == 291:
+            logger.info(f"RESETTING VOXEL GRID FOR NODE {self.id}")
         
     @property
     def volume(self):
