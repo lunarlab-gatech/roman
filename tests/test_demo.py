@@ -12,22 +12,9 @@ import urllib.request
 @typechecked
 class TestDemo(unittest.TestCase):
     
-    def get_current_branch() -> str:
-        """Return the current Git branch name."""
-        try:
-            result = subprocess.run(
-                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-            return result.stdout.strip()
-        except Exception:
-            return ""
-        
-    CURRENT_BRANCH = get_current_branch()
+    RUN_LONG_TESTS = bool(os.getenv("RUN_LONG_TESTS"))
 
-    @unittest.skipUnless(CURRENT_BRANCH in {"main"}, f"Skipped on branch {CURRENT_BRANCH}")
+    @unittest.skipUnless(RUN_LONG_TESTS, "Skipped because RUN_LONG_TESTS is not set")
     def test_ROMAN_matches_MeronomyGraph_disabled(self):
         """ Ensure that ROMAN and MeronomyGraph have the same output when correct parameters used."""
 
