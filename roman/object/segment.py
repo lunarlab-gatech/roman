@@ -66,8 +66,6 @@ class Segment(Object):
         self.observations = [observation.copy(include_mask=False)]
         self.first_seen = observation.time
         self.last_seen = observation.time
-        if self.id == 1 or self.id == 25:
-            logger.info(f"Seg {self.id} updating last_seen to {self.last_seen} in __init__()")
         self.camera_params = camera_params
         self.num_sightings = 1
         self.edited = True
@@ -235,8 +233,6 @@ class Segment(Object):
     def reset_obb(self):
         self._obb = None
         self.voxel_grid = dict()
-        if self.id == 291:
-            logger.info(f"RESETTING VOXEL GRID FOR NODE {self.id}")
         
     @property
     def volume(self):

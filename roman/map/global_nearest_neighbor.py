@@ -38,10 +38,7 @@ def global_nearest_neighbor(data1: list[Segment], data2: list, similarity_fun: c
     hungarian_cost = np.concatenate([
         np.concatenate([scores, np.ones(scores.shape)], axis=1),
         np.ones((scores.shape[0], 2*scores.shape[1]))], axis=0)
-    logger.debug(f"Hungarian Cost: {hungarian_cost}")
     row_ind, col_ind = linear_sum_assignment(hungarian_cost)
-    logger.debug(f"Hungarian Results: {row_ind} {col_ind}")
-    logger.debug(f"Len1: {len1} Len2: {len2}")
 
     pairs = []
     for idx1, idx2 in zip(row_ind, col_ind):
@@ -49,6 +46,5 @@ def global_nearest_neighbor(data1: list[Segment], data2: list, similarity_fun: c
         if idx1 < len1 and idx2 < len2:
             assert scores[idx1,idx2] <= 1
             pairs.append((idx1, idx2))
-    logger.debug(f"Pairs: {pairs}")
 
     return pairs
