@@ -22,6 +22,7 @@ jobs:
         with:
           ref: original
       - name: Install dependencies 
+        shell: bash
         run: |
           set -euo pipefail
           ./install.sh
@@ -50,6 +51,7 @@ jobs:
         with:
           ref: main 
       - name: Clean previous install
+        shell: bash
         run: |
           set -euo pipefail
           rm -rf dependencies/clipper/build
@@ -58,6 +60,7 @@ jobs:
           git submodule update --init --recursive --force
           pip uninstall -y robotdatapy roman || true
       - name: Install dependencies 
+        shell: bash
         run: |
           set -euo pipefail
           ./install.sh
