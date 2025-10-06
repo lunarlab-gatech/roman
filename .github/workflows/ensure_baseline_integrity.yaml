@@ -39,7 +39,7 @@ jobs:
           python3 demo/demo.py -p demo/params/demo -o demo_output
           cat demo_output/offline_rpgo/ate_rmse.txt
       - name: Save 'original' result
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: result_original
           path: demo_output/offline_rpgo/ate_rmse.txt
@@ -72,7 +72,7 @@ jobs:
           python3 demo/demo.py -p demo/params/demo --disable-wandb
           cat demo_output/demo/latest/offline_rpgo/ate_rmse.txt
       - name: Save 'main' result
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: result_main
           path: demo_output/demo/latest/offline_rpgo/ate_rmse.txt
