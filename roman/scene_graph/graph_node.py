@@ -132,19 +132,16 @@ class GraphNode():
         to_delete = self.update_point_cloud(point_cloud, run_dbscan=run_dbscan, 
                                             remove_outliers=run_dbscan, downsample=self.params.downsample_on_node_creation)
         if len(to_delete) > 0:
-            logger.info(f"Node creation failed due to invalid point cloud")
             self._class_method_creation_success = False
 
         # If it hasn't failed yet, check if our ConvexHull is valid (if requested)
         elif self.params.require_valid_convex_hull:
             hull = self.get_convex_hull()
             if hull is None:
-                logger.info(f"Node creation failed due to invalid ConvexHull")
                 self._class_method_creation_success = False
         
         # Additionally, check if our size is reasonable
         if self.params.check_minimum_node_size_during_creation and not self.is_RootGraphNode() and self.get_longest_line_size() < 0.4:
-            logger.info(f"Node creation failed to to small size: {self.get_longest_line_size()}")
             self._class_method_creation_success = False
 
         # If we are RootGraphNode, creation is always successful as we don't 
@@ -449,16 +446,8 @@ class GraphNode():
                     full_pc = np.concatenate((full_pc, child.get_point_cloud()), dtype=np.float64)
                 self._point_cloud = np.concatenate((full_pc, self.point_cloud), dtype=np.float64)
                 num_points = self._point_cloud.shape[0]
-                if num_points < 4:
-                    logger.debug(f"[bright_red]WARNING[/bright_red]: Current point cloud is {num_points} for Node {self.get_id()}")
-                else:
-                    logger.debug(f"[bright_yellow]UPDATE[/bright_yellow]: Current point cloud is {num_points} for Node {self.get_id()}")
             else:
                 self._point_cloud = self.point_cloud.copy()
-
-            # Sort Point Cloud Lexicographically to enforce determinism with Open3D
-            # self._point_cloud = self._point_cloud[np.lexsort(self._point_cloud.T[::-1])]
-
         return self._point_cloud
     
     def get_point_cloud_robot_aligned(self) -> np.ndarray | None:
@@ -662,8 +651,6 @@ class GraphNode():
             num_points_before = self.point_cloud.shape[0]
             self.point_cloud = self.point_cloud[mask]
             num_points_after = self.point_cloud.shape[0]
-            logger.debug(f"NODE: {self.get_id()}, POINT CLOUD UPDATED from {num_points_before} to {num_points_after}")
-            logger.debug(f"remove_points_from_self(): Resetting Point Cloud for Node {self.get_id()}")
             return self.reset_saved_point_vars()
 
         # Otherwise, we don't want to be deleted
@@ -692,7 +679,6 @@ class GraphNode():
     def remove_child(self, child: GraphNode) -> set[GraphNode]:
         if child in self.child_nodes:
             self.child_nodes.remove(child)
-            logger.debug(f"remove_child(): Resetting Point Cloud for Node {self.get_id()}")
 
             if self.params.parent_node_includes_child_node_for_data:
                 self.reset_saved_descriptor_vars()
@@ -723,8 +709,8 @@ class GraphNode():
     def add_child(self, new_child: GraphNode) -> None:
         if new_child in self.child_nodes:
             return # Shouldn't add children more than once
+        
         self.child_nodes.append(new_child)
-        logger.debug(f"add_child(): Resetting Point Cloud for Node {self.get_id()}")
         if self.params.parent_node_includes_child_node_for_data:
             self.reset_saved_descriptor_vars()
             self.reset_saved_inheritance_vars()
@@ -786,21 +772,13 @@ class GraphNode():
             # self.point_cloud = np.unique(self.point_cloud, axis=0) # Prune any duplicates
             self.reset_saved_point_vars_safe() # Wipe saved point cloud for next steps
 
-        if not self.is_RootGraphNode():
-            logger.debug(f"Point cloud Number [After Add]: {self.get_point_cloud().shape[0]}")
-
         # =========== Clean-up Point Cloud  ============
         # Necessary to limit sizes of point clouds for computation purposes and for ensuring incoming point clouds only represent a single object.
         # Considers child cloud as part of self for determining how to downsample, remove outliers, and cluster. 
 
         # Perform DBSCAN clustering (if desired)
         if run_dbscan:
-            # Now perform clustering
-            logger.debug(f"Running DBSCAN for Node {self.get_id()}")
             self._dbscan_clustering()
-
-        if not self.is_RootGraphNode():
-            logger.debug(f"Point cloud Number [after DBScan]: {self.get_point_cloud().shape[0]}")
 
         # Run a downsampling operation to keep the point clouds small enough for real-time
         if downsample:
@@ -820,17 +798,11 @@ class GraphNode():
             self.point_cloud = np.asarray(pcd_sampled.points)
             self.reset_saved_point_vars_safe()
 
-        if not self.is_RootGraphNode():
-            logger.debug(f"Point cloud Number [after downsample]: {self.get_point_cloud().shape[0]}")
-
         # Remove statistical outliers
         if remove_outliers is None:
             remove_outliers = self.params.enable_remove_statistical_outliers
         if remove_outliers:
             self._remove_statistical_outliers()
-
-        if not self.is_RootGraphNode():
-            logger.debug(f"Point cloud Number [after statistical outlier removal]: {self.get_point_cloud().shape[0]}")
 
         # Reset point cloud dependent saved variables and return nodes to delete
         return self.reset_saved_point_vars()
@@ -857,16 +829,13 @@ class GraphNode():
             if self.params.enable_roman_dbscan:
 
                 # Number of clusters, ignoring noise if present
-                logger.debug(f"labels {labels}")
                 max_label = labels.max()
                 
                 # get largest cluster
                 cluster_sizes = np.zeros(max_label + 1)
                 for i in range(max_label + 1):
                     cluster_sizes[i] = np.sum(labels == i)
-                logger.debug(f"cluster_sizes {cluster_sizes}")
                 max_cluster: np.int64 = np.argmax(cluster_sizes)
-                logger.debug(f"max_cluster {max_cluster}")
 
                 # Filter out any points not belonging to max cluster
                 filtered_indices = np.where(labels == max_cluster)[0]
@@ -884,13 +853,11 @@ class GraphNode():
                 # Check size of max cluster
                 max_cluster_size = np.sum(labels == max_cluster_index)
                 cluster_size_ratio = max_cluster_size / len(pcd.points)
-                logger.debug(f"Cluster Size Ratio: {cluster_size_ratio}")
                 if cluster_size_ratio < self.params.cluster_percentage_of_full:
 
                     # Since this cluster is too small, the semantic embedding will not be 
                     # representative. Thus, we must delete this node, so wipe our point cloud.
                     self.point_cloud = np.zeros((0, 3), dtype=np.float64)
-                    logger.debug(f"Cluster size too small, rejecting...")
                     self.reset_saved_point_vars_safe(reset_voxel_grid)
                     return
 
@@ -900,7 +867,6 @@ class GraphNode():
 
                 # Save the new sampled point cloud 
                 self.point_cloud = clustered_points
-                logger.debug(f"Point Cloud size after DBScan: {self.point_cloud.shape[0]}")
                 self.reset_saved_point_vars_safe(reset_voxel_grid)
 
     def _remove_statistical_outliers(self):
@@ -914,7 +880,6 @@ class GraphNode():
 
         # Save the new sampled point cloud 
         self.point_cloud = np.asarray(pcd_sampled.points)
-        logger.debug(f"Point Cloud size after remove statistical outliers: {self.point_cloud.shape[0]}")
         self.reset_saved_point_vars_safe()
 
         # NOTE: This actually ISN'T a safe operation, so calling method MUST call reset_saved_point_vars().
@@ -1076,7 +1041,6 @@ class GraphNode():
 
         # Remove child
         other.remove_from_graph_complete()
-        logger.debug(f"[bright_blue]Parent-Child Merge[/bright_blue]: Merged Node {other.get_id()} into Parent Node {self.get_id()}")
 
     # ==================== Resetting Vars ====================
     def reset_saved_point_vars(self, reset_voxel_grid: bool = True) -> set[GraphNode]:
@@ -1107,14 +1071,10 @@ class GraphNode():
 
         # Check if we can still make a ConvexHull...
         if self.params.require_valid_convex_hull and self.get_convex_hull() is None:
-            logger.debug(f"We CANNOT get Convex Hull for Node {self.get_id()}, so plan to delete")
             to_delete.add(self)
-        else:
-            logger.debug(f"We can still get Convex Hull for Node {self.get_id()}")
 
         # Reset variables in parents and get any of those that need to be deleted.
         if self.parent_node is not None and self.params.parent_node_includes_child_node_for_data:
-            logger.debug(f"reset_saved_point_vars(): Resetting Point Cloud for Parent node {self.parent_node.get_id()}")
             to_delete.update(self.parent_node.reset_saved_point_vars(reset_voxel_grid))
 
         # Return nodes that need to be deleted

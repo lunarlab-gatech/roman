@@ -67,8 +67,6 @@ class SceneGraph3D():
     @typechecked
     def update(self, time: float | np.longdouble, pose: np.ndarray, observations: list[Observation], img: np.ndarray, depth_img: np.ndarray, img_data_params: ImgDataParams, seg_img: np.ndarray):
         
-        logger.debug(f"SceneGraph3D update called with {len(observations)} observations")
-
         # Make sure that time ends up as a float
         time = float(time)
 
@@ -95,12 +93,8 @@ class SceneGraph3D():
                     nodes.append(new_node)
                     node_to_obs_mapping[new_node.get_id()] = i
 
-        logger.debug(f"Called with {len(nodes)} valid observations")
-
         # Sort nodes after parallel operations for determinism
         nodes = sorted(nodes, key=lambda node: node_to_obs_mapping[node.get_id()])
-        for i, node in enumerate(nodes):
-            logger.info(f"Observation {i}: {node.get_point_cloud().shape[0]}, ID: {node.get_id()}")
 
         # Run operations that require at least one input node
         associated_pairs: list[tuple] = []
@@ -109,9 +103,7 @@ class SceneGraph3D():
             # Associate new nodes with previous nodes in the graph
             associated_pairs = self.hungarian_assignment(nodes)
             if len(associated_pairs) > 0:
-                logger.debug(f"[dark_blue]Association Merges[/dark_blue]: {len(associated_pairs)} new nodes successfully associated")
-                for pair in associated_pairs:
-                    logger.info(f"Association (node, obs): ({pair[1]} {node_to_obs_mapping[pair[0]]})")
+                logger.info(f"[dark_blue]Association Merges[/dark_blue]: {len(associated_pairs)} new nodes successfully associated")
 
             # Parallelize the node association merging
             with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
@@ -157,15 +149,12 @@ class SceneGraph3D():
                             raise RuntimeError("Node is no longer valid after downsampling and removing outliers")
 
                     # Discard if there are no points
-                    if node.get_num_points() == 0:
-                        logger.info(f"Observation {i} discared as it has no points")
-                        continue
+                    if node.get_num_points() == 0: continue
 
                     # Re-assign ids to the non-associated nodes (so they line up with ROMAN ids)
                     node.set_id(self.root_node.request_new_ID())
 
                     # Add the node to the graph
-                    logger.info(f"Observation {i} turned into Node {node.get_id()}")
                     new_id = self.add_new_node_to_graph(node)
                     associated_pairs.append((new_id, new_id))
             
@@ -177,20 +166,6 @@ class SceneGraph3D():
 
         # Run merging operations
         self.association_merges()
-
-        logger.debug(f"Segment nursery Ids: {[seg.get_id() for seg in self.get_nodes_with_status(GraphNode.SegmentStatus.NURSERY)]}")
-        logger.debug(f"Active segments Ids: {[seg.get_id() for seg in self.get_nodes_with_status(GraphNode.SegmentStatus.SEGMENT)]}")
-        logger.debug(f"Inactive segments Ids: {[seg.get_id() for seg in self.get_nodes_with_status(GraphNode.SegmentStatus.INACTIVE)]}")
-        logger.debug(f"Segment graveyard Ids: {[seg.get_id() for seg in self.get_nodes_with_status(GraphNode.SegmentStatus.GRAVEYARD)]}")
-
-        for node in self.get_nodes_with_status(GraphNode.SegmentStatus.SEGMENT):
-            logger.debug(f"Segment {node.get_id()}: num_points={node.get_num_points()}")
-        for node in self.get_nodes_with_status(GraphNode.SegmentStatus.NURSERY):
-            logger.debug(f"Nursery Segment {node.get_id()}: num_points={node.get_num_points()}")
-        for node in self.get_nodes_with_status(GraphNode.SegmentStatus.INACTIVE):
-            logger.debug(f"Inactive Segment {node.get_id()}: num_points={node.get_num_points()}")
-        for node in self.get_nodes_with_status(GraphNode.SegmentStatus.GRAVEYARD):
-            logger.debug(f"Graveyard Segment {node.get_id()}: num_points={node.get_num_points()}")
 
         # Update the viewer
         # self.rerun_viewer.update(self.root_node, self.times[-1], img=img, depth_img=depth_img, camera_pose=pose, img_data_params=img_data_params, seg_img=seg_img, associations=associated_pairs, node_to_obs_mapping=node_to_obs_mapping)
@@ -211,13 +186,6 @@ class SceneGraph3D():
         # TODO: This seems to be causing bugs currently
         if self.params.enable_resolve_overlapping_nodes:
             self.resolve_overlapping_convex_hulls()
-
-        # Print the current number of points in each node
-        for node in self.root_node:
-            if not node.is_RootGraphNode():
-                logger.debug(f"Node {node.get_id()}: num_points={node.get_point_cloud().shape[0]}, last_seen={node.get_time_last_updated()}")
-                if node.get_semantic_descriptor() is not None:
-                    logger.debug(f"Semantic Descriptor first five values: {node.get_semantic_descriptor()[:5]}")
 
         # Update the viewer
         self.rerun_viewer.update(self.root_node, self.times[-1], img=img, depth_img=depth_img, camera_pose=pose, img_data_params=img_data_params, seg_img=seg_img, associations=associated_pairs, node_to_obs_mapping=node_to_obs_mapping)
@@ -244,32 +212,25 @@ class SceneGraph3D():
             for j, new_node in enumerate(new_nodes):
                 
                 # Calculate IOU
-                logger.debug(f"CURRENT J VAL: {j}")
                 iou, _, _ = self.geometric_overlap(node, new_node)
 
                 # Check if it passes minimum requirements for association
-                logger.debug(f"Comparing Seg {node.get_id()} to Obs {j} IOU: {iou}")
                 if self.pass_minimum_requirements_for_association(iou):
                     # Negative as hungarian algorithm tries to minimize cost
                     scores[i,j] = -iou
-                    logger.debug(f"SCORE ({node.get_id()} & {j}): {scores[i,j]}")
                 else:
                     # If fail (or root node), then give a very large number to practically disable association
                     scores[i,j] = 1e9
                     
         # Augment cost to add option for no associations
         hungarian_cost = np.concatenate([ np.concatenate([scores, np.ones(scores.shape)], axis=1), np.ones((scores.shape[0], 2*scores.shape[1]))], axis=0)
-        logger.debug(f"Hungarian Cost: {hungarian_cost}")
         row_ind, col_ind = linear_sum_assignment(hungarian_cost)
-        logger.debug(f"Hungarian Results: {row_ind} {col_ind}")
-        logger.debug(f"Len1: {num_nodes} Len2: {num_new}")
 
         pairs = []
         for idx1, idx2 in zip(row_ind, col_ind):
             # state and measurement associated together
             if idx1 < num_nodes and idx2 < num_new:
                 pairs.append((idx1, idx2))
-        logger.debug(f"Pairs: {pairs}")
 
         # Convert indices from index of iteration in node ids
         new_pairs = []
@@ -292,14 +253,12 @@ class SceneGraph3D():
         # Use Voxel Grid for IOU if specified
         if not self.params.use_convex_hull_for_iou:
             voxel_size = self.params.voxel_size_for_voxel_grid_iou
-            logger.debug(f"Voxel Size: {voxel_size}")
             grid_a = a.get_voxel_grid(voxel_size)
             grid_b = b.get_voxel_grid(voxel_size)
             if grid_a is None or grid_b is None:
-                logger.info(f'One or more voxel grids are none!')
+                raise RuntimeError("One or more Voxel Grids are None!")
                 voxel_iou = 0.0
             else:
-                logger.debug(f"B ID: {b.get_id()}, A ID {a.get_id()}")
                 voxel_iou = grid_a.iou(grid_b)
             result = (voxel_iou, 0.5, 0.5) # With voxel grid, we have no way to calculate enclosure, so just guess.
 
@@ -589,8 +548,6 @@ class SceneGraph3D():
             score = self.calculate_best_likelihood_score(children_iou, children_enclosure, parent_iou, parent_encompassment, only_leaf=only_leaf)
             
             # If this is the best score so far, keep it
-            logger.debug(f"Scores: {parent_iou} {parent_encompassment}")
-            logger.debug(f"Best Likelihood for Node {pos_parent_node.get_id()}: {score}")
             if score >= best_likelihood_score:
                 best_likelihood_score = score
                 best_likelihood_parent = pos_parent_node
@@ -635,9 +592,9 @@ class SceneGraph3D():
 
         # Print action
         if len(new_children) > 0:
-            logger.debug(f"[cyan]Added[/cyan]: Node {node.get_id()} added to graph as child of Node {new_parent.get_id()} and parent of Nodes {[c.get_id() for c in new_children]}")
+            logger.info(f"[cyan]Added[/cyan]: Node {node.get_id()} added to graph as child of Node {new_parent.get_id()} and parent of Nodes {[c.get_id() for c in new_children]}")
         else:
-            logger.debug(f"[cyan]Added[/cyan]: Node {node.get_id()} added to graph as child of Node {new_parent.get_id()}")
+            logger.info(f"[cyan]Added[/cyan]: Node {node.get_id()} added to graph as child of Node {new_parent.get_id()}")
 
         # Print any deleted nodes
         if len(deleted_ids) > 0:
@@ -677,10 +634,8 @@ class SceneGraph3D():
         
         # Return the best option
         if best_child_score > best_alt_score:
-            logger.debug(f"Children Scores: {children_iou[scores.argmax()]} {children_enclosure[scores.argmax()]}")
             return best_child_score
         else:
-            logger.debug(f"Children Scores: Default 1.0")
             return best_alt_score
     
     @typechecked
@@ -729,19 +684,16 @@ class SceneGraph3D():
         
         for node in to_rm:
             if node.get_num_points() == 0:
-                logger.info(f"Deleting Segment {node.get_id()} due to too few points (during inactivation)")
+                logger.info(f"[bright_red] Deletion: [/bright_red] Node {node.get_id()} has zero points")
                 node.remove_from_graph_complete(False)
                 continue
             try:
-                logger.info(f"Moving Segment {node.get_id()} from normal to inactive")
-                logger.debug(f"Node Point cloud: {node.get_point_cloud()[0:3]}")
-                node._dbscan_clustering(reset_voxel_grid=False) # Don't update voxel grid, as ROMAN keeps old one even though points are updated.
-                logger.debug(f"Node Point cloud: {node.get_point_cloud()[0:3]}")
+                # Don't update voxel grid, as ROMAN keeps old one even though points are updated.
+                node._dbscan_clustering(reset_voxel_grid=False) 
 
                 node.set_status(GraphNode.SegmentStatus.INACTIVE)
             except Exception as e: # too few points to form clusters
-                logger.info(f"EXCEPTION: {e}")
-                logger.info(f"Deleting Segment {node.get_id()} due to too few points to form clusters (during inactivation)")
+                logger.info(f"[bright_red] Deletion: [/bright_red] Node {node.get_id()} has too few points to form clusters")
                 node.remove_from_graph_complete(False)
             
         # handle moving inactive segments to graveyard
@@ -749,21 +701,19 @@ class SceneGraph3D():
                     if self.times[-1] - node.get_time_last_updated() > 15.0 \
                     or np.linalg.norm(node.get_last_pose()[:3,3] - self.poses[-1][:3,3]) > 10.0]
         for node in to_rm:
-            logger.info(f"Downgrading Segment {node.get_id()} from inactive to graveyard")
             node.set_status(GraphNode.SegmentStatus.GRAVEYARD)
 
         to_rm = [node for node in self.get_nodes_with_status(GraphNode.SegmentStatus.NURSERY) \
                     if self.times[-1] - node.get_time_last_updated() > self.params.max_t_no_sightings \
                         or node.get_num_points() == 0]
         for node in to_rm:
-            logger.info("Removing Segment {} from nursery due to no sightings or zero points".format(node.get_id()))
+            logger.info(f"[bright_red] Deletion: [/bright_red] Node {node.get_id()} from nursery due to no sightings or zero points")
             node.remove_from_graph_complete(False)
 
         # handle moving segments from nursery to normal segments
         to_upgrade = [node for node in self.get_nodes_with_status(GraphNode.SegmentStatus.NURSERY) \
                         if node.get_num_sightings() >= 2]
         for node in to_upgrade:
-            logger.info(f"Upgrading Segment {node.id} from nursery to normal")
             node.set_status(GraphNode.SegmentStatus.SEGMENT)
 
     def association_merges(self):
@@ -799,20 +749,7 @@ class SceneGraph3D():
                     union2d = np.logical_or(mask1, mask2).sum()
                     iou2d = intersection2d / union2d
 
-                    if node1.id == 301 and node2.id == 291:
-                        logger.debug(f"{node1.id} Point cloud: {node1.get_point_cloud()[0:3]}")
-                        logger.debug(f"{node2.id} Point cloud: {node2.get_point_cloud()[0:3]}")
-                        if self.times[-1] == 1665777947.8362014:
-                            np.save(f"meronomy1_{n}.npy", node1.get_point_cloud())
-                            np.save(f"meronomy2_{n}.npy", node2.get_point_cloud())
-
-                        logger.debug(f"A Voxel Grid: {node1.get_voxel_grid(self.params.voxel_size_for_voxel_grid_iou)}")
-                        logger.debug(f"B Voxel Grid: {node2.get_voxel_grid(self.params.voxel_size_for_voxel_grid_iou)}")
-
                     iou3d, _, _ = self.geometric_overlap_cached(node1, node2)
-
-                    if node1.get_id() == 301 and node2.get_id() == 291:
-                        logger.debug(f"MERGING CHECK {node1.id} and {node2.id} : 3D IoU {iou3d:.2f} and 2D IoU {iou2d:.2f}")
 
                     if iou3d > self.params.min_iou_for_association or iou2d > self.params.min_iou_2d_for_merging:
                         logger.info(f"Merging segments {node1.id} and {node2.id} with 3D IoU {iou3d:.2f} and 2D IoU {iou2d:.2f}")
@@ -835,10 +772,6 @@ class SceneGraph3D():
         to_delete: list[GraphNode] = []
         for node in nodes:
             try:
-                if node.id == 816:
-                    logger.info("DATA FOR node 816 in remove")
-                    logger.info(np.sort(node.get_extent()))
-                    logger.info(node.get_num_points())
                 extent = np.sort(node.get_extent())
                 if node.get_num_points() == 0:
                     to_delete.append(node)
