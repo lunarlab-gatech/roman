@@ -87,7 +87,7 @@ if __name__ == '__main__':
         config_dict = shorten({'system_params': system_params.model_dump()})
         config_dict['skip_map'] = args.skip_map
         config_dict['use_map'] = args.use_map
-        wandb_run = wandb.init(project='HERCULES Experiment',
+        wandb_run = wandb.init(project='MeronomyGraph Ablation v1.1',
                         config=config_dict)
         run_name = wandb_run.name
     else:
