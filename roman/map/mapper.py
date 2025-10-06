@@ -291,10 +291,18 @@ class Mapper():
         while n < max_iter and edited:
             edited = False
             n += 1
+            
+            # Enable to mimic MeronomyGraph Disabled. Set to False to mimic original ROMAN baseline.
+            if self.params.sort_segments_during_merge:
+                segments_list = sorted(self.segments, key=lambda s: s.id)
+                inactive_segments_list = sorted(self.segments, key=lambda s: s.id) + sorted(self.inactive_segments, key=lambda s: s.id)
+            else:
+                segments_list = self.segments
+                inactive_segments_list = self.inactive_segments
 
             # TODO: This was changed temporarily. Will need to change back AND ensure Meronomy matches!
-            for i, seg1 in enumerate(sorted(self.segments, key=lambda s: s.id)):
-                for j, seg2 in enumerate(sorted(self.segments, key=lambda s: s.id) + sorted(self.inactive_segments, key=lambda s: s.id)):
+            for i, seg1 in enumerate(segments_list):
+                for j, seg2 in enumerate(inactive_segments_list):
                     if i >= j:
                         continue
 

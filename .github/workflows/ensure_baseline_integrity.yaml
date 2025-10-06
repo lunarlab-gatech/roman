@@ -1,0 +1,90 @@
+name: Ensure Baseline Integrity
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:  # allows manual trigger
+
+jobs:
+  compare-branches:
+    runs-on: ubuntu-latest
+    container:
+      image: dlittleman/roman_baseline:v1.0.1
+      options: --user root  # optional, helps avoid permission issue
+      env:
+        CI_TESTS: true
+
+    steps:
+      # Run ROMAN baseline on Original Branch
+      - name: Checkout 'original'
+        uses: actions/checkout@v4
+        with:
+          ref: original
+      - name: Install dependencies 
+        run: |
+          set -euo pipefail
+          ./install.sh
+      - name: Download dataset
+        run: |
+          python3 tests/download_dataset.py --dataset-dir temp/kimera-multi-dataset
+      - name: Run ROMAN baseline on original
+        id: run_original
+        env:
+          YOLO_VERBOSE: "False"
+          ROMAN_DEMO_DATA: "temp/kimera-multi-dataset"
+          ROMAN_WEIGHTS: "weights"
+        run: |
+          mkdir demo_output
+          python3 demo/demo.py -p demo/params/demo -o demo_output
+          cat demo_output/offline_rpgo/ate_rmse.txt
+      - name: Save 'original' result
+        uses: actions/upload-artifact@v3
+        with:
+          name: result_original
+          path: demo_output/offline_rpgo/ate_rmse.txt
+
+      # Run ROMAN baseline on Main Branch
+      - name: Checkout 'main'
+        uses: actions/checkout@v4
+        with:
+          ref: main 
+      - name: Clean previous install
+        run: |
+          set -euo pipefail
+          rm -rf dependencies/clipper/build
+          rm -rf dependencies/Kimera-RPGO/build
+          git submodule deinit -f -- all
+          git submodule update --init --recursive --force
+          pip uninstall -y robotdatapy roman || true
+      - name: Install dependencies 
+        run: |
+          set -euo pipefail
+          ./install.sh
+      - name: Run ROMAN baseline on main
+        id: run_main
+        env:
+          YOLO_VERBOSE: "False"
+          ROMAN_DEMO_DATA: "temp/kimera-multi-dataset"
+          ROMAN_WEIGHTS: "weights"
+        run: |
+          mkdir demo_output
+          python3 demo/demo.py -p demo/params/demo --disable-wandb
+          cat demo_output/demo/latest/offline_rpgo/ate_rmse.txt
+      - name: Save 'main' result
+        uses: actions/upload-artifact@v3
+        with:
+          name: result_main
+          path: demo_output/demo/latest/offline_rpgo/ate_rmse.txt
+
+      # Determine if performance is the same
+      - name: Compare results
+        run: |
+          echo "Downloading artifacts to compare..."
+          mkdir -p temp_compare
+          gh actions download-artifact --name result_original --dir temp_compare/original
+          gh actions download-artifact --name result_main --dir temp_compare/main
+
+          echo "Comparing results..."
+          cmp temp_compare/original/ate_rmse.txt temp_compare/main/ate_rmse.txt
+          echo "✅ Results are identical!"
