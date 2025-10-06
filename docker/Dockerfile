@@ -37,29 +37,9 @@ RUN git clone https://github.com/borglab/gtsam.git && \
 # Install additional requirements
 RUN sudo apt update && sudo apt install -y libeigen3-dev python3-pip curl
 
-# Install tmuxp
-RUN sudo apt install tmux && pip install --upgrade tmuxp && \
-    echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && \
-    echo 'setw -g mouse on' > ~/.tmux.conf 
-
 # Install additional libraries
 RUN sudo apt install -y wmctrl wget lsb-release python3-opencv
 RUN pip install numpy==1.23 scipy scikit-image matplotlib wmctrl
-
-# Install ros2 Humble
-RUN sudo apt update && sudo apt install locales -y && \
-    sudo locale-gen en_US en_US.UTF-8 && \
-    sudo update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 && \
-    export LANG=en_US.UTF-8 && \
-    sudo apt install software-properties-common -y && \
-    sudo add-apt-repository universe && \
-    sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg && \
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null && \
-    sudo apt update && \
-    sudo apt upgrade && \
-    sudo apt install -y ros-humble-desktop ros-dev-tools python3-vcstool && \
-    sudo apt install -y ros-humble-tf-transformations ros-humble-diagnostic-common-diagnostics ros-humble-rqt-runtime-monitor && \
-    echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
 
 # Install g2o for access to g2o_viewer
 RUN sudo apt install cmake libeigen3-dev libspdlog-dev libsuitesparse-dev qtdeclarative5-dev qt5-qmake libqglviewer-dev-qt5 -y && \
