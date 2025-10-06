@@ -24,6 +24,7 @@ jobs:
       - name: Install dependencies 
         shell: bash
         run: |
+          pip install gdwon
           set -euo pipefail
           ./install.sh
       - name: Download dataset
