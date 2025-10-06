@@ -25,4 +25,5 @@ max_dist_active_for_node: 10
 run_dbscan_when_retiring_node: True
 
 delete_nodes_only_seen_once: True
+
 max_t_no_sightings: 0.4

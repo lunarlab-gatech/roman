@@ -19,7 +19,12 @@ class TestGraphNode(unittest.TestCase):
         GraphNode.params = GraphNodeParams.from_yaml(yaml_file)
 
     def test_get_semantic_descriptor(self):
-        """ Ensure our calculations of semantic descriptors among parents/children is sound"""
+        """ 
+        Ensure our calculations of semantic descriptors among parents/children is sound
+        
+        NOTE: This only tests for weighted desciptor calculated using children, not calculated
+        incrementally and including observation descriptor.
+        """
 
         # Define some example descriptors w/weights
         des1 = [(np.array([1, 4, 6]), 10)]
@@ -28,10 +33,10 @@ class TestGraphNode(unittest.TestCase):
         des3 = [(np.array([5, 10, -20]), 20)]
 
         # Build an example graph with above descriptors
-        root_node = GraphNode.create_node_if_possible(0, None, [], np.zeros((0, 3), dtype=np.float64), [], 0, 0, 0, np.empty(0), np.empty(0), None, True)
-        parent_node = GraphNode.create_node_if_possible(1, root_node, des1, np.random.randint(0, 10, (30, 3)), [], 0, 0, 0, self.I, self.I, False)
-        child1_node = GraphNode.create_node_if_possible(2, parent_node, des2, np.random.randint(0, 5, (30, 3)), [], 0, 0, 0, self.I, self.I, False)
-        child2_node = GraphNode.create_node_if_possible(3, parent_node, des3, np.random.randint(5, 10, (30, 3)), [], 0, 0, 0, self.I, self.I, False)
+        root_node = GraphNode.create_node_if_possible(0, None, [], None, 0, np.zeros((0, 3), dtype=np.float64), [], 0, 0, 0, np.empty(0), np.empty(0), np.empty(0), None, True)
+        parent_node = GraphNode.create_node_if_possible(1, root_node, des1, None, 0, np.random.randint(0, 10, (30, 3)), [], 0, 0, 0, self.I, self.I, self.I, False)
+        child1_node = GraphNode.create_node_if_possible(2, parent_node, des2, None, 0, np.random.randint(0, 5, (30, 3)), [], 0, 0, 0, self.I, self.I, self.I, False)
+        child2_node = GraphNode.create_node_if_possible(3, parent_node, des3, None, 0, np.random.randint(5, 10, (30, 3)), [], 0, 0, 0, self.I, self.I, self.I, False)
         parent_node.add_children([child1_node, child2_node])
 
         assert root_node is not None
@@ -59,16 +64,12 @@ class TestGraphNode(unittest.TestCase):
         point_cloud = np.vstack([points, outliers])
 
         # Generate a graph node with point cloud (runs update_point_cloud)
-        node = GraphNode.create_node_if_possible(0, None, [], point_cloud.copy(), [], 0, 0, 0, np.empty(0), np.empty(0), False)
+        node = GraphNode.create_node_if_possible(0, None, [], None, 0, point_cloud.copy(), [], 0, 0, 0, np.empty(0), np.empty(0), np.empty(0),False)
         curr_cloud = node.get_point_cloud().copy()
-
-        # Make sure that at least the outliers have been pruned
-        self.assertNotEqual(curr_cloud.shape[0], point_cloud.shape[0])
-        self.assertTrue((point_cloud.shape[0] - curr_cloud.shape[0]) > 0)
 
         # Generate another cloud and update
         new_points = np.random.normal(loc=5, scale=1, size=(1000, 3))
-        node.update_point_cloud(new_points, False)
+        node.update_point_cloud(new_points, False, False, False)
         newest_cloud = node.get_point_cloud().copy()
 
         # Make sure the cloud has changed

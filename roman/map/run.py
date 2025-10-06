@@ -24,7 +24,7 @@ from roman.map.mapper import Mapper
 from roman.scene_graph.scene_graph_3D import SceneGraph3D
 from roman.map.fastsam_wrapper import FastSAMWrapper
 from roman.params.system_params import SystemParams
-from ..scene_graph.logger import logger
+from ..logger import logger
 
 @dataclass
 class ProcessingTimes:
@@ -68,7 +68,7 @@ class ROMANMapRunner:
 
         if verbose: print("Setting up mapper...")
         if system_params.use_scene_graph:
-            self.mapper = SceneGraph3D(system_params.scene_graph_3D_params, system_params.graph_node_params, self.data_params.pose_data_params.T_camera_flu, self.fastsam_params)
+            self.mapper = SceneGraph3D(system_params, self.img_data.camera_params, self.data_params.pose_data_params.T_camera_flu)
         else: 
             self.mapper = Mapper(self.mapper_params, self.img_data.camera_params)
             if self.data_params.pose_data_params.T_camera_flu is not None:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import clip
 import cupy as cp
-from .logger import logger
+from ..logger import logger
 import nltk
 nltk.download('wordnet')
 from nltk.corpus import wordnet as wn

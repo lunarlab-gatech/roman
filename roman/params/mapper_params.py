@@ -41,6 +41,7 @@ class MapperParams():
     """
 
     plane_prune_params: list[float]
+    sort_segments_during_merge: bool # Enable to match functionality of MeronomyGraph Disabled
     min_iou: float = 0.25
     min_sightings: int = 2
     max_t_no_sightings: float = 0.4

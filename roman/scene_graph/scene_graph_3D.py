@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from enum import Enum
 from .graph_node import GraphNode, wordnetWrapper
 from .hull_methods import find_point_overlap_with_hulls, convex_hull_geometric_overlap, shortest_dist_between_convex_hulls
-from .logger import logger
+from ..logger import logger
 from ..map.observation import Observation
 import multiprocessing
 import numpy as np
@@ -14,9 +14,12 @@ from ..params.data_params import ImgDataParams
 from ..params.scene_graph_3D_params import SceneGraph3DParams, GraphNodeParams
 import pickle
 from .rerun_wrapper import RerunWrapper
+from robotdatapy.data.img_data import CameraParams
+from robotdatapy.transform import transform
 from roman.map.map import ROMANMap
 from roman.object.segment import Segment
 from roman.params.fastsam_params import FastSAMParams
+from roman.params.system_params import SystemParams
 from scipy.optimize import linear_sum_assignment
 from typeguard import typechecked
 from typing import Any
@@ -27,18 +30,17 @@ multiprocessing.set_start_method("spawn", force=True)
 class SceneGraph3D():
 
     @typechecked
-    def __init__(self, params: SceneGraph3DParams, node_params: GraphNodeParams, _T_camera_flu: np.ndarray, fastsam_params: FastSAMParams):
+    def __init__(self, params: SystemParams, camera_params: CameraParams, _T_camera_flu: np.ndarray):
 
         # Save parameters 
-        self.params: SceneGraph3DParams = params
-        GraphNode.params = node_params
+        self.system_params: SystemParams = params
+        self.params: SceneGraph3DParams = params.scene_graph_3D_params
+        GraphNode.params = params.graph_node_params
+        GraphNode.camera_params = camera_params
 
         # Node that connects all highest-level objects together for implementation purposes
-        self.root_node: GraphNode = GraphNode.create_node_if_possible(0, None, [], np.zeros((0, 3), dtype=np.float64), 
-                                                                      [], 0, 0, 0, np.empty(0), np.empty(0), is_RootGraphNode=True)
-        
-        # List of high-level nodes that have been inactivated
-        self.inactive_nodes: list[GraphNode] = []
+        self.root_node: GraphNode = GraphNode.create_node_if_possible(-1, None, [], None, 0, np.zeros((0, 3), dtype=np.float64), 
+                                                                      [], 0, 0, 0, np.empty(0), np.empty(0), np.empty(0), is_RootGraphNode=True)
 
         # Keeps track of current time so we can keep track of when we are updated.
         self.times: list[float] = []
@@ -50,26 +52,21 @@ class SceneGraph3D():
         self.pose_FLU_wrt_Camera = _T_camera_flu
 
         # Create the visualization
-        self.rerun_viewer = RerunWrapper(enable=self.params.enable_rerun_viz, fastsam_params=fastsam_params)
+        self.rerun_viewer = RerunWrapper(enable=self.params.enable_rerun_viz, fastsam_params=params.fastsam_params)
 
         # Dictionaries to cache results of calculations for speed
         self.overlap_dict: defaultdict = defaultdict(lambda: defaultdict(lambda: None))
-        self.shortest_dist_dist: defaultdict = defaultdict(lambda: defaultdict(lambda: None))
+        self.shortest_dist_dict: defaultdict = defaultdict(lambda: defaultdict(lambda: None))
 
         # TODO: Are there cases where we don't want to call remove from graph complete, as we want to retire the node instead?
         # TODO: I might need a mechanism to merge hypernyms/hyponyms in the graph.
 
         # TODO: Maybe use node average size instead of node longest size
 
-    @typechecked
-    def len(self) -> int:
-        return self.root_node.get_number_of_nodes()
 
     @typechecked
     def update(self, time: float | np.longdouble, pose: np.ndarray, observations: list[Observation], img: np.ndarray, depth_img: np.ndarray, img_data_params: ImgDataParams, seg_img: np.ndarray):
         
-        logger.debug(f"SceneGraph3D update called with {len(observations)} observations")
-
         # Make sure that time ends up as a float
         time = float(time)
 
@@ -96,7 +93,8 @@ class SceneGraph3D():
                     nodes.append(new_node)
                     node_to_obs_mapping[new_node.get_id()] = i
 
-        logger.info(f"Called with {len(nodes)} valid observations")
+        # Sort nodes after parallel operations for determinism
+        nodes = sorted(nodes, key=lambda node: node_to_obs_mapping[node.get_id()])
 
         # Run operations that require at least one input node
         associated_pairs: list[tuple] = []
@@ -118,21 +116,45 @@ class SceneGraph3D():
                         # See if this is a match
                         for pair in associated_pairs:
                             if new_node.get_id() == pair[0] and node.get_id() == pair[1]:
-
+                                
                                 # If so, update node with observation information
                                 futures[executor.submit(node.merge_with_observation, new_node.get_point_cloud(), 
-                                        new_node.get_semantic_descriptors())] = i
+                                                        new_node.get_semantic_descriptor(), new_node.obs_descriptor)] = i
+                                
         
                 # Wait for jobs to finish and update associated pairs
                 for future in as_completed(futures):
                     result = future.result()
 
+                    # TODO: Update associated pairs?
+
             self.rerun_viewer.update(self.root_node, self.times[-1],  img=img, depth_img=depth_img, camera_pose=pose, img_data_params=img_data_params, seg_img=seg_img, associations=associated_pairs, node_to_obs_mapping=node_to_obs_mapping)
+
+            # Update the nodes segment statuses
+            self.update_segment_statuses()
+
+            # Forfeit all new node ids
+            for node in nodes:
+                self.root_node.forfeit_ID(node.get_id())
 
             # Add the remaining unassociated valid_obs as nodes to the scene graph
             associated_obs_indices = [x[0] for x in associated_pairs]
-            for node in nodes:
+            for i, node in enumerate(nodes):
                 if node.get_id() not in associated_obs_indices:
+
+                    # Downsample/remove outliers if requested
+                    if self.params.downsample_and_remove_outliers_after_hungarian_for_new_nodes:
+                        to_delete = node.update_point_cloud(np.zeros((0, 3), dtype=np.float64), downsample=True, remove_outliers=True)
+                        if len(to_delete) > 0:
+                            raise RuntimeError("Node is no longer valid after downsampling and removing outliers")
+
+                    # Discard if there are no points
+                    if node.get_num_points() == 0: continue
+
+                    # Re-assign ids to the non-associated nodes (so they line up with ROMAN ids)
+                    node.set_id(self.root_node.request_new_ID())
+
+                    # Add the node to the graph
                     new_id = self.add_new_node_to_graph(node)
                     associated_pairs.append((new_id, new_id))
             
@@ -165,9 +187,6 @@ class SceneGraph3D():
         if self.params.enable_resolve_overlapping_nodes:
             self.resolve_overlapping_convex_hulls()
 
-        # Run node retirement
-        self.node_retirement()
-
         # Update the viewer
         self.rerun_viewer.update(self.root_node, self.times[-1], img=img, depth_img=depth_img, camera_pose=pose, img_data_params=img_data_params, seg_img=seg_img, associations=associated_pairs, node_to_obs_mapping=node_to_obs_mapping)
 
@@ -180,26 +199,22 @@ class SceneGraph3D():
 
         # Get number of observations and nodes
         num_new = len(new_nodes)
-        num_nodes = self.len()
+        nodes_in_graph: list[GraphNode] = self.get_nodes_with_status(GraphNode.SegmentStatus.SEGMENT) + \
+                                          self.get_nodes_with_status(GraphNode.SegmentStatus.NURSERY)
+        num_nodes = len(nodes_in_graph)
 
         # Setup score matrix
-        scores = np.zeros((num_new, num_nodes))
+        scores = np.zeros((num_nodes, num_new))
 
         # Iterate through each new node
-        for i, new_node in enumerate(new_nodes):
-            # Calculate a similarity score for every node in the graph
-            for j, node in enumerate(self.root_node):
-
-                # If this is a root node, assign a score to practically disable association and skip
-                if node.is_RootGraphNode():
-                    scores[i,j] = 1e9
-                    continue
+        for i, node in enumerate(nodes_in_graph):
+            # Calculate a similarity score with every node in the graph
+            for j, new_node in enumerate(new_nodes):
                 
                 # Calculate IOU
-                iou, _, _ = self.geometric_overlap_cached(node, new_node)
+                iou, _, _ = self.geometric_overlap(node, new_node)
 
                 # Check if it passes minimum requirements for association
-                logger.debug(f"Currently comparing Node {new_node.get_id()} to Node {node.get_id()} with IOU: {iou}")
                 if self.pass_minimum_requirements_for_association(iou):
                     # Negative as hungarian algorithm tries to minimize cost
                     scores[i,j] = -iou
@@ -214,52 +229,89 @@ class SceneGraph3D():
         pairs = []
         for idx1, idx2 in zip(row_ind, col_ind):
             # state and measurement associated together
-            if idx1 < num_new and idx2 < num_nodes:
+            if idx1 < num_nodes and idx2 < num_new:
                 pairs.append((idx1, idx2))
 
         # Convert indices from index of iteration in node ids
         new_pairs = []
         for pair in pairs:
-            for i, new_node in enumerate(new_nodes):
-                for j, node in enumerate(self.root_node):
+            for i, node in enumerate(nodes_in_graph):
+                for j, new_node in enumerate(new_nodes):
                     if i == pair[0] and j == pair[1]:
                         new_pairs.append((new_node.get_id(), node.get_id()))
                         break
 
         return new_pairs
     
+    def geometric_overlap(self, a: GraphNode, b: GraphNode) -> tuple[float, float | None, float | None]:
+
+        # Calculate geometric overlap using hulls
+        result = (None, None, None)
+        if self.params.use_convex_hull_for_iou:
+            result: tuple[float, float, float] = convex_hull_geometric_overlap(a.get_convex_hull(), b.get_convex_hull())
+
+        # Use Voxel Grid for IOU if specified
+        if not self.params.use_convex_hull_for_iou:
+            voxel_size = self.params.voxel_size_for_voxel_grid_iou
+            grid_a = a.get_voxel_grid(voxel_size)
+            grid_b = b.get_voxel_grid(voxel_size)
+            if grid_a is None or grid_b is None:
+                raise RuntimeError("One or more Voxel Grids are None!")
+                voxel_iou = 0.0
+            else:
+                voxel_iou = grid_a.iou(grid_b)
+            result = (voxel_iou, 0.5, 0.5) # With voxel grid, we have no way to calculate enclosure, so just guess.
+
+            # TODO: Just return None and have calling methods deal when enclosure is None!
+
+        return result   
+
+    @staticmethod
+    def _purge_node_calculations_from_dict(dict: defaultdict, node: GraphNode) -> None:
+        """Remove all cached overlaps that involve the given node."""
+        node_id = node.get_id()
+
+        # Remove when node_id is the first key
+        dict.pop(node_id, None)
+
+        # Remove when node_id is the second key
+        for outer_id, inner_dict in list(dict.items()):
+            if node_id in inner_dict:
+                inner_dict.pop(node_id, None)
+
     @typechecked
-    def geometric_overlap_cached(self, a: GraphNode, b: GraphNode) -> tuple[float, float, float]:
+    def geometric_overlap_cached(self, a: GraphNode, b: GraphNode) -> tuple[float, float | None, float | None]:
         """ Wrapper around convex_hull_geometric_overlap that caches results for reuse. """
 
         # Rearrange so that a is the node with the smaller id
+        swap_enclosures = False
         if a.get_id() > b.get_id():
             temp = a
             a = b
             b = temp
+            swap_enclosures = True
         assert a.get_id() < b.get_id()
+
+        # For each node, if their calculations need to be redone then wipe the dictionary
+        if a._redo_convex_hull_geometric_overlap:
+            SceneGraph3D._purge_node_calculations_from_dict(self.overlap_dict, a)
+            a._redo_convex_hull_geometric_overlap = False
+        if b._redo_convex_hull_geometric_overlap:
+            SceneGraph3D._purge_node_calculations_from_dict(self.overlap_dict, b)
+            b._redo_convex_hull_geometric_overlap = False
 
         # Pull value from dictionary 
         result: tuple[float, float, float] | None = self.overlap_dict[a.get_id()][b.get_id()]
 
         # Calculate (or recalculate) the overlap if necessary
-        if result is None or a._redo_convex_hull_geometric_overlap or b._redo_convex_hull_geometric_overlap:
-
-            # Calculate geometric overlap using hulls
-            result: tuple[float, float, float] = convex_hull_geometric_overlap(a.get_convex_hull(), b.get_convex_hull())
-
-            # Use Voxel Grid for IOU if specified
-            if not self.params.use_convex_hull_for_iou:
-                voxel_size = self.params.voxel_size_for_voxel_grid_iou
-                voxel_iou = a.get_voxel_grid(voxel_size).iou(b.get_voxel_grid(voxel_size))
-                result = (voxel_iou, result[1], result[2])
-
-            # Save the results
+        if result is None:
+            # Calculate geometric overlap and save
+            result: tuple[float, float | None, float | None] = self.geometric_overlap(a, b)
             self.overlap_dict[a.get_id()][b.get_id()] = result
 
-            # Tell nodes that we've updated our cache with their latest info
-            a._redo_convex_hull_geometric_overlap = False
-            b._redo_convex_hull_geometric_overlap = False
+        # Swap enclosure values if necessary
+        if swap_enclosures:
+            result = (result[0], result[2], result[1])
 
         return result
     
@@ -274,17 +326,21 @@ class SceneGraph3D():
             b = temp
         assert a.get_id() < b.get_id()
 
+        # For each node, if their calculations need to be redone then wipe the dictionary
+        if a._redo_shortest_dist_between_convex_hulls:
+            SceneGraph3D._purge_node_calculations_from_dict(self.shortest_dist_dict, a)
+            a._redo_shortest_dist_between_convex_hulls = False
+        if b._redo_shortest_dist_between_convex_hulls:
+            SceneGraph3D._purge_node_calculations_from_dict(self.shortest_dist_dict, b)
+            b._redo_shortest_dist_between_convex_hulls = False
+
         # Pull value from dictionary 
-        result: float | None = self.shortest_dist_dist[a.get_id()][b.get_id()]
+        result: float | None = self.shortest_dist_dict[a.get_id()][b.get_id()]
 
         # Calculate (or recalculate) the overlap if necessary
-        if result is None or a._redo_shortest_dist_between_convex_hulls or b._redo_shortest_dist_between_convex_hulls:
+        if result is None:
             result: float = shortest_dist_between_convex_hulls(a.get_convex_hull(), b.get_convex_hull())
-            self.shortest_dist_dist[a.get_id()][b.get_id()] = result
-
-            # Tell nodes that we've updated our cache with their latest info
-            a._redo_shortest_dist_between_convex_hulls = False
-            b._redo_shortest_dist_between_convex_hulls = False
+            self.shortest_dist_dict[a.get_id()][b.get_id()] = result
 
         return result
     
@@ -373,8 +429,6 @@ class SceneGraph3D():
                                 assert node_i.get_id() != node_j.get_id(), f"Same node {node_i.get_id()} referred to as child of two parents!"
 
                                 # Remove these points from their parents
-                                logger.info(f"Node_i: {node_i.get_id()}")
-                                logger.info(f"Node_j: {node_j.get_id()}")
                                 node_i.remove_points_complete(pc_overlap)
                                 node_j.remove_points_complete(pc_overlap)
 
@@ -388,7 +442,7 @@ class SceneGraph3D():
                       
                                 # Try to add the new observation to the graph
                                 logger.info(f"Adding overlap region of {len(pc_overlap)} points as observation to graph...")
-                                new_node: GraphNode | None  = self.convert_overlap_to_node(pc_overlap, descriptors)
+                                new_node: GraphNode | None = self.convert_overlap_to_node(pc_overlap, descriptors)
                                 if new_node is not None:
                                     logger.info(f"[bright_red]Overlap Detected:[/bright_red] Between Node {node_i.get_id()} and Node {node_j.get_id()}, adding as Node {new_node.get_id()} to graph.")
                                     new_id = self.add_new_node_to_graph(new_node, only_leaf=True)
@@ -416,13 +470,15 @@ class SceneGraph3D():
 
         # Create a new node for this observation
         new_node: GraphNode | None = GraphNode.create_node_if_possible(self.root_node.request_new_ID(), None, [], 
-                                        point_cloud, [],  self.times[-1], 
-                                        self.times[-1], self.times[-1], 
+                                        point_cloud, [], None, 0, self.times[-1], 
+                                        self.times[-1], self.times[-1], self.poses[-1],
                                         self.poses[-1], self.poses[-1])
         if new_node is None: return None # Node creation failed
         
         # Add the descriptors to the node
         new_node.add_semantic_descriptors(semantic_descriptors)
+        raise NotImplementedError("Need to figure out how to do the line below!")
+        new_node.add_semantic_descriptors_incremental()
         return new_node
     
     @typechecked
@@ -430,13 +486,14 @@ class SceneGraph3D():
         """Attempts to create a node from an observation, returns None if it fails."""
 
         # Create a new node for this observation
-        new_node: GraphNode | None = GraphNode.create_node_if_possible(new_ID, None, [], 
-                        obs.transformed_points, [], time, time, time, pose, pose)
+        new_node: GraphNode | None = GraphNode.create_node_if_possible(new_ID, None, [], None, 0,
+                        obs.transformed_points, [], time, time, time, pose, pose, pose)
         if new_node is None: return None # Node creation failed
 
         # Add the descriptor to the node
         if obs.clip_embedding is not None:
             new_node.add_semantic_descriptors([(obs.clip_embedding, new_node.get_volume())])
+            new_node.add_semantic_descriptors_incremental(obs.clip_embedding, 1)
         return new_node, obs_idx # Returns node and observation idx
 
     @typechecked
@@ -491,8 +548,6 @@ class SceneGraph3D():
             score = self.calculate_best_likelihood_score(children_iou, children_enclosure, parent_iou, parent_encompassment, only_leaf=only_leaf)
             
             # If this is the best score so far, keep it
-            logger.debug(f"Scores: {parent_iou} {parent_encompassment}")
-            logger.debug(f"Best Likelihood for Node {pos_parent_node.get_id()}: {score}")
             if score >= best_likelihood_score:
                 best_likelihood_score = score
                 best_likelihood_parent = pos_parent_node
@@ -579,10 +634,8 @@ class SceneGraph3D():
         
         # Return the best option
         if best_child_score > best_alt_score:
-            logger.debug(f"Children Scores: {children_iou[scores.argmax()]} {children_enclosure[scores.argmax()]}")
             return best_child_score
         else:
-            logger.debug(f"Children Scores: Default 1.0")
             return best_alt_score
     
     @typechecked
@@ -615,42 +668,125 @@ class SceneGraph3D():
         if np.linalg.norm(c_a - c_b) > size_a + size_b: return False
         else: return True
 
+    def get_nodes_with_status(self, status: GraphNode.SegmentStatus) -> list[GraphNode]:
+        node_list: list[GraphNode] = self.root_node.get_all_descendents()
+        status_list: list[GraphNode] = []
+        for node in node_list:
+            if node.get_status() == status:
+                status_list.append(node)
+        return sorted(status_list, key=lambda n: n.get_id())
+
+    def update_segment_statuses(self):
+        # handle moving existing segments to inactive
+        to_rm: list[GraphNode]= [node for node in self.get_nodes_with_status(GraphNode.SegmentStatus.SEGMENT) \
+                    if self.times[-1] - node.get_time_last_updated() > self.params.max_t_no_sightings \
+                        or node.get_num_points() == 0]
+        
+        for node in to_rm:
+            if node.get_num_points() == 0:
+                logger.info(f"[bright_red] Deletion: [/bright_red] Node {node.get_id()} has zero points")
+                node.remove_from_graph_complete(False)
+                continue
+            try:
+                # Don't update voxel grid, as ROMAN keeps old one even though points are updated.
+                node._dbscan_clustering(reset_voxel_grid=False) 
+
+                node.set_status(GraphNode.SegmentStatus.INACTIVE)
+            except Exception as e: # too few points to form clusters
+                logger.info(f"[bright_red] Deletion: [/bright_red] Node {node.get_id()} has too few points to form clusters")
+                node.remove_from_graph_complete(False)
+            
+        # handle moving inactive segments to graveyard
+        to_rm : list[GraphNode]= [node for node in self.get_nodes_with_status(GraphNode.SegmentStatus.INACTIVE) \
+                    if self.times[-1] - node.get_time_last_updated() > 15.0 \
+                    or np.linalg.norm(node.get_last_pose()[:3,3] - self.poses[-1][:3,3]) > 10.0]
+        for node in to_rm:
+            node.set_status(GraphNode.SegmentStatus.GRAVEYARD)
+
+        to_rm = [node for node in self.get_nodes_with_status(GraphNode.SegmentStatus.NURSERY) \
+                    if self.times[-1] - node.get_time_last_updated() > self.params.max_t_no_sightings \
+                        or node.get_num_points() == 0]
+        for node in to_rm:
+            logger.info(f"[bright_red] Deletion: [/bright_red] Node {node.get_id()} from nursery due to no sightings or zero points")
+            node.remove_from_graph_complete(False)
+
+        # handle moving segments from nursery to normal segments
+        to_upgrade = [node for node in self.get_nodes_with_status(GraphNode.SegmentStatus.NURSERY) \
+                        if node.get_num_sightings() >= 2]
+        for node in to_upgrade:
+            node.set_status(GraphNode.SegmentStatus.SEGMENT)
+
     def association_merges(self):
         """ Checks for Association Merges using same minimum requirements used by Hungarian algorithm. """
 
-        merge_occured = True
-        while merge_occured:
-            merge_occured = False
+        max_iter = 100
+        n = 0
+        edited = True
 
-            # Iterate through each pair of nodes 
-            for i, node_i in enumerate(self.root_node):
-                for j, node_j in enumerate(self.root_node):
-                    if i >= j: continue
+        self.remove_bad_nodes(self.get_nodes_with_status(GraphNode.SegmentStatus.INACTIVE), 
+            min_max_extent=0.25, plane_prune_params=[3.0, 3.0, 0.5])
+        self.remove_bad_nodes(self.get_nodes_with_status(GraphNode.SegmentStatus.SEGMENT))
 
-                    # For those that aren't an ascendent or descendent with each other
-                    if not node_i.is_descendent_or_ascendent(node_j):
-                        
-                        # Calculate IOU and Semantic Similarity
-                        iou, _, _ = self.geometric_overlap_cached(node_i, node_j)
-    
-                        # See if they pass minimum requirements for association
-                        if self.pass_minimum_requirements_for_association(iou):
+        while n < max_iter and edited:
+            edited = False
+            n += 1
 
-                            # If so, merge nodes in the graph
-                            logger.info(f"[dark_blue]Association Merge[/dark_blue]: Merging Node {node_i.get_id()} into Node {node_j.get_id()} and popping off graph")
-                            merged_node = node_i.merge_with_node(node_j)
-                            if merged_node is None:
-                                logger.info(f"[bright_red]Merge Fail[/bright_red]: Resulting Node was invalid.")
-                            else:
-                                self.add_new_node_to_graph(merged_node, only_leaf=True)
+            for i, node1 in enumerate(self.get_nodes_with_status(GraphNode.SegmentStatus.SEGMENT)):
+                for j, node2 in enumerate(self.get_nodes_with_status(GraphNode.SegmentStatus.SEGMENT) 
+                                          + self.get_nodes_with_status(GraphNode.SegmentStatus.INACTIVE)):
+                    if i >= j:
+                        continue
 
-                            # Remember to break out of double-nested loop to reset iterators
-                            merge_occured = True
-                            break
-                                  
-                # If we break out of inner loop, leave outer loop too
-                if merge_occured:
+                    # if segments are very far away, don't worry about doing extra checking
+                    if np.mean(node1.get_point_cloud()) - np.mean(node2.get_point_cloud()) > \
+                        .5 * (np.max(node1.get_extent()) + np.max(node2.get_extent())):
+                        continue 
+                    
+                    H_camera_wrt_world = self.poses[-1] @ np.linalg.inv(self.pose_FLU_wrt_Camera)
+                    mask1 = node1.reconstruct_mask(H_camera_wrt_world)
+                    mask2 = node2.reconstruct_mask(H_camera_wrt_world)
+                    intersection2d = np.logical_and(mask1, mask2).sum()
+                    union2d = np.logical_or(mask1, mask2).sum()
+                    iou2d = intersection2d / union2d
+
+                    iou3d, _, _ = self.geometric_overlap_cached(node1, node2)
+
+                    if iou3d > self.params.min_iou_for_association or iou2d > self.params.min_iou_2d_for_merging:
+                        logger.info(f"Merging segments {node1.id} and {node2.id} with 3D IoU {iou3d:.2f} and 2D IoU {iou2d:.2f}")
+
+                        new_node = node1.merge_with_node(node2, keep_children=GraphNode.params.parent_node_includes_child_node_for_data)
+                        new_node.status = GraphNode.SegmentStatus.SEGMENT
+                        if new_node is None or new_node.get_num_points() == 0:
+                            logger.info(f"[bright_red]Merge Fail[/bright_red]: Resulting Node was invalid.")
+                        else:
+                            self.add_new_node_to_graph(new_node, only_leaf=False)
+
+                        edited = True
+                        break
+                if edited:
                     break
+
+    def remove_bad_nodes(self, nodes: list[GraphNode], min_volume: float=0.0, 
+            min_max_extent: float=0.0, plane_prune_params: list[float]=[np.inf, np.inf, 0.0]) -> None:
+        """ Remove nodes that have small volumes or have no points """
+        to_delete: list[GraphNode] = []
+        for node in nodes:
+            try:
+                extent = np.sort(node.get_extent())
+                if node.get_num_points() == 0:
+                    to_delete.append(node)
+                elif node.get_volume() < min_volume:
+                    to_delete.append(node)
+                elif extent[-1] < min_max_extent:
+                    to_delete.append(node)
+                elif extent[2] > plane_prune_params[0] and extent[1] > plane_prune_params[1] and extent[0] < plane_prune_params[2]:
+                    to_delete.append(node)
+            except: 
+                to_delete.append(node)
+        for node in to_delete:
+            # Print the id of the segment we're deleting
+            logger.info(f"Deleting segment {node.id} as it is a bad segment")
+            node.remove_from_graph_complete(False)
 
     class NodeRelationship(Enum):
         SHARED_HOLONYM = 0
@@ -931,7 +1067,9 @@ class SceneGraph3D():
             # will skew holonym towards that word).
             holonym_emb: np.ndarray = wordnetWrapper.get_embedding_for_word(word_holonym.word)
             total_weight = node_holonym.get_total_weight_of_semantic_descriptors()
-            node_holonym.add_semantic_descriptors([(holonym_emb, total_weight * self.ratio_relationship_weight_2_total_weight)])
+            node_holonym.add_semantic_descriptors([(holonym_emb, total_weight * self.params.ratio_relationship_weight_2_total_weight)])
+            if GraphNode.params.calculate_descriptor_incrementally:
+                raise NotImplementedError("Holonym_Meronym Inference not currently supported with incremental semantic descriptor!")
 
             # Print any deleted nodes
             if len(deleted_ids) > 0:
@@ -1010,15 +1148,15 @@ class SceneGraph3D():
             nodes: list[GraphNode] = children_list_initial[detected_holonym[0]]
 
             # Calculate the first seen time  and first pose as earliest from all nodes (and children)
-            earliest_node = min(nodes, key=lambda n: n.get_time_first_seen_recursive())
-            first_seen = earliest_node.get_time_first_seen_recursive()
-            first_pose = earliest_node.get_first_pose_recursive()
+            earliest_node = min(nodes, key=lambda n: n.get_time_first_seen())
+            first_seen = earliest_node.get_time_first_seen()
+            first_pose = earliest_node.get_first_pose()
 
             # Create the holonym node
             holonym: GraphNode | None = GraphNode.create_node_if_possible(self.root_node.request_new_ID(), 
-                                            self.root_node, [], np.zeros((0, 3), dtype=np.float64), 
+                                            self.root_node, [], None, 0, np.zeros((0, 3), dtype=np.float64), 
                                             nodes, first_seen, self.times[-1], self.times[-1], 
-                                            first_pose, self.poses[-1], is_RootGraphNode=False)
+                                            first_pose, self.poses[-1], self.poses[-1], is_RootGraphNode=False)
 
             # If the node was successfully created, add to the graph
             if holonym is not None:
@@ -1032,7 +1170,9 @@ class SceneGraph3D():
                 shared_holonyms: list[str] = putative_holonym[2]
                 holonym_emb: np.ndarray = wordnetWrapper.get_embedding_for_word(shared_holonyms[0])
                 total_weight = holonym.get_total_weight_of_semantic_descriptors()
-                holonym.add_semantic_descriptors([(holonym_emb, total_weight * self.ratio_relationship_weight_2_total_weight)])
+                holonym.add_semantic_descriptors([(holonym_emb, total_weight * self.params.ratio_relationship_weight_2_total_weight)])
+                if GraphNode.params.calculate_descriptor_incrementally:
+                    raise NotImplementedError("Holonym Inference not currently supported with incremental semantic descriptor!")
 
                 # TODO: Need to get words for these children
                 logger.info(f"[gold1]Shared Holonym Detected[/gold1]: Node {holonym.get_id()} with words {shared_holonyms} {holonym.get_words()} from children with words {word_i.word} and {word_j.word}")
@@ -1040,54 +1180,28 @@ class SceneGraph3D():
             else:
                 raise RuntimeError("Detected Holonym is not a valid GraphNode!")
 
-
-    def node_retirement(self, retire_everything=False):
-        # Iterate only through the direct children of the root node
-        retired_ids = []
-        for child in self.root_node.get_children()[:]: # Create shallow copy so removing doesn't break loop
-
-            # If the time the child was first seen was too long ago OR we've move substancially since then 
-            # OR we are retiring everything, Inactivate this node and descendents
-            if self.times[-1] - child.get_time_first_seen_recursive() > self.params.max_t_active_for_node \
-                or np.linalg.norm(self.poses[-1][:3,3] - child.get_first_pose_recursive()[:3,3]) > self.params.max_dist_active_for_node \
-                or retire_everything:
-
-                # Pop this child off of the root node and put in our inactive nodes
-                retired_ids += [child.get_id()]
-                retired_ids += child.remove_from_graph_complete()
-
-                # Run DBScan right before we finish for cleanup
-                if self.params.run_dbscan_when_retiring_node:
-                    child.update_point_cloud(np.zeros((0, 3), dtype=np.float64), run_dbscan=True, remove_outliers=False)
-                self.inactive_nodes.append(child)
-
-        # Delete nodes that were seen last frame but not this one
-        deleted_ids = []
-        if self.params.delete_nodes_only_seen_once:
-            for node in self.root_node:
-                if node.get_num_sightings() == 1:
-                    if node.get_time_first_seen() != self.times[-1]:
-
-                        # Pop just this node off the graph, reconnect children back to our parent
-                        deleted_ids += [node.get_id()]
-                        deleted_ids += node.remove_from_graph_complete(keep_children=False)
-
-        if len(retired_ids) > 0:
-            logger.info(f"[dark_magenta]Node Retirement[/dark_magenta]: {len(retired_ids)} nodes retired, including {retired_ids}.")
-        if len(deleted_ids) > 0:
-            logger.info(f"[magenta]Node Deletion[/magenta]: {len(deleted_ids)} nodes deleted after being seen only once, including {deleted_ids}.")
-
     def get_roman_map(self) -> ROMANMap:
         """
         Convert this SceneGraph3D into a ROMANMap of seperate object segments (no meronomy) to see how ROMAN's alignment
         algorithm works with our objects that have had extra merging operations performed between them.
         """
 
+        # Remove bad nodes first
+        self.remove_bad_nodes(self.get_nodes_with_status(GraphNode.SegmentStatus.GRAVEYARD) +
+                              self.get_nodes_with_status(GraphNode.SegmentStatus.INACTIVE) +
+                              self.get_nodes_with_status(GraphNode.SegmentStatus.SEGMENT))
+
         # Convert all graph nodes to segments
         segment_map: list[Segment] = []
-        for top_node in self.inactive_nodes:
-            for node in top_node:
-                segment_map.append(node.to_segment())
+        relevant_nodes = self.get_nodes_with_status(GraphNode.SegmentStatus.GRAVEYARD) + \
+                         self.get_nodes_with_status(GraphNode.SegmentStatus.INACTIVE) + \
+                         self.get_nodes_with_status(GraphNode.SegmentStatus.SEGMENT)
+        for node in relevant_nodes:
+            segment_map.append(node.to_segment())
+
+        # Reset obb for each segment
+        for seg in segment_map:
+            seg.reset_obb()
 
         # Return the ROMANMap
         return ROMANMap(

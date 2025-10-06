@@ -62,6 +62,7 @@ def convert_paths(obj):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-p', '--params', type=str, help='Path to params directory', required=True, default=None)
+    parser.add_argument('-o', '--output-dir', type=str, help='Path to output for this demo', required=False, default=None)
     parser.add_argument('--max-time', type=float, default=None, help='If the input data is too large, this allows a maximum time' +
                         'to be set, such that if the mapping will be chunked into max_time increments and fused together')
     parser.add_argument('--skip-map', action='store_true', help='Skip mapping')
@@ -94,7 +95,9 @@ if __name__ == '__main__':
 
     # Create output directories
     params_path = Path(args.params)
-    output_path = params_path.parent.parent.parent / "demo_output" / params_path.name / run_name
+    if args.output_dir is None:
+        output_path = params_path.parent.parent.parent / "demo_output" / params_path.name / run_name
+    else: output_path = Path(args.output_dir)
     os.makedirs(os.path.join(output_path, "map"), exist_ok=True)
     os.makedirs(os.path.join(output_path, "align"), exist_ok=True)
     os.makedirs(os.path.join(output_path, "offline_rpgo"), exist_ok=True)
