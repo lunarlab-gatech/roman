@@ -27,7 +27,7 @@ class TestDemo(unittest.TestCase):
         
     CURRENT_BRANCH = get_current_branch()
 
-    @unittest.skipUnless(CURRENT_BRANCH in {"baseline"}, f"Skipped on branch {CURRENT_BRANCH}")
+    @unittest.skipUnless(CURRENT_BRANCH in {"main"}, f"Skipped on branch {CURRENT_BRANCH}")
     def test_ROMAN_matches_MeronomyGraph_disabled(self):
         """ Ensure that ROMAN and MeronomyGraph have the same output when correct parameters used."""
 
