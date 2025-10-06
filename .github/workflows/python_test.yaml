@@ -10,7 +10,7 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
     container:
-      image: dlittleman/roman_baseline:v1.0.1
+      image: dlittleman/roman_baseline:v1.0.2
       options: --user root  # optional, helps avoid permission issue
       env:
         CI_TESTS: true
