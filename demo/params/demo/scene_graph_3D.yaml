@@ -1,5 +1,5 @@
 # ===== Visualization =====
-enable_rerun_viz: True
+enable_rerun_viz: False
 
 # ===== Node Association =====
 min_iou_3d: 0.25

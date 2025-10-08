@@ -947,14 +947,8 @@ class GraphNode():
             child.set_parent(new_node)
         return new_node
 
-    def merge_with_observation(self, new_pc: np.ndarray, new_descriptors: list[tuple[np.ndarray, float]] | None, descriptor_inc: np.ndarray) -> None:
-        """
-        Args:
-            new_pc (np.ndarray): Point Cloud in shape of (N, 3) in the global frame.
-
-        Returns:
-            Set of Graph nodes that might need to be deleted.
-        """
+    def merge_with_observation(self, new_pc: np.ndarray, new_descriptors: list[tuple[np.ndarray, float]] | None, 
+                               descriptor_inc: np.ndarray | None) -> None:
 
         # Save the semantic embedding into this parent graph node
         if new_descriptors is not None: 

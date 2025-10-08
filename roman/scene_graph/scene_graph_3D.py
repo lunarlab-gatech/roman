@@ -118,8 +118,12 @@ class SceneGraph3D():
                             if new_node.get_id() == pair[0] and node.get_id() == pair[1]:
                                 
                                 # If so, update node with observation information
+                                if GraphNode.params.ignore_descriptors_from_observation:
+                                    obs_descriptor: np.ndarray = new_node.obs_descriptor
+                                else:
+                                    obs_descriptor: np.ndarray = new_node.semantic_descriptor_inc
                                 futures[executor.submit(node.merge_with_observation, new_node.get_point_cloud(), 
-                                                        new_node.semantic_descriptors, new_node.obs_descriptor)] = i
+                                                        new_node.semantic_descriptors, obs_descriptor)] = i
                                 
         
                 # Wait for jobs to finish and update associated pairs
