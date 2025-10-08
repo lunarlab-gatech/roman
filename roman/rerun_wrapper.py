@@ -14,6 +14,7 @@ from .params.data_params import ImgDataParams
 import random
 import rerun as rr
 import rerun.blueprint as rrb
+from roman.object.segment import Segment
 from roman.params.fastsam_params import FastSAMParams
 from roman.scene_graph.word_net_wrapper import WordListWrapper
 from scipy.spatial.transform import Rotation as R
@@ -63,25 +64,28 @@ class RerunWrapper():
         MapFinal = 1
 
     """ Wrapper for spawning and visualizing using Rerun. """
+    # TODO: Switch from Axis-Aligned Bounding Box to Oriented Bounding Box
 
-    def __init__(self, windows: list[RerunWrapperWindow], fastsam_params: FastSAMParams | None = None, enable: bool = True):
+    def __init__(self, name: str, windows: list[RerunWrapper.RerunWrapperWindow], 
+                 fastsam_params: FastSAMParams | None = None, enable: bool = True):
         
         # Save & check parameters
+        self.name = name
+        self.windows = windows
         self.fastsam_params = fastsam_params
         self.enable = enable
-        self.windows = windows
         if RerunWrapper.RerunWrapperWindow.MapLive in windows and fastsam_params is None:
             raise ValueError("MapLive window requires fastsam_params to be provided for depth imagery")
         if RerunWrapper.RerunWrapperWindow.MapLive in windows and RerunWrapper.RerunWrapperWindow.MapFinal in windows:
             raise ValueError("Windows can only comprise of MapLive or MapFinal, not both at the same time")
-        if RerunWrapper.RerunWrapperWindow.MapLive in windows and len(windows) > 1:
+        if RerunWrapper.RerunWrapperWindow.MapFinal in windows and len(windows) > 1:
             raise ValueError("Only single MapFinal window supported at a time")
         
         # Tracking variables
         self.curr_robot_index = 0
         self.update_frame = 0
         self.node_colors: dict[int, tuple[float, float, float]] = {} # H, S, V
-        self.robot_colors: dict[int, tuple[float, float, float]] = {} # R, G, B
+        self.robot_colors: dict[int, np.ndarray] = {} # RGB arrays
 
         # Do initialization if we are enabled
         if self.enable:
@@ -96,17 +100,19 @@ class RerunWrapper():
             blueprint = rrb.Blueprint(rrb.Tabs(*robot_tabs))
 
             # Spawn Rerun
-            rr.init("Meronomy_Visualization", spawn=True, default_blueprint=blueprint)
+            rr.init(self.name, spawn=True, default_blueprint=blueprint)
 
             # Calculate colors for each robot (used for MapFinal)
             cmap = plt.get_cmap("tab10")
             for i in range(self.curr_robot_index):
-                self.robot_colors[i] = cmap(i % 10)[:3] 
+                rgb_f = cmap(i % 10)[:3]
+                self.robot_colors[i] = np.array([[int(round(rgb_f[0] * 255)), int(round(rgb_f[1] * 255)), 
+                                                  int(round(rgb_f[2] * 255))]], dtype=np.uint8) 
 
             # Set current robot index to None, calling code should set it now
             self.curr_robot_index = None
 
-    def get_blueprint_part_for_window(self, window: RerunWrapperWindow) -> rrb.BlueprintPart:
+    def get_blueprint_part_for_window(self, window: RerunWrapper.RerunWrapperWindow) -> rrb.BlueprintPart:
         if window == RerunWrapper.RerunWrapperWindow.MapLive:  
 
             # Create the views
@@ -116,12 +122,13 @@ class RerunWrapper():
             image_view = rrb.Spatial2DView(name="Image", origin=f'/world/robot_{self.curr_robot_index}/camera/image')
             depth_view = rrb.Spatial2DView(name="Depth", origin=f'/world/robot_{self.curr_robot_index}/camera/depth')
             seg_view = rrb.Spatial2DView(name="Segmentation Mask", origin=f'/world/robot_{self.curr_robot_index}/camera/segmentation')
-            self.curr_robot_index += 1
 
             # Create the tab
             world_graph_log_horiz = rrb.Horizontal(graph_view, world_view, log_view)
             img_depth_seg_horiz = rrb.Horizontal(image_view, depth_view, seg_view)
-            return rrb.Vertical(world_graph_log_horiz, img_depth_seg_horiz)
+            tab_name: str = f"Robot {self.curr_robot_index}"
+            self.curr_robot_index += 1
+            return rrb.Vertical(world_graph_log_horiz, img_depth_seg_horiz, name=tab_name)
 
         elif window == RerunWrapper.RerunWrapperWindow.MapFinal:
 
@@ -301,9 +308,10 @@ class RerunWrapper():
             # Colors
             if RerunWrapper.RerunWrapperWindow.MapLive in self.windows:
                 h, s, v = self.node_colors[id]
+                color = self._hsv_to_rgb255(h, s, v)
             else:
-                h, s, v = self.robot_colors[self.curr_robot_index]
-            color = self._hsv_to_rgb255(h, s, v)
+                color = self.robot_colors[self.curr_robot_index]
+                
             colors_rgb = np.concatenate((colors_rgb, color), dtype=np.uint8)
 
             # Extract points for this node
@@ -343,10 +351,10 @@ class RerunWrapper():
 
             # Box colors
             if RerunWrapper.RerunWrapperWindow.MapLive in self.windows:
-                h, s, v = self.node_colors[node.get_id()]
+                h, s, v = self.node_colors[id]
+                color = self._hsv_to_rgb255(h, s, v)
             else:
-                h, s, v = self.robot_colors[self.curr_robot_index]
-            color = self._hsv_to_rgb255(h, s, v)
+                color = self.robot_colors[self.curr_robot_index]
             box_colors.append(color)
             box_ids.append(node.get_id())
             words: WordListWrapper | None = node.get_words()
@@ -384,3 +392,67 @@ class RerunWrapper():
                             quaternions=box_quats, colors=box_colors, radii=0, fill_mode="line",
                             labels=box_words))
         rr.log(f"/world/robot_{self.curr_robot_index}/meshes", rr.LineStrips3D(strips=line_ends, colors=line_colors, radii=0.01))
+
+    def update_segments(self, segments: list[Segment]):
+        if not self.enable: return
+        self._update_frame_tick()
+        assert RerunWrapper.RerunWrapperWindow.MapFinal in self.windows, "MapLive not supported for update_segments()"
+
+        # Create structures to store graph information
+        seg_ids: list[int] = []
+        colors_rgb: np.ndarray = np.zeros((0, 3), dtype=np.uint8)
+        points: np.ndarray = np.zeros((0, 3), dtype=np.uint8)
+        point_to_node_ids: np.ndarray = np.zeros((0), dtype=np.uint32)
+        point_colors: np.ndarray = np.zeros((0, 3), dtype=np.uint8)
+
+        # Iterate through all segments
+        for j, seg in enumerate(segments):
+
+            # Extract id
+            id = seg.id
+            seg_ids.append(id)
+
+            # Colors
+            color = self.robot_colors[self.curr_robot_index]
+            colors_rgb = np.concatenate((colors_rgb, color), dtype=np.uint8)
+
+            # Extract points for this node
+            points = np.concatenate((points, seg.points), dtype=np.float128)
+            point_to_node_ids = np.concatenate((point_to_node_ids, 
+                                                np.full((seg.points.shape[0]), id, dtype=np.uint32)))
+            point_colors = np.concatenate((point_colors, np.full((seg.points.shape[0], 3), color)))
+
+        # Calculate bounding boxes
+        box_centers, box_half_sizes = [], []
+        box_quats = []
+        box_colors = []
+        box_ids = []
+
+        for j, seg in enumerate(segments):
+
+            # Axis-aligned bounding box
+            pc = seg.points
+            min_corner = pc.min(axis=0)
+            max_corner = pc.max(axis=0)
+            center = (min_corner + max_corner) / 2.0
+            size = (max_corner - min_corner) / 2.0
+
+            box_centers.append(center.tolist())
+            box_half_sizes.append(size.tolist())
+            box_quats.append(rr.Quaternion.identity()) 
+
+            # Box colors
+            color = self.robot_colors[self.curr_robot_index]
+            box_colors.append(color)
+            box_ids.append(seg.id)
+
+        # Send the data to Rerun
+        rr.log(f"/world/robot_{self.curr_robot_index}/points", rr.Points3D(positions=points, colors=point_colors))
+        rr.log(f"/world/robot_{self.curr_robot_index}/boxes", rr.Boxes3D(centers=box_centers, half_sizes=box_half_sizes,
+                            quaternions=box_quats, colors=box_colors, radii=0.01, fill_mode="line",
+                            labels=None))
+        rr.log(f"/world/robot_{self.curr_robot_index}/labels", rr.Boxes3D(centers=box_centers, half_sizes=box_half_sizes,
+                            quaternions=box_quats, colors=box_colors, radii=0, fill_mode="line",
+                            labels=box_ids))
+    
+

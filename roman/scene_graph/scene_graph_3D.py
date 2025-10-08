@@ -30,7 +30,8 @@ multiprocessing.set_start_method("spawn", force=True)
 class SceneGraph3D():
 
     @typechecked
-    def __init__(self, params: SystemParams, camera_params: CameraParams, _T_camera_flu: np.ndarray, robot_index: int):
+    def __init__(self, params: SystemParams, camera_params: CameraParams, _T_camera_flu: np.ndarray, 
+                 rerun_viewer: RerunWrapper, robot_index: int):
 
         # Save parameters 
         self.system_params: SystemParams = params
@@ -52,8 +53,8 @@ class SceneGraph3D():
         # Track FLU pose wrt camera frame
         self.pose_FLU_wrt_Camera = _T_camera_flu
 
-        # Create the visualization
-        self.rerun_viewer = RerunWrapper(enable=self.params.enable_rerun_viz, fastsam_params=params.fastsam_params)
+        # Save the visualization
+        self.rerun_viewer = rerun_viewer
         self.rerun_viewer.set_curr_robot_index(self.robot_index)
 
         # Dictionaries to cache results of calculations for speed
@@ -87,7 +88,6 @@ class SceneGraph3D():
         self.rerun_viewer.update_depth_img(depth_img)
         self.rerun_viewer.update_camera_pose(pose)
         self.rerun_viewer.update_camera_intrinsics(img_data_params)
-        self.rerun_viewer.update_seg_img(seg_img, img, associated_pairs, node_to_obs_mapping)
 
         # Convert each observation into a node (if possible)
         nodes: list[GraphNode] = []

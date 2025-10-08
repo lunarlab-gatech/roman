@@ -1,6 +1,3 @@
-# ===== Visualization =====
-enable_rerun_viz: False
-
 # ===== Node Association =====
 min_iou_3d: 0.25
 use_convex_hull_for_iou: False

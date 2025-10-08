@@ -39,6 +39,7 @@ from roman.params.data_params import DataParams
 from roman.params.scene_graph_3D_params import SceneGraph3DParams, GraphNodeParams
 from roman.params.system_params import SystemParams
 from roman.utils import expandvars_recursive
+from roman.rerun_wrapper import RerunWrapper
 
 def convert_paths(obj):
     if isinstance(obj, dict):
@@ -114,6 +115,16 @@ if __name__ == '__main__':
     # Extract GT Pose Data
     gt_pose_data: list[PoseData] = system_params.pose_data_gt_params.get_pose_data(system_params.data_params)
 
+    # Create the Rerun viewer (currently just for mapping step)
+    windows: list[RerunWrapper.RerunWrapperWindow] = []
+    for i, run in enumerate(system_params.data_params.runs):
+        if i in args.skip_indices: continue
+        windows.append(RerunWrapper.RerunWrapperWindow.MapLive)
+    rerun_viewer = RerunWrapper(name="MeronomyGraph Visualization", 
+                                windows=windows, 
+                                fastsam_params=system_params.fastsam_params, 
+                                enable=system_params.enable_rerun_viz)
+
     # Run the Mapping step
     if not args.skip_map:
 
@@ -131,8 +142,9 @@ if __name__ == '__main__':
             mapping.mapping(
                 system_params,
                 output_path=args.output,
+                rerun_viewer=rerun_viewer,
                 robot_index=i,
-                max_time=args.max_time
+                max_time=args.max_time,
             )
     
     # Iterate through each pair of runs and do alignment

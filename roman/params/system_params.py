@@ -41,6 +41,7 @@ class SystemParams(BaseModel):
     use_scene_graph: bool
     use_roman_map_for_alignment: bool
     random_seed: int
+    enable_rerun_viz: bool
 
     @classmethod
     def from_param_dir(cls, path: str) -> SystemParams:
@@ -61,6 +62,7 @@ class SystemParams(BaseModel):
         use_scene_graph = data['use_scene_graph']
         use_roman_map_for_alignment = data['use_roman_map_for_alignment']
         random_seed = data['random_seed']
+        enable_rerun_viz = data['enable_rerun_viz']
 
         if not use_roman_map_for_alignment and not use_scene_graph:
             raise ValueError("Cannot set 'use_roman_map_for_alignment' to False when 'use_scene_graph' is also False.")
@@ -79,4 +81,5 @@ class SystemParams(BaseModel):
                    num_req_assoc=num_req_assoc,
                    use_scene_graph=use_scene_graph,
                    use_roman_map_for_alignment=use_roman_map_for_alignment,
-                   random_seed=random_seed)
+                   random_seed=random_seed,
+                   enable_rerun_viz=enable_rerun_viz)

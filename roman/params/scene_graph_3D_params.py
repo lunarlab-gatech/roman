@@ -8,9 +8,6 @@ class SceneGraph3DParams(BaseModel):
     Params for 3D Scene Graph association, merging, and relationship inference.
     """
 
-    # ===== Visualization =====
-    enable_rerun_viz: bool
-
     # ===== Node Association =====
     min_iou_3d: float
     use_convex_hull_for_iou: bool
