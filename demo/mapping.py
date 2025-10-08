@@ -24,9 +24,9 @@ from roman.params.system_params import SystemParams
 from merge_demo_output import merge_demo_output
 
 
-def run(system_params: SystemParams, output_path: str):
+def run(system_params: SystemParams, output_path: str, robot_index: int):
     
-    runner = ROMANMapRunner(system_params=system_params, verbose=True)
+    runner = ROMANMapRunner(system_params, robot_index, verbose=True)
 
     # Setup logging
     # TODO: add support for logfile
@@ -78,7 +78,7 @@ def run(system_params: SystemParams, output_path: str):
     del runner
     return
 
-def mapping(system_params: SystemParams, output_path: str, run_name: str = None,  max_time: float = None) -> None:
+def mapping(system_params: SystemParams, output_path: str, robot_index: int,  max_time: float = None) -> None:
 
     if max_time is not None:
         try:
@@ -97,4 +97,4 @@ def mapping(system_params: SystemParams, output_path: str, run_name: str = None,
             merge_demo_output(demo_output_files, f"{output_path}.pkl")
     
     else:
-        run(system_params, output_path)
+        run(system_params, output_path, robot_index)

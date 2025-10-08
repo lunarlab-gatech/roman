@@ -33,7 +33,7 @@ class ProcessingTimes:
     total_times: list
 
 class ROMANMapRunner:
-    def __init__(self, system_params: SystemParams, verbose=False):
+    def __init__(self, system_params: SystemParams, robot_index: int, verbose=False):
         self.system_params = system_params
         self.data_params = system_params.data_params
         self.fastsam_params = system_params.fastsam_params
@@ -68,7 +68,7 @@ class ROMANMapRunner:
 
         if verbose: print("Setting up mapper...")
         if system_params.use_scene_graph:
-            self.mapper = SceneGraph3D(system_params, self.img_data.camera_params, self.data_params.pose_data_params.T_camera_flu)
+            self.mapper = SceneGraph3D(system_params, self.img_data.camera_params, self.data_params.pose_data_params.T_camera_flu, robot_index)
         else: 
             self.mapper = Mapper(self.mapper_params, self.img_data.camera_params)
             if self.data_params.pose_data_params.T_camera_flu is not None:
