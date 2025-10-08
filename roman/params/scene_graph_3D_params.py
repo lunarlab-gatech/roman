@@ -8,40 +8,40 @@ class SceneGraph3DParams(BaseModel):
     Params for 3D Scene Graph association, merging, and relationship inference.
     """
 
-    # ======================= Visualization =======================
+    # ===== Visualization =====
     enable_rerun_viz: bool
 
-    # ======================= Node Association =======================
+    # ===== Node Association =====
+    min_iou_3d: float
     use_convex_hull_for_iou: bool
-    min_iou_for_association: float
-    min_iou_2d_for_merging: float
     voxel_size_for_voxel_grid_iou: float
 
-    downsample_and_remove_outliers_after_hungarian_for_new_nodes: bool
+    # ===== Node Status =====
+    max_t_no_sightings: float 
 
-    # ======================= Semantic Merges =======================
+    # ===== Association Merges =====
+    min_iou_2d_for_merging: float
+
+    # ===== Synonym Merges =====
     enable_synonym_merges: bool
-    min_sem_con_for_association: float
+    min_cos_sim_for_synonym: float
     ratio_dist2length_threshold_nearby_node_semantic_merge: float
 
-    # ======================= Resolve Overlapping Nodes =======================
+    # ===== Resolve Overlapping Nodes =====
     enable_resolve_overlapping_nodes: bool
     iou_threshold_overlapping_obj: float
     enc_threshold_overlapping_obj: float
     
-    # ======================= Meronomy Relationship Inference =======================
+    # ===== Meronomy Relationship Inference =====
     enable_meronomy_relationship_inference: bool
     ratio_dist2length_threshold_shared_holonym: float
     ratio_dist2length_threshold_holonym_meronym: float
     ratio_relationship_weight_2_total_weight: float
 
-    # ======================= Node Retirement =======================
-    max_t_active_for_node: float # seconds
-    max_dist_active_for_node: float # meters
-    run_dbscan_when_retiring_node: bool
-    delete_nodes_only_seen_once: bool
-
-    max_t_no_sightings: float # seconds
+    # ===== Parameters to mimic ROMAN functionality =====
+    downsample_and_remove_outliers_after_hungarian_for_new_nodes: bool
+    enable_dbscan_on_node_inactivation: bool
+    update_voxel_grid_on_inactivation_dbscan: bool
 
     @classmethod
     def from_yaml(cls, path: str) -> SceneGraph3DParams:
@@ -50,51 +50,58 @@ class SceneGraph3DParams(BaseModel):
         return cls(**raw_cfg)
 
 class GraphNodeParams(BaseModel):
-    # If using wordnet for semantic merging, number of words to simulatneously consider ourselves as
-    num_words_to_consider_ourselves: int
 
+    # ===== Initialization ===== 
+    dbscan_and_remove_outliers_on_node_creation: bool
+    downsample_on_node_creation: bool
+    check_minimum_node_size_on_node_creation: bool
+
+    # ===== Convex Hull ===== 
     require_valid_convex_hull: bool
-    check_minimum_node_size_during_creation: bool
+    use_convex_hull_for_volume: bool
 
     # ===== Voxel Downsampling ===== 
-    downsample_on_node_creation: bool
     enable_variable_voxel_size: bool
     voxel_size_not_variable: float
     voxel_size_variable_ratio_to_length: float
 
     # ===== DBSCAN Parameters ===== 
+    dbscan_min_points: int
     enable_roman_dbscan: bool
-    run_dbscan_when_creating_node: bool
     enable_variable_epsilon: bool
     epsilon_not_variable: float
     epsilon_variable_ratio_to_length: float
-    min_points: int
-
-    # Required percentage size of cluster relative to full cloud to consider keeping node
-    cluster_percentage_of_full: float
+    min_cluster_percentage: float
 
     # ===== Statistical Outlier Removal Parameters =====
-    # Number of neighbors to calculate average distance for a point
     enable_remove_statistical_outliers: bool
     stat_out_num_neighbors: int
-    
-    # STD ratio for thresholding
-    std_ratio: float
+    stat_out_std_ratio: float
 
     # ===== Semantic Descriptor =====
+    calculate_descriptor_incrementally: bool
     use_weighted_average_for_descriptor: bool
     ignore_descriptors_from_observation: bool
-    calculate_descriptor_incrementally: bool
 
     # ===== Data inheritance from child nodes =====
-    parent_node_includes_child_node_for_data: bool
+    parent_node_inherits_data_from_children: bool
 
-    use_oriented_bbox_for_volume: bool
-
-    merge_with_node_keep_first_seen_of_self: bool
+    # ===== Parameters to mimic ROMAN functionality =====
+    merge_with_node_use_first_seen_time_from_self: bool
 
     @classmethod
     def from_yaml(cls, path: str) -> GraphNodeParams:
         with open(path, "r") as f:
             raw_cfg = yaml.safe_load(f)
-        return cls(**raw_cfg)
+
+        new_params = cls(**raw_cfg)
+        if new_params.calculate_descriptor_incrementally and new_params.use_weighted_average_for_descriptor:
+            raise ValueError("Only one of 'calculate_descriptor_incrementally' or "
+                "'use_weighted_average_for_descriptor' can be True.")
+        if new_params.calculate_descriptor_incrementally and new_params.parent_node_inherits_data_from_children:
+            raise ValueError("Only one of 'calculate_descriptor_incrementally' or "
+                "'parent_node_includes_child_node_for_data' can be True.")
+        if new_params.use_convex_hull_for_volume and not new_params.require_valid_convex_hull:
+            raise ValueError("'use_convex_hull_for_volume' is True but `require_valid_convex_hull` is False.")
+
+        return new_params

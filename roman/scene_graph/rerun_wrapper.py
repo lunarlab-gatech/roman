@@ -232,8 +232,8 @@ class RerunWrapper():
         line_colors = []
 
         for j, node in enumerate(root_node):
-            # Skip the root graph node
-            if node.is_RootGraphNode():
+            # Skip the root graph node and GRAVEYARD nodes
+            if node.is_RootGraphNode() or node.get_status() == GraphNode.SegmentStatus.GRAVEYARD:
                 continue
 
             # Axis-aligned bounding box

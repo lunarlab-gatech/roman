@@ -103,7 +103,7 @@ class SceneGraph3D():
             # Associate new nodes with previous nodes in the graph
             associated_pairs = self.hungarian_assignment(nodes)
             if len(associated_pairs) > 0:
-                logger.info(f"[dark_blue]Association Merges[/dark_blue]: {len(associated_pairs)} new nodes successfully associated")
+                logger.info(f"[dark_blue]Associated Nodes[/dark_blue]: {len(associated_pairs)} new nodes successfully associated")
 
             # Parallelize the node association merging
             with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
@@ -119,7 +119,7 @@ class SceneGraph3D():
                                 
                                 # If so, update node with observation information
                                 futures[executor.submit(node.merge_with_observation, new_node.get_point_cloud(), 
-                                                        new_node.get_semantic_descriptor(), new_node.obs_descriptor)] = i
+                                                        new_node.semantic_descriptors, new_node.obs_descriptor)] = i
                                 
         
                 # Wait for jobs to finish and update associated pairs
@@ -146,10 +146,14 @@ class SceneGraph3D():
                     if self.params.downsample_and_remove_outliers_after_hungarian_for_new_nodes:
                         to_delete = node.update_point_cloud(np.zeros((0, 3), dtype=np.float64), downsample=True, remove_outliers=True)
                         if len(to_delete) > 0:
-                            raise RuntimeError("Node is no longer valid after downsampling and removing outliers")
+                            # Don't add this node since its no longer valid
+                            logger.info(f"[bright_red]Deletion:[/bright_red] New node no longer valid after downsampling/removing outliers")
+                            continue
 
                     # Discard if there are no points
-                    if node.get_num_points() == 0: continue
+                    if node.get_num_points() == 0: 
+                        logger.info(f"[bright_red]Deletion:[/bright_red] New node has zero points")
+                        continue
 
                     # Re-assign ids to the non-associated nodes (so they line up with ROMAN ids)
                     node.set_id(self.root_node.request_new_ID())
@@ -247,7 +251,7 @@ class SceneGraph3D():
 
         # Calculate geometric overlap using hulls
         result = (None, None, None)
-        if self.params.use_convex_hull_for_iou:
+        if GraphNode.params.require_valid_convex_hull:
             result: tuple[float, float, float] = convex_hull_geometric_overlap(a.get_convex_hull(), b.get_convex_hull())
 
         # Use Voxel Grid for IOU if specified
@@ -257,12 +261,9 @@ class SceneGraph3D():
             grid_b = b.get_voxel_grid(voxel_size)
             if grid_a is None or grid_b is None:
                 raise RuntimeError("One or more Voxel Grids are None!")
-                voxel_iou = 0.0
             else:
                 voxel_iou = grid_a.iou(grid_b)
-            result = (voxel_iou, 0.5, 0.5) # With voxel grid, we have no way to calculate enclosure, so just guess.
-
-            # TODO: Just return None and have calling methods deal when enclosure is None!
+            result = (voxel_iou, result[1], result[2]) 
 
         return result   
 
@@ -358,7 +359,7 @@ class SceneGraph3D():
         
     @typechecked
     @staticmethod
-    def semantic_consistency(a: np.ndarray| None, b: np.ndarray | None) -> float:
+    def cosine_similarity(a: np.ndarray| None, b: np.ndarray | None) -> float:
         # If either is none, then just assume neutral consistency
         if a is None or b is None:
             return 0.5
@@ -380,7 +381,7 @@ class SceneGraph3D():
         SceneGraph3D.check_within_bounds(iou, (0, 1))
 
         # Check if within thresholds for association
-        return bool(iou >= self.params.min_iou_for_association)
+        return bool(iou >= self.params.min_iou_3d)
 
     @typechecked
     def resolve_overlapping_convex_hulls(self):
@@ -684,16 +685,17 @@ class SceneGraph3D():
         
         for node in to_rm:
             if node.get_num_points() == 0:
-                logger.info(f"[bright_red] Deletion: [/bright_red] Node {node.get_id()} has zero points")
+                logger.info(f"[bright_red]Deletion:[/bright_red] Node {node.get_id()} has zero points")
                 node.remove_from_graph_complete(False)
                 continue
             try:
                 # Don't update voxel grid, as ROMAN keeps old one even though points are updated.
-                node._dbscan_clustering(reset_voxel_grid=False) 
+                if self.params.enable_dbscan_on_node_inactivation:
+                    node._dbscan_clustering(reset_voxel_grid=self.params.update_voxel_grid_on_inactivation_dbscan) 
 
                 node.set_status(GraphNode.SegmentStatus.INACTIVE)
             except Exception as e: # too few points to form clusters
-                logger.info(f"[bright_red] Deletion: [/bright_red] Node {node.get_id()} has too few points to form clusters")
+                logger.info(f"[bright_red]Deletion:[/bright_red] Node {node.get_id()} has too few points to form clusters")
                 node.remove_from_graph_complete(False)
             
         # handle moving inactive segments to graveyard
@@ -707,7 +709,7 @@ class SceneGraph3D():
                     if self.times[-1] - node.get_time_last_updated() > self.params.max_t_no_sightings \
                         or node.get_num_points() == 0]
         for node in to_rm:
-            logger.info(f"[bright_red] Deletion: [/bright_red] Node {node.get_id()} from nursery due to no sightings or zero points")
+            logger.info(f"[bright_red]Deletion:[/bright_red] Node {node.get_id()} from nursery due to no sightings within timeframe or zero points")
             node.remove_from_graph_complete(False)
 
         # handle moving segments from nursery to normal segments
@@ -751,10 +753,10 @@ class SceneGraph3D():
 
                     iou3d, _, _ = self.geometric_overlap_cached(node1, node2)
 
-                    if iou3d > self.params.min_iou_for_association or iou2d > self.params.min_iou_2d_for_merging:
-                        logger.info(f"Merging segments {node1.id} and {node2.id} with 3D IoU {iou3d:.2f} and 2D IoU {iou2d:.2f}")
+                    if iou3d > self.params.min_iou_3d or iou2d > self.params.min_iou_2d_for_merging:
+                        logger.info(f"[navy_blue]Association Merge[/navy_blue]: Merging segments {node1.id} and {node2.id} with 3D IoU {iou3d:.2f} and 2D IoU {iou2d:.2f}")
 
-                        new_node = node1.merge_with_node(node2, keep_children=GraphNode.params.parent_node_includes_child_node_for_data)
+                        new_node = node1.merge_with_node(node2, keep_children=GraphNode.params.parent_node_inherits_data_from_children)
                         new_node.status = GraphNode.SegmentStatus.SEGMENT
                         if new_node is None or new_node.get_num_points() == 0:
                             logger.info(f"[bright_red]Merge Fail[/bright_red]: Resulting Node was invalid.")
@@ -878,10 +880,10 @@ class SceneGraph3D():
                         words_j = node_j.get_words()
 
                         # Calculate Semantic Similarity
-                        sem_con = SceneGraph3D.semantic_consistency(node_i.get_weighted_semantic_descriptor(), node_j.get_weighted_semantic_descriptor())
+                        sem_con = SceneGraph3D.cosine_similarity(node_i.get_weighted_semantic_descriptor(), node_j.get_weighted_semantic_descriptor())
 
                         # Check for synonymy (if any of shared lemmas are same & cosine similarity is high)
-                        if words_i == words_j or sem_con > SceneGraph3D.min_sem_con_for_association:
+                        if words_i == words_j or sem_con > SceneGraph3D.min_cos_sim_for_synonym:
                             putative_relationships.append((i, j, None))
 
         # Return all found putative relationships

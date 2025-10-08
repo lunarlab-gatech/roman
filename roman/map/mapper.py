@@ -57,7 +57,7 @@ class Mapper():
         #                                        self.mask_similarity(seg, obs, projected=True))
 
         for i, obs in enumerate(observations):
-            logger.info(f"Observation {i} num of points: {obs.point_cloud.shape[0]}")
+            logger.debug(f"Observation {i} num of points: {obs.point_cloud.shape[0]}")
 
         #segments_to_associate = sorted(self.segments, key=lambda s: s.id) + sorted(self.segment_nursery, key=lambda s: s.id)
         associated_pairs = global_nearest_neighbor(
@@ -66,7 +66,7 @@ class Mapper():
 
         # Print associated pairs
         for pair in associated_pairs:
-            logger.info(f"Association (seg, obs): ({(self.segments + self.segment_nursery)[pair[0]].id} {pair[1]})")
+            logger.debug(f"Association (seg, obs): ({(self.segments + self.segment_nursery)[pair[0]].id} {pair[1]})")
 
         # separate segments associated with nursery and normal segments
         pairs_existing = [[seg_idx, obs_idx] for seg_idx, obs_idx \
@@ -96,18 +96,18 @@ class Mapper():
                         or seg.num_points == 0]
         for seg in to_rm:
             if seg.num_points == 0:
-                logger.info(f"Deleting Segment {seg.id} due to too few points (during inactivation)")
+                logger.debug(f"Deleting Segment {seg.id} due to too few points (during inactivation)")
                 self.segments.remove(seg)
                 continue
             try:
                 logger.debug(f"Node Point cloud: {seg.points[0:3]}")
-                logger.info(f"Moving Segment {seg.id} from normal to inactive")
+                logger.debug(f"Moving Segment {seg.id} from normal to inactive")
                 seg.final_cleanup(epsilon=self.params.segment_voxel_size*5.0)
                 logger.debug(f"Node Point cloud: {seg.points[0:3]}")
                 self.inactive_segments.append(seg)
                 self.segments.remove(seg)
             except: # too few points to form clusters
-                logger.info(f"Deleting Segment {seg.id} due to too few points to form clusters (during inactivation)")
+                logger.debug(f"Deleting Segment {seg.id} due to too few points to form clusters (during inactivation)")
                 self.segments.remove(seg)
             
         # handle moving inactive segments to graveyard
@@ -116,7 +116,7 @@ class Mapper():
                         or np.linalg.norm(seg.last_observation.pose[:3,3] - pose[:3,3]) \
                             > self.params.segment_graveyard_dist]
         for seg in to_rm:
-            logger.info(f"Downgrading Segment {seg.id} from inactive to graveyard")
+            logger.debug(f"Downgrading Segment {seg.id} from inactive to graveyard")
             self.segment_graveyard.append(seg)
             self.inactive_segments.remove(seg)
 
@@ -124,14 +124,14 @@ class Mapper():
                     if t - seg.last_seen > self.params.max_t_no_sightings \
                         or seg.num_points == 0]
         for seg in to_rm:
-            logger.info("Removing Segment {} from nursery due to no sightings or zero points".format(seg.id))
+            logger.debug("Removing Segment {} from nursery due to no sightings or zero points".format(seg.id))
             self.segment_nursery.remove(seg)
 
         # handle moving segments from nursery to normal segments
         to_upgrade = [seg for seg in self.segment_nursery \
                         if seg.num_sightings >= self.params.min_sightings]
         for seg in to_upgrade:
-            logger.info(f"Upgrading Segment {seg.id} from nursery to normal")
+            logger.debug(f"Upgrading Segment {seg.id} from nursery to normal")
             self.segment_nursery.remove(seg)
             self.segments.append(seg)
 
@@ -143,9 +143,9 @@ class Mapper():
         for obs, idx in new_observations:
             new_seg = Segment(obs, self.camera_params, self.id_counter, self.params.segment_voxel_size)
             if new_seg.num_points == 0: # guard from observations coming in with no points
-                logger.info(f"Observation {idx} discarded as it has no points")
+                logger.debug(f"Observation {idx} discarded as it has no points")
                 continue
-            logger.info(f"Observation {idx} turned into Segment {new_seg.id}")
+            logger.debug(f"Observation {idx} turned into Segment {new_seg.id}")
             self.segment_nursery.append(new_seg)
             self.id_counter += 1
 
@@ -238,10 +238,6 @@ class Mapper():
         to_delete = []
         # reason = []
         for seg in segments:
-            if seg.id == 816:
-                logger.info("DATA FOR SEG 816 in remove")
-                logger.info(np.sort(seg.extent))
-                logger.info(seg.num_points)
             try:
                 extent = np.sort(seg.extent) # in ascending order
                 if seg.num_points == 0:
@@ -261,7 +257,7 @@ class Mapper():
                 # reason.append(f"Segment {seg.id} has an error in extent/volume computation")
         for seg in to_delete:
             # Print the id of the segment we're deleting
-            logger.info(f"Deleting segment {seg.id} as it is a bad segment")
+            logger.debug(f"Deleting segment {seg.id} as it is a bad segment")
             segments.remove(seg)
             # for r in reason:
             #     print(r)
@@ -334,7 +330,7 @@ class Mapper():
                         logger.debug(f"MERGING CHECK: Seg {seg1.id} and Seg {seg2.id} with 3D IOU {iou3d} and 2D IOU {iou2d}")
 
                     if iou3d > self.params.merge_objects_iou_3d or iou2d > self.params.merge_objects_iou_2d:
-                        logger.info(f"Merging segments {seg1.id} and {seg2.id} with 3D IoU {iou3d:.2f} and 2D IoU {iou2d:.2f}")
+                        logger.debug(f"Merging segments {seg1.id} and {seg2.id} with 3D IoU {iou3d:.2f} and 2D IoU {iou2d:.2f}")
                         seg1.update_from_segment(seg2)
                         seg1.id = min(seg1.id, seg2.id)
                         if seg1.num_points == 0:

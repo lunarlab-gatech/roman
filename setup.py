@@ -30,6 +30,7 @@ setup(
         'open3d>=0.18.0',
         'pygraphviz',
         'graphviz',
+        'python-fcl',
         'pyvista',
         'pyyaml',
         'rerun-sdk',

@@ -6,7 +6,7 @@ from .mapper_params import MapperParams
 from .offline_rpgo_params import OfflineRPGOParams
 import os
 from pathlib import Path
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from robotdatapy.data.pose_data import PoseData
 from roman.utils import expandvars_recursive
 from .scene_graph_3D_params import SceneGraph3DParams, GraphNodeParams
@@ -40,6 +40,7 @@ class SystemParams(BaseModel):
     num_req_assoc: int
     use_scene_graph: bool
     use_roman_map_for_alignment: bool
+    random_seed: int
 
     @classmethod
     def from_param_dir(cls, path: str) -> SystemParams:
@@ -59,9 +60,13 @@ class SystemParams(BaseModel):
         num_req_assoc = data['num_req_assoc']
         use_scene_graph = data['use_scene_graph']
         use_roman_map_for_alignment = data['use_roman_map_for_alignment']
+        random_seed = data['random_seed']
 
         if not use_roman_map_for_alignment and not use_scene_graph:
             raise ValueError("Cannot set 'use_roman_map_for_alignment' to False when 'use_scene_graph' is also False.")
+        
+        if scene_graph_3D_params.use_convex_hull_for_iou and not graph_node_params.require_valid_convex_hull:
+            raise ValueError("If Scene Graph uses Convex Hull IOU, then GraphNode must require Convex Hull.")
 
         return cls(data_params=data_params, 
                    pose_data_gt_params=pose_data_gt_params,
@@ -73,4 +78,5 @@ class SystemParams(BaseModel):
                    submap_align_params=submap_align_params, 
                    num_req_assoc=num_req_assoc,
                    use_scene_graph=use_scene_graph,
-                   use_roman_map_for_alignment=use_roman_map_for_alignment)
+                   use_roman_map_for_alignment=use_roman_map_for_alignment,
+                   random_seed=random_seed)

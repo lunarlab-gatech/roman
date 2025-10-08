@@ -127,7 +127,7 @@ class GraphNode():
 
         # Update point cloud and check that the cloud is good
         if run_dbscan is None:
-            run_dbscan = self.params.run_dbscan_when_creating_node
+            run_dbscan = self.params.dbscan_and_remove_outliers_on_node_creation
 
         to_delete = self.update_point_cloud(point_cloud, run_dbscan=run_dbscan, 
                                             remove_outliers=run_dbscan, downsample=self.params.downsample_on_node_creation)
@@ -141,7 +141,7 @@ class GraphNode():
                 self._class_method_creation_success = False
         
         # Additionally, check if our size is reasonable
-        if self.params.check_minimum_node_size_during_creation and not self.is_RootGraphNode() and self.get_longest_line_size() < 0.4:
+        if self.params.check_minimum_node_size_on_node_creation and not self.is_RootGraphNode() and self.get_longest_line_size() < 0.4:
             self._class_method_creation_success = False
 
         # If we are RootGraphNode, creation is always successful as we don't 
@@ -257,7 +257,7 @@ class GraphNode():
             if descriptor is None:
                 self._words = None
             else:
-                self._words = WordListWrapper.from_words(wordnetWrapper.map_embedding_to_words(descriptor, self.params.num_words_to_consider_ourselves))
+                self._words = WordListWrapper.from_words(wordnetWrapper.map_embedding_to_words(descriptor, 1))
         return self._words
     
     def get_all_meronyms(self, meronym_level: int = 1) -> set[str]:
@@ -302,7 +302,7 @@ class GraphNode():
         """ Gets the earliest first seen time """
 
         # If not including children, just return our own first seen
-        if not self.params.parent_node_includes_child_node_for_data:
+        if not self.params.parent_node_inherits_data_from_children:
             return self.first_seen
 
         # Otherwise, find first seen among ourselves and our children
@@ -317,7 +317,7 @@ class GraphNode():
         """ Gets the most recent last updated time """
 
         # If not including children, just return our own last updated
-        if not self.params.parent_node_includes_child_node_for_data:
+        if not self.params.parent_node_inherits_data_from_children:
             return self.last_updated
         
         # Otherwise, find most recent last updated among ourselves and our children
@@ -332,7 +332,7 @@ class GraphNode():
         """ Gets the earliest first pose for self and descendents. """
 
         # If not including children, just return our own first pose
-        if not self.params.parent_node_includes_child_node_for_data:
+        if not self.params.parent_node_inherits_data_from_children:
             return self.first_pose
         
         # Otherwise, find first pose among ourselves and our children
@@ -348,7 +348,7 @@ class GraphNode():
     
     def get_last_pose(self) -> np.ndarray:
         # If not including children, just return our own last pose
-        if not self.params.parent_node_includes_child_node_for_data:
+        if not self.params.parent_node_inherits_data_from_children:
             return self.last_pose
     
         # Otherwise, find last pose among ourselves and our children
@@ -414,7 +414,7 @@ class GraphNode():
 
     def get_volume(self) -> float:
         # Use an oriented bounding box (like ROMAN)
-        if self.params.use_oriented_bbox_for_volume:
+        if not self.params.use_convex_hull_for_volume:
             obb: OrientedBoundingBox | None = self.get_oriented_bbox()
             if obb is not None: return obb.volume()
             else: return 0.0
@@ -437,7 +437,7 @@ class GraphNode():
             raise RuntimeError("get_point_cloud() should not be called on RootGraphNode!")
         
         if recursive is None:
-            recursive = self.params.parent_node_includes_child_node_for_data
+            recursive = self.params.parent_node_inherits_data_from_children
 
         if self._point_cloud is None:
             if recursive:
@@ -458,7 +458,7 @@ class GraphNode():
             raise RuntimeError("get_semantic_descriptors() should not be called on RootGraphNode!")
 
         descriptors = []
-        if self.params.parent_node_includes_child_node_for_data:
+        if self.params.parent_node_inherits_data_from_children:
             for child in self.get_children():
                 descriptors += child.get_semantic_descriptors()
 
@@ -680,7 +680,7 @@ class GraphNode():
         if child in self.child_nodes:
             self.child_nodes.remove(child)
 
-            if self.params.parent_node_includes_child_node_for_data:
+            if self.params.parent_node_inherits_data_from_children:
                 self.reset_saved_descriptor_vars()
                 self.reset_saved_inheritance_vars()
                 return self.reset_saved_point_vars()
@@ -691,7 +691,7 @@ class GraphNode():
         
     def remove_children(self, children: list[GraphNode]) -> set[GraphNode]:
         nodes_to_delete = set()
-        for child in children:
+        for child in children[:]:
             nodes_to_delete.update(self.remove_child(child))
         return nodes_to_delete
 
@@ -711,7 +711,7 @@ class GraphNode():
             return # Shouldn't add children more than once
         
         self.child_nodes.append(new_child)
-        if self.params.parent_node_includes_child_node_for_data:
+        if self.params.parent_node_inherits_data_from_children:
             self.reset_saved_descriptor_vars()
             self.reset_saved_inheritance_vars()
             self.reset_saved_point_vars_safe()
@@ -729,7 +729,7 @@ class GraphNode():
         """ For calculating the semantic descriptor in the same way as ROMAN """
 
         # Hold the observation descriptor in case this node is merged through hungarian assignment
-        if self.obs_descriptor is None:
+        if self.params.ignore_descriptors_from_observation and self.obs_descriptor is None:
             assert count == 1
             self.obs_descriptor = descriptor
             return
@@ -823,7 +823,7 @@ class GraphNode():
                 epsilon = length * self.params.epsilon_variable_ratio_to_length
 
             # Perform clustering
-            labels: np.ndarray = np.array(pcd.cluster_dbscan(eps=epsilon, min_points=self.params.min_points))
+            labels: np.ndarray = np.array(pcd.cluster_dbscan(eps=epsilon, min_points=self.params.dbscan_min_points))
 
             # Handle the clusters differently depending on if we are ROMAN or MERONOMY
             if self.params.enable_roman_dbscan:
@@ -853,7 +853,7 @@ class GraphNode():
                 # Check size of max cluster
                 max_cluster_size = np.sum(labels == max_cluster_index)
                 cluster_size_ratio = max_cluster_size / len(pcd.points)
-                if cluster_size_ratio < self.params.cluster_percentage_of_full:
+                if cluster_size_ratio < self.params.min_cluster_percentage:
 
                     # Since this cluster is too small, the semantic embedding will not be 
                     # representative. Thus, we must delete this node, so wipe our point cloud.
@@ -876,7 +876,7 @@ class GraphNode():
         pcd.points = o3d.utility.Vector3dVector(self.point_cloud)
 
         # Remove statistical outliers
-        pcd_sampled, _ = pcd.remove_statistical_outlier(self.params.stat_out_num_neighbors, self.params.std_ratio)
+        pcd_sampled, _ = pcd.remove_statistical_outlier(self.params.stat_out_num_neighbors, self.params.stat_out_std_ratio)
 
         # Save the new sampled point cloud 
         self.point_cloud = np.asarray(pcd_sampled.points)
@@ -912,7 +912,7 @@ class GraphNode():
         combined_children = (self.get_children() + other.get_children())
 
         # Calculate the first seen time as earliest from the two nodes
-        if self.params.merge_with_node_keep_first_seen_of_self:
+        if self.params.merge_with_node_use_first_seen_time_from_self:
             first_seen = self.get_time_first_seen()
         else:
             first_seen = min(self.get_time_first_seen(), other.get_time_first_seen())
@@ -963,7 +963,7 @@ class GraphNode():
             self.add_semantic_descriptors_incremental(descriptor_inc, 1)
 
         # If desired, split the new point cloud into children and self
-        if self.params.parent_node_includes_child_node_for_data:
+        if self.params.parent_node_inherits_data_from_children:
             # Get convex hulls of each child
             hulls: list[trimesh.Trimesh] = []
             for child in self.get_children():
@@ -1074,7 +1074,7 @@ class GraphNode():
             to_delete.add(self)
 
         # Reset variables in parents and get any of those that need to be deleted.
-        if self.parent_node is not None and self.params.parent_node_includes_child_node_for_data:
+        if self.parent_node is not None and self.params.parent_node_inherits_data_from_children:
             to_delete.update(self.parent_node.reset_saved_point_vars(reset_voxel_grid))
 
         # Return nodes that need to be deleted
@@ -1101,7 +1101,7 @@ class GraphNode():
         self._redo_shortest_dist_between_convex_hulls = True
 
         # Reset variables in parents 
-        if self.parent_node is not None and self.params.parent_node_includes_child_node_for_data:
+        if self.parent_node is not None and self.params.parent_node_inherits_data_from_children:
             self.parent_node.reset_saved_point_vars_safe(reset_voxel_grid)
     
     def reset_saved_descriptor_vars(self) -> None:
@@ -1128,7 +1128,7 @@ class GraphNode():
             self._redo_word_comparisons = True
 
         # Do the same in parents
-        if self.parent_node is not None:
+        if self.parent_node is not None and self.params.parent_node_inherits_data_from_children:
             self.parent_node.reset_saved_descriptor_vars()
 
     def reset_saved_inheritance_vars(self) -> None:

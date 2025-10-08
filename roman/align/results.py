@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+from enum import Enum
 import numpy as np
 import matplotlib.pyplot as plt
 import pickle
@@ -28,6 +31,17 @@ class SubmapAlignResults:
     timing_list: List[float]
     submap_align_params: SubmapAlignParams
     submap_io: SubmapAlignInputOutput
+
+    # Holds values for additional metric calculations
+    overlapping_fov_mat: np.ndarray
+    aligned_submaps_by_degree: np.ndarray
+    alignment_success_num_by_degree: np.ndarray
+
+    class AlignmentDegree(Enum):
+        ZERO_SIXTY = 0
+        SIXTY_ONEHUNDREDTWENTY = 1
+        ONEHUNDREDTWENTY_ONEHUNDREDEIGHTY = 2
+        ALL = 3
     
     def save(self):
         pkl_file = open(self.submap_io.output_pkl, 'wb')
@@ -38,8 +52,23 @@ class SubmapAlignResults:
     def load(self, file_path):
         pkl_file = open(file_path, 'rb')
         return pickle.load(pkl_file)
-        
+    
+    def get_pose_estimation_success_rate(self, degree: SubmapAlignResults.AlignmentDegree) -> float:
+        # Calculate succcess rates for each degree range
+        rates = []
+        for i in range(len(self.alignment_success_num_by_degree)):
+            rates.append(self.alignment_success_num_by_degree[i] / self.aligned_submaps_by_degree[i])
 
+        # Return requested rate
+        if degree == SubmapAlignResults.AlignmentDegree.ZERO_SIXTY:
+            return rates[0]
+        elif degree == SubmapAlignResults.AlignmentDegree.SIXTY_ONEHUNDREDTWENTY:
+            return rates[1]
+        elif degree == SubmapAlignResults.AlignmentDegree.ONEHUNDREDTWENTY_ONEHUNDREDEIGHTY:
+            return rates[2]
+        else:
+            return np.mean(rates)
+    
 def time_to_secs_nsecs(t, as_dict=False):
     seconds = int(t)
     nanoseconds = int((t - int(t)) * 1e9)
@@ -52,7 +81,7 @@ def plot_align_results(results: SubmapAlignResults, dpi=500):
     # TODO: Update this to solve issues with overlapping portions, maybe seperate figures?
 
     # Create plots
-    fig, ax = plt.subplots(1, 5, figsize=(20, 5), dpi=dpi)
+    fig, ax = plt.subplots(1, 6, figsize=(24, 5), dpi=dpi)
     fig.subplots_adjust(wspace=.3)
     fig.suptitle(results.submap_io.run_name)
 
@@ -75,6 +104,10 @@ def plot_align_results(results: SubmapAlignResults, dpi=500):
     mp = ax[4].imshow(results.submap_yaw_diff_mat, cmap='viridis', vmin=0)
     fig.colorbar(mp, fraction=0.04, pad=0.04)
     ax[4].set_title("Submap Yaw Difference (deg)")
+
+    mp = ax[5].imshow(results.overlapping_fov_mat, cmap='viridis', vmin=0)
+    fig.colorbar(mp, fraction=0.04, pad=0.04)
+    ax[5].set_title("Overlapping FOV? (bool)")
 
     for i in range(len(ax)):
         ax[i].set_xlabel("submap index (robot 2)")

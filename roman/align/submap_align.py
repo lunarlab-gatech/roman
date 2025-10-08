@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 import os
 from tqdm import tqdm
 from typing import List
+import trimesh
+from trimesh.collision import CollisionManager
 import open3d as o3d
 import clipperpy
 import time
@@ -16,6 +18,7 @@ import yaml
 from robotdatapy.data.pose_data import PoseData
 from robotdatapy.transform import transform_to_xytheta, transform_to_xyzrpy
 from robotdatapy.transform import transform
+from robotdatapy.camera import CameraParams
 
 from roman.map.map import Submap, SubmapParams, submaps_from_roman_map
 from roman.align.object_registration import InsufficientAssociationsException, ObjectRegistration
@@ -45,8 +48,81 @@ def visualize_submap(map: Submap, name: str, color: np.ndarray):
         all_points = np.concatenate((all_points, points_wrt_world), axis=0)
     rr.log('/world/points/' + name, 
             rr.Points3D(positions=all_points, colors=colors))
+    
 
-def submap_align(system_params: SystemParams, sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
+def build_frustum_mesh(pose_camera_gt: np.ndarray, cam: CameraParams, max_range=50.0):
+    """
+    Build a trimesh mesh representing the camera frustum.
+    """
+    # FOV in radians
+    hfov = 2 * np.arctan2(cam.width, (2 * cam.fx))
+    vfov = 2 * np.arctan2(cam.height, (2 * cam.fy))
+
+    # Extract the camera axes
+    R = pose_camera_gt[:3, :3]
+    forward = R[:, 2]  # camera z-axis
+    right   = R[:, 0]  # camera x-axis
+    up      = R[:, 1]  # camera y-axis
+
+    # Extract the position
+    pos = pose_camera_gt[:3, 3]
+
+    # Far plane dimensions
+    half_width = max_range * np.tan(hfov / 2)
+    half_height = max_range * np.tan(vfov / 2)
+    fc = pos + forward * max_range
+
+    # 8 vertices of the frustum (4 at camera, 4 at far plane)
+    near = 0.01  # near plane distance
+    half_width_near = near * np.tan(hfov / 2)
+    half_height_near = near * np.tan(vfov / 2)
+    nc = pos + forward * near  # near plane center
+
+    vertices = np.array([
+        # Near plane corners
+        nc + up * half_height_near + right * half_width_near,
+        nc + up * half_height_near - right * half_width_near,
+        nc - up * half_height_near + right * half_width_near,
+        nc - up * half_height_near - right * half_width_near,
+        
+        # Far plane corners
+        fc + up * half_height + right * half_width,
+        fc + up * half_height - right * half_width,
+        fc - up * half_height + right * half_width,
+        fc - up * half_height - right * half_width,
+    ])
+
+    # Define faces as triangles (camera to far plane)
+    faces = np.array([[0,1,2],[1,3,2], # Near Plane
+                      [4,5,6],[5,7,6], # Far Plane
+                      [0,1,5],[0,5,4], # In-between
+                      [1,3,7],[1,7,5],
+                      [3,2,6],[3,6,7],
+                      [2,0,4],[2,4,6]])
+
+    # Create convex hull mesh
+    mesh = trimesh.Trimesh(vertices=vertices, faces=faces, process=True)
+    mesh = mesh.convex_hull  # ensure convex
+    return mesh
+
+def fov_of_submaps_overlap(submap_a: Submap, submap_b: Submap, cam_params: CameraParams, _T_camera_flu: np.ndarray, max_range=50.0) -> bool:
+    """ Check if camera frustums overlap using trimesh collision. """
+    if submap_a.pose_flu_gt is None or submap_b.pose_flu_gt is None:
+        raise ValueError("Both submaps must have pose_flu_gt defined")
+
+    a_pose_camera_gt: np.ndarray = submap_a.pose_flu_gt @ np.linalg.inv(_T_camera_flu)
+    b_pose_camera_gt: np.ndarray  = submap_b.pose_flu_gt @ np.linalg.inv(_T_camera_flu)
+
+    mesh_a: trimesh.Trimesh = build_frustum_mesh(a_pose_camera_gt, cam_params, max_range)
+    mesh_b: trimesh.Trimesh = build_frustum_mesh(b_pose_camera_gt, cam_params, max_range)
+
+    # Check intersection
+    cm = CollisionManager()
+    cm.add_object('mesh_a', mesh_a)
+    cm.add_object('mesh_b', mesh_b)
+    return cm.in_collision_internal()
+
+def submap_align(system_params: SystemParams, sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput) -> SubmapAlignResults:
     """
     Breaks maps into submaps and attempts to align each submap from one map with each submap from the second map.
 
@@ -65,6 +141,9 @@ def submap_align(system_params: SystemParams, sm_params: SubmapAlignParams, sm_i
                         rrb.Spatial3DView(name="World", origin='/world')
                     )
         rr.init("ROMAN: Submap Align Visualization", spawn=True, default_blueprint=blueprint)
+
+    # Load image data so we have camera parameters
+    img_data = system_params.data_params.load_img_data()
     
     # Load maps and split into Submaps
     submap_params = SubmapParams.from_submap_align_params(sm_params)
@@ -91,6 +170,11 @@ def submap_align(system_params: SystemParams, sm_params: SubmapAlignParams, sm_i
     T_ij_mat = np.zeros((len(submaps[0]), len(submaps[1]), 4, 4))*np.nan
     T_ij_hat_mat = np.zeros((len(submaps[0]), len(submaps[1]), 4, 4))*np.nan
     associated_objs_mat = [[[] for _ in range(len(submaps[1]))] for _ in range(len(submaps[0]))] # cannot be numpy array since each element is a different sized array
+
+    # Additional tracking variables for use in MeronomyGraph paper
+    aligned_submaps_by_degree: np.ndarray = np.zeros((3), dtype=np.int64) # 0 is 0-60, 1 is 60-120, and 2 is 120-180
+    alignment_success_num_by_degree: np.ndarray = np.zeros((3), dtype=np.int64) # Same as above
+    overlapping_fov_mat = np.zeros((len(submaps[0]), len(submaps[1])), dtype=bool)*np.nan
 
     # Registration method
     registration: ObjectRegistration = sm_params.get_object_registration()
@@ -215,6 +299,29 @@ def submap_align(system_params: SystemParams, sm_params: SubmapAlignParams, sm_i
             T_ij_mat[i, j] = H_j_wrt_i
             T_ij_hat_mat[i, j] = T_ij_hat
             associated_objs_mat[i][j] = associations
+            overlapping_fov_mat[i, j] = fov_of_submaps_overlap(submap_i, submap_j, img_data.camera_params, system_params.data_params.pose_data_params.T_camera_flu)
+
+            # Track metrics to match ROMAN paper
+            if submap_distance <= 10 and overlapping_fov_mat[i, j]:
+
+                # Calculate heading difference
+                heading_diff = Rot.from_matrix(H_j_wrt_i[:3, :3]).magnitude() # radians
+
+                # Determine if there is alignment success
+                alignment_success: bool = False
+                if clipper_num_associations[i, j] >= sm_io.lc_association_thresh and dist < 1 and theta < np.deg2rad(5):
+                    alignment_success = True
+
+                # Track the differences and rates of success
+                if heading_diff <= np.deg2rad(60):
+                    aligned_submaps_by_degree[0] += 1
+                    alignment_success_num_by_degree[0] += int(alignment_success)
+                elif heading_diff <= np.deg2rad(120):
+                    aligned_submaps_by_degree[1] += 1
+                    alignment_success_num_by_degree[1] += int(alignment_success)
+                else:
+                    aligned_submaps_by_degree[2] += 1
+                    alignment_success_num_by_degree[2] += int(alignment_success)
 
     # save results
     results = SubmapAlignResults(
@@ -228,6 +335,10 @@ def submap_align(system_params: SystemParams, sm_params: SubmapAlignParams, sm_i
         associated_objs_mat=associated_objs_mat,
         timing_list=timing_list,
         submap_align_params=sm_params,
-        submap_io=sm_io
+        submap_io=sm_io,
+        overlapping_fov_mat=overlapping_fov_mat,
+        aligned_submaps_by_degree=aligned_submaps_by_degree,
+        alignment_success_num_by_degree=alignment_success_num_by_degree
     )
     save_submap_align_results(results, submaps, maps)
+    return results

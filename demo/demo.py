@@ -26,7 +26,7 @@ import mapping
 from robotdatapy.data.pose_data import PoseData
 from roman.params.submap_align_params import SubmapAlignInputOutput, SubmapAlignParams
 from roman.align.submap_align import submap_align
-from roman.align.results import calculate_loop_closure_error, extract_num_loop_closures
+from roman.align.results import calculate_loop_closure_error, extract_num_loop_closures, SubmapAlignResults
 from roman.offline_rpgo.extract_odom_g2o import roman_map_pkl_to_g2o
 from roman.offline_rpgo.g2o_file_fusion import create_config, g2o_file_fusion
 from roman.offline_rpgo.combine_loop_closures import combine_loop_closures
@@ -39,15 +39,6 @@ from roman.params.data_params import DataParams
 from roman.params.scene_graph_3D_params import SceneGraph3DParams, GraphNodeParams
 from roman.params.system_params import SystemParams
 from roman.utils import expandvars_recursive
-
-# Try to enforce determinism in the algorithm
-random.seed(42)
-np.random.seed(42)
-torch.manual_seed(42)
-torch.cuda.manual_seed_all(42)
-torch.backends.cudnn.deterministic = True
-torch.backends.cudnn.benchmark = False
-torch.use_deterministic_algorithms(True)
 
 def convert_paths(obj):
     if isinstance(obj, dict):
@@ -79,6 +70,15 @@ if __name__ == '__main__':
 
     # Setup parameters
     system_params = SystemParams.from_param_dir(args.params)
+
+    # Set seeds to enforce determinism in the python segments of the algorithm
+    random.seed(system_params.random_seed)
+    np.random.seed(system_params.random_seed)
+    torch.manual_seed(system_params.random_seed)
+    torch.cuda.manual_seed_all(system_params.random_seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    torch.use_deterministic_algorithms(True)
 
     # Setup WandB to track this run
     if not args.disable_wandb:
@@ -168,21 +168,26 @@ if __name__ == '__main__':
                 system_params.submap_align_params.single_robot_lc = (i == j)
 
                 # Run the alignment process
-                submap_align(system_params=system_params, sm_params=system_params.submap_align_params, sm_io=sm_io)
+                results: SubmapAlignResults = submap_align(system_params=system_params, sm_params=system_params.submap_align_params, sm_io=sm_io)
 
                 # Calculate loop closure errors
                 json_path = os.path.join(align_path, "align.json")      
-                num_loop_closures = extract_num_loop_closures(json_path)       
-                print(f"Total Number of Loop Closures: {num_loop_closures}")
+                num_det_lc = extract_num_loop_closures(json_path)       
                 errors = calculate_loop_closure_error(json_path, gt_pose_data[i], gt_pose_data[j])
-                if not args.disable_wandb and i != j:
-                    wandb_run.log({"LC: Total number": num_loop_closures,
+                results_dict = {"LC: Total Predicted LC": num_det_lc,
                                    "LC: Mean Translation Error": errors[0], 
                                    "LC: Median Translation Error": errors[1],
                                    "LC: Std Translation Error": errors[2],
                                    "LC: Mean Rotation Angle Error": errors[3],
                                    "LC: Median Rotation Angle Error": errors[4],
-                                   "LC: Std Rotation Angle Error":errors[5]})
+                                   "LC: Std Rotation Angle Error": errors[5],
+                                   "LC: Success Rate 0-60": results.get_pose_estimation_success_rate(SubmapAlignResults.AlignmentDegree.ZERO_SIXTY),
+                                   "LC: Success Rate 60-120": results.get_pose_estimation_success_rate(SubmapAlignResults.AlignmentDegree.SIXTY_ONEHUNDREDTWENTY),
+                                   "LC: Success Rate 120-180": results.get_pose_estimation_success_rate(SubmapAlignResults.AlignmentDegree.ONEHUNDREDTWENTY_ONEHUNDREDEIGHTY),
+                                   "LC: Success Rate Mean": results.get_pose_estimation_success_rate(SubmapAlignResults.AlignmentDegree.ALL)}
+                print("Submap Align Metrics: ", results_dict)
+                if not args.disable_wandb and i != j:
+                    wandb_run.log(results_dict)
                        
     if not args.skip_rpgo:
         min_keyframe_dist = 0.01 if not system_params.offline_rpgo_params.sparsified else 2.0
