@@ -13,7 +13,7 @@ import os
 from ..params.data_params import ImgDataParams
 from ..params.scene_graph_3D_params import SceneGraph3DParams, GraphNodeParams
 import pickle
-from .rerun_wrapper import RerunWrapper
+from ..rerun_wrapper import RerunWrapper
 from robotdatapy.data.img_data import CameraParams
 from robotdatapy.transform import transform
 from roman.map.map import ROMANMap
@@ -30,13 +30,14 @@ multiprocessing.set_start_method("spawn", force=True)
 class SceneGraph3D():
 
     @typechecked
-    def __init__(self, params: SystemParams, camera_params: CameraParams, _T_camera_flu: np.ndarray):
+    def __init__(self, params: SystemParams, camera_params: CameraParams, _T_camera_flu: np.ndarray, robot_index: int):
 
         # Save parameters 
         self.system_params: SystemParams = params
         self.params: SceneGraph3DParams = params.scene_graph_3D_params
         GraphNode.params = params.graph_node_params
         GraphNode.camera_params = camera_params
+        self.robot_index = robot_index
 
         # Node that connects all highest-level objects together for implementation purposes
         self.root_node: GraphNode = GraphNode.create_node_if_possible(-1, None, [], None, 0, np.zeros((0, 3), dtype=np.float64), 
@@ -53,6 +54,7 @@ class SceneGraph3D():
 
         # Create the visualization
         self.rerun_viewer = RerunWrapper(enable=self.params.enable_rerun_viz, fastsam_params=params.fastsam_params)
+        self.rerun_viewer.set_curr_robot_index(self.robot_index)
 
         # Dictionaries to cache results of calculations for speed
         self.overlap_dict: defaultdict = defaultdict(lambda: defaultdict(lambda: None))
@@ -77,6 +79,15 @@ class SceneGraph3D():
         # Set the current pose (in FLU frame) in all nodes and self
         self.poses.append(pose @ self.pose_FLU_wrt_Camera)
         self.root_node.update_curr_pose(self.poses[-1])
+
+        # Update the viewer
+        self.rerun_viewer.update_curr_time(self.times[-1])
+        self.rerun_viewer.update_graph(self.root_node)
+        self.rerun_viewer.update_img(img)
+        self.rerun_viewer.update_depth_img(depth_img)
+        self.rerun_viewer.update_camera_pose(pose)
+        self.rerun_viewer.update_camera_intrinsics(img_data_params)
+        self.rerun_viewer.update_seg_img(seg_img, img, associated_pairs, node_to_obs_mapping)
 
         # Convert each observation into a node (if possible)
         nodes: list[GraphNode] = []
@@ -132,8 +143,6 @@ class SceneGraph3D():
 
                     # TODO: Update associated pairs?
 
-            self.rerun_viewer.update(self.root_node, self.times[-1],  img=img, depth_img=depth_img, camera_pose=pose, img_data_params=img_data_params, seg_img=seg_img, associations=associated_pairs, node_to_obs_mapping=node_to_obs_mapping)
-
             # Update the nodes segment statuses
             self.update_segment_statuses()
 
@@ -166,23 +175,15 @@ class SceneGraph3D():
                     new_id = self.add_new_node_to_graph(node)
                     associated_pairs.append((new_id, new_id))
             
-            # Update the viewer
-            self.rerun_viewer.update(self.root_node, self.times[-1],  img=img, depth_img=depth_img, camera_pose=pose, img_data_params=img_data_params, seg_img=seg_img, associations=associated_pairs, node_to_obs_mapping=node_to_obs_mapping)
-
         # Update the viewer
-        # self.rerun_viewer.update(self.root_node, self.times[-1], img=img, depth_img=depth_img, camera_pose=pose, img_data_params=img_data_params, seg_img=seg_img, associations=associated_pairs, node_to_obs_mapping=node_to_obs_mapping)
+        self.rerun_viewer.update_graph(self.root_node)
+        self.rerun_viewer.update_seg_img(seg_img, img, associated_pairs, node_to_obs_mapping)
 
         # Run merging operations
         self.association_merges()
 
-        # Update the viewer
-        # self.rerun_viewer.update(self.root_node, self.times[-1], img=img, depth_img=depth_img, camera_pose=pose, img_data_params=img_data_params, seg_img=seg_img, associations=associated_pairs, node_to_obs_mapping=node_to_obs_mapping)
-
         if self.params.enable_synonym_merges:
             self.synonym_relationship_merging()
-
-        # Update the viewer
-        # self.rerun_viewer.update(self.root_node, self.times[-1], img=img, depth_img=depth_img, camera_pose=pose, img_data_params=img_data_params, seg_img=seg_img, associations=associated_pairs, node_to_obs_mapping=node_to_obs_mapping)
 
         if self.params.enable_meronomy_relationship_inference:
             self.holonym_meronym_relationship_inference()
@@ -196,7 +197,8 @@ class SceneGraph3D():
             self.resolve_overlapping_convex_hulls()
 
         # Update the viewer
-        self.rerun_viewer.update(self.root_node, self.times[-1], img=img, depth_img=depth_img, camera_pose=pose, img_data_params=img_data_params, seg_img=seg_img, associations=associated_pairs, node_to_obs_mapping=node_to_obs_mapping)
+        self.rerun_viewer.update_graph(self.root_node)
+        self.rerun_viewer.update_seg_img(seg_img, img, associated_pairs, node_to_obs_mapping)
 
     @typechecked
     def hungarian_assignment(self, new_nodes: list[GraphNode]) -> list[tuple]:

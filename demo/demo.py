@@ -131,7 +131,7 @@ if __name__ == '__main__':
             mapping.mapping(
                 system_params,
                 output_path=args.output,
-                run_name=run,
+                robot_index=i,
                 max_time=args.max_time
             )
     
