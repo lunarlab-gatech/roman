@@ -351,7 +351,7 @@ class RerunWrapper():
 
             # Box colors
             if RerunWrapper.RerunWrapperWindow.MapLive in self.windows:
-                h, s, v = self.node_colors[id]
+                h, s, v = self.node_colors[node.get_id()]
                 color = self._hsv_to_rgb255(h, s, v)
             else:
                 color = self.robot_colors[self.curr_robot_index]

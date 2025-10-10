@@ -56,6 +56,7 @@ class GraphNodeParams(BaseModel):
     # ===== Convex Hull ===== 
     require_valid_convex_hull: bool
     use_convex_hull_for_volume: bool
+    convex_hull_outward_offset: float
 
     # ===== Voxel Downsampling ===== 
     enable_variable_voxel_size: bool

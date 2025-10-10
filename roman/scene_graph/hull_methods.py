@@ -125,6 +125,12 @@ def convex_hull_geometric_overlap(a: trimesh.Trimesh | None, b: trimesh.Trimesh 
     return iou, enc_a_ratio, enc_b_ratio
 
 @typechecked
+def expand_hull_outward_by_fixed_offset(hull: trimesh.Trimesh, offset: float) -> trimesh.Trimesh:
+    # Move vertices along their normal direction
+    expanded_vertices = hull.vertices + hull.vertex_normals * offset
+    return trimesh.convex.convex_hull(expanded_vertices)
+
+@typechecked
 def shortest_dist_between_convex_hulls(a: trimesh.Trimesh | None, b: trimesh.Trimesh | None) -> float:
     """ Since we sample surfance points, this is an approximation. """
     

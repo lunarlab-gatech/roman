@@ -4,7 +4,7 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from enum import Enum
 from .graph_node import GraphNode, wordnetWrapper
-from .hull_methods import find_point_overlap_with_hulls, convex_hull_geometric_overlap, shortest_dist_between_convex_hulls
+from .hull_methods import find_point_overlap_with_hulls, convex_hull_geometric_overlap, shortest_dist_between_convex_hulls, expand_hull_outward_by_fixed_offset
 from ..logger import logger
 from ..map.observation import Observation
 import multiprocessing
@@ -886,7 +886,7 @@ class SceneGraph3D():
                         words_j = node_j.get_words()
 
                         # Calculate Semantic Similarity
-                        sem_con = SceneGraph3D.cosine_similarity(node_i.get_weighted_semantic_descriptor(), node_j.get_weighted_semantic_descriptor())
+                        sem_con = SceneGraph3D.cosine_similarity(node_i.get_semantic_descriptor(), node_j.get_semantic_descriptor())
 
                         # Check for synonymy (if any of shared lemmas are same & cosine similarity is high)
                         if words_i == words_j or sem_con > SceneGraph3D.min_cos_sim_for_synonym:

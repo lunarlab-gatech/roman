@@ -4,7 +4,7 @@ from collections import defaultdict
 import cv2 as cv
 from enum import Enum
 import heapq
-from .hull_methods import get_convex_hull_from_point_cloud, find_point_overlap_with_hulls, longest_line_of_point_cloud
+from .hull_methods import get_convex_hull_from_point_cloud, find_point_overlap_with_hulls, longest_line_of_point_cloud, expand_hull_outward_by_fixed_offset
 from ..logger import logger
 import numpy as np
 from numpy.typing import NDArray
@@ -228,6 +228,8 @@ class GraphNode():
             return None
         if self._convex_hull is None:
             self._convex_hull = get_convex_hull_from_point_cloud(self.get_point_cloud())
+            if self._convex_hull is not None and self.params.convex_hull_outward_offset != 0:
+                self._convex_hull = expand_hull_outward_by_fixed_offset(self._convex_hull, self.params.convex_hull_outward_offset)
         return self._convex_hull
     
     def get_voxel_grid(self, voxel_size: float) -> VoxelGrid | None:
