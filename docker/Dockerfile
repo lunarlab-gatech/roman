@@ -80,3 +80,6 @@ RUN pip install --upgrade pip && \
 
 # Install gdown for use with test cases
 RUN pip install gdown
+
+# Setup a symbolic link from python to python3 (for use with WandB Sweeps)
+RUN sudo ln -s /usr/bin/python3 /usr/bin/python
