@@ -997,9 +997,6 @@ class GraphNode():
         # Update our last seen time and pose
         self.last_updated = self.curr_time
         self.last_pose = self.curr_pose
-
-        if self.get_id() == 110 or self.get_id() == 111:
-            print(f"ID: {self.get_id()} -> Number of points in cloud: {self.get_point_cloud().shape[0]}")
             
     def merge_parent_and_child(self, other: GraphNode) -> None:
         # Determine which node is the parent
