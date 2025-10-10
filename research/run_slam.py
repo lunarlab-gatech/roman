@@ -50,27 +50,46 @@ def convert_paths(obj):
         return str(obj)
     else:
         return obj
-    
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-p', '--params', type=str, help='Path to params directory', required=True, default=None)
-    parser.add_argument('-o', '--output-dir', type=str, help='Path to output for this demo', required=False, default=None)
-    parser.add_argument('--max-time', type=float, default=None, help='If the input data is too large, this allows a maximum time' +
-                        'to be set, such that if the mapping will be chunked into max_time increments and fused together')
-    parser.add_argument('--skip-map', action='store_true', help='Skip mapping')
-    parser.add_argument('--skip-align', action='store_true', help='Skip alignment')
-    parser.add_argument('--skip-rpgo', action='store_true', help='Skip robust pose graph optimization')
-    parser.add_argument('--skip-indices', type=int, nargs='+', help='Skip specific runs in mapping and alignment', default=[])
-    parser.add_argument('--disable-wandb', action='store_true', help='Skip logging to W&B')
-    parser.add_argument('--use-map', type=str, help='Run name with map we want to use', default=None)
-    args = parser.parse_args()
-    if not args.skip_map and args.use_map is not None:
-        raise ValueError("Can't set --use-map without --skip-map")
-    if args.skip_map and args.use_map is None:
-        raise ValueError("User specified --skip-map but provided no map to use instead with --use-map")
 
+def run_slam(param_dir: str, output_dir: str | None, wandb_project: str, max_time: int | None = None, 
+             skip_map: bool = False, use_map: str | None = None, skip_align: bool = False, 
+             skip_rpgo: bool = False, skip_indices: list = [], disable_wandb: bool = False) -> None:
+    """ Method that runs the SLAM system """
+
+    # Check input values
+    if not skip_map and use_map is not None:
+        raise ValueError("Can't set --use-map without --skip-map")
+    if skip_map and use_map is None:
+        raise ValueError("User specified --skip-map but provided no map to use instead with --use-map")
+    
     # Setup parameters
-    system_params = SystemParams.from_param_dir(args.params)
+    system_params: SystemParams = SystemParams.from_param_dir(param_dir)
+
+    # Setup WandB to track this run
+    if not disable_wandb:
+        wandb_run = wandb.init(project=wandb_project)
+
+        # Extract potential sweep values from wandb init and put into parameters
+        for param_class_str, param_dict in wandb_run.config['override_dictionary'].items():
+            for param_name, value in param_dict.items():
+                if param_class_str == "system_params":
+                    setattr(system_params, param_name, value)
+                else:
+                    setattr(getattr(system_params, param_class_str), param_name, value)
+
+        # Take the parameters (default and overwritten) and write as new config back to WandB
+        def shorten(d):
+            return {(''.join([w[0] for w in k.split('_')]) if isinstance(v, dict) else k): (shorten(v) if isinstance(v, dict) else v) for k, v in d.items()}
+        config_dict = shorten({'system_params': system_params.model_dump()})
+        config_dict['skip_map'] = skip_map
+        config_dict['use_map'] = use_map
+        for key, value in config_dict.items():
+            wandb_run.config[key] = value
+        
+        # Extract the run name
+        run_name = wandb_run.name
+    else:
+        run_name = 'latest'
 
     # Set seeds to enforce determinism in the python segments of the algorithm
     random.seed(system_params.random_seed)
@@ -81,24 +100,11 @@ if __name__ == '__main__':
     torch.backends.cudnn.benchmark = False
     torch.use_deterministic_algorithms(True)
 
-    # Setup WandB to track this run
-    if not args.disable_wandb:
-        def shorten(d):
-            return {(''.join([w[0] for w in k.split('_')]) if isinstance(v, dict) else k): (shorten(v) if isinstance(v, dict) else v) for k, v in d.items()}
-        config_dict = shorten({'system_params': system_params.model_dump()})
-        config_dict['skip_map'] = args.skip_map
-        config_dict['use_map'] = args.use_map
-        wandb_run = wandb.init(project='MeronomyGraph Ablation v1.1',
-                        config=config_dict)
-        run_name = wandb_run.name
-    else:
-        run_name = 'latest'
-
     # Create output directories
-    params_path = Path(args.params)
-    if args.output_dir is None:
-        output_path = params_path.parent.parent.parent / "demo_output" / params_path.name / run_name
-    else: output_path = Path(args.output_dir)
+    params_path = Path(param_dir)
+    if output_dir is None:
+        output_path = params_path.parent.parent / "results" / params_path.name / run_name
+    else: output_path = Path(output_dir)
     os.makedirs(os.path.join(output_path, "map"), exist_ok=True)
     os.makedirs(os.path.join(output_path, "align"), exist_ok=True)
     os.makedirs(os.path.join(output_path, "offline_rpgo"), exist_ok=True)
@@ -109,8 +115,8 @@ if __name__ == '__main__':
 
     # Set the directory with the map to use
     input_map_path = output_path
-    if args.use_map is not None:
-        input_map_path = input_map_path.parent / args.use_map
+    if use_map is not None:
+        input_map_path = input_map_path.parent / use_map
 
     # Extract GT Pose Data
     gt_pose_data: list[PoseData] = system_params.pose_data_gt_params.get_pose_data(system_params.data_params)
@@ -118,7 +124,7 @@ if __name__ == '__main__':
     # Create the Rerun viewer (currently just for mapping step)
     windows: list[RerunWrapper.RerunWrapperWindow] = []
     for i, run in enumerate(system_params.data_params.runs):
-        if i in args.skip_indices: continue
+        if i in skip_indices: continue
         windows.append(RerunWrapper.RerunWrapperWindow.MapLive)
     rerun_viewer = RerunWrapper(name="MeronomyGraph Visualization", 
                                 windows=windows, 
@@ -126,13 +132,13 @@ if __name__ == '__main__':
                                 enable=system_params.enable_rerun_viz)
 
     # Run the Mapping step
-    if not args.skip_map:
+    if not skip_map:
 
         for i, run in enumerate(system_params.data_params.runs):
-            if i in args.skip_indices: continue
+            if i in skip_indices: continue
                 
             # mkdir $output_path/map
-            args.output = os.path.join(output_path, "map", f"{run}")
+            output_path_mapping = os.path.join(output_path, "map", f"{run}")
 
             # shell: export RUN=run
             if system_params.data_params.run_env is not None:
@@ -141,18 +147,18 @@ if __name__ == '__main__':
             print(f"Mapping: {run}")
             mapping.mapping(
                 system_params,
-                output_path=args.output,
+                output_path=output_path_mapping,
                 rerun_viewer=rerun_viewer,
                 robot_index=i,
-                max_time=args.max_time,
+                max_time=max_time,
             )
     
     # Iterate through each pair of runs and do alignment
-    if not args.skip_align:
+    if not skip_align:
         for i in range(len(system_params.data_params.runs)):
-            if args.skip_indices and i in args.skip_indices: continue
+            if skip_indices and i in skip_indices: continue
             for j in range(i, len(system_params.data_params.runs)):
-                if args.skip_indices and j in args.skip_indices: continue
+                if skip_indices and j in skip_indices: continue
 
                 print(f"Running alignment for {system_params.data_params.runs[i]}_{system_params.data_params.runs[j]}")
                 
@@ -198,10 +204,10 @@ if __name__ == '__main__':
                                    "LC: Success Rate 120-180": results.get_pose_estimation_success_rate(SubmapAlignResults.AlignmentDegree.ONEHUNDREDTWENTY_ONEHUNDREDEIGHTY),
                                    "LC: Success Rate Mean": results.get_pose_estimation_success_rate(SubmapAlignResults.AlignmentDegree.ALL)}
                 print("Submap Align Metrics: ", results_dict)
-                if not args.disable_wandb and i != j:
+                if not disable_wandb and i != j:
                     wandb_run.log(results_dict)
                        
-    if not args.skip_rpgo:
+    if not skip_rpgo:
         min_keyframe_dist = 0.01 if not system_params.offline_rpgo_params.sparsified else 2.0
         # Create g2o files for odometry
         for i, run in enumerate(system_params.data_params.runs):
@@ -280,16 +286,12 @@ if __name__ == '__main__':
             
         # run kimera centralized robust pose graph optimization
         result_g2o_file = os.path.join(output_path, "offline_rpgo", "result.g2o")
-        ros_launch_command = f"roslaunch kimera_centralized_pgmo offline_g2o_solver.launch \
-            g2o_file:={final_g2o_file} \
-            output_path:={os.path.join(output_path, 'offline_rpgo')}"
         roman_path = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
         rpgo_read_g2o_executable = \
             f"{roman_path}/dependencies/Kimera-RPGO/build/RpgoReadG2o"
         rpgo_command = f"{rpgo_read_g2o_executable} 3d {final_g2o_file}" \
             + f" -1.0 -1.0 {system_params.offline_rpgo_params.gnc_inlier_threshold} {os.path.join(output_path, 'offline_rpgo')} v"
         os.system(rpgo_command)
-        # os.system(ros_launch_command)
         
         # plot results
         g2o_symbol_to_name = {chr(97 + i): system_params.data_params.runs[i] for i in range(len(system_params.data_params.runs))}
@@ -329,9 +331,28 @@ if __name__ == '__main__':
             print("ATE results:")
             print("============")
             print(ate_rmse)
-            if not args.disable_wandb:
+            if not disable_wandb:
                 wandb_run.log({"RMS ATE": ate_rmse})
             with open(os.path.join(output_path, "offline_rpgo", "ate_rmse.txt"), 'w') as f:
                 print(ate_rmse, file=f)
                 f.close()
             
+    
+if __name__ == '__main__':
+    """ Command line option for running the system """
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-p', '--params', type=str, help='Path to params directory', required=True, default=None)
+    parser.add_argument('-o', '--output-dir', type=str, help='Path to output for this demo', required=False, default=None)
+    parser.add_argument('--wandb-project', type=str, default='MeronomyGraph Ablation v1.1', required=False)
+    parser.add_argument('--max-time', type=float, default=None, help='If the input data is too large, this allows a maximum time to be set, such that if the mapping will be chunked into max_time increments and fused together')
+    parser.add_argument('--skip-map', action='store_true', help='Skip mapping')
+    parser.add_argument('--skip-align', action='store_true', help='Skip alignment')
+    parser.add_argument('--skip-rpgo', action='store_true', help='Skip robust pose graph optimization')
+    parser.add_argument('--skip-indices', type=int, nargs='+', help='Skip specific runs in mapping and alignment', default=[])
+    parser.add_argument('--disable-wandb', action='store_true', help='Skip logging to W&B')
+    parser.add_argument('--use-map', type=str, help='Run name with map we want to use', default=None)
+    args = parser.parse_args()
+    
+    run_slam(args.params, args.output_dir, args.wandb_project, args.max_time, args.skip_map, 
+             args.use_map, args.skip_align, args.skip_rpgo, args.skip_indices, args.disable_wandb)
