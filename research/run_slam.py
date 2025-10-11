@@ -336,8 +336,11 @@ def run_slam(param_dir: str, output_dir: str | None, wandb_project: str, max_tim
             with open(os.path.join(output_path, "offline_rpgo", "ate_rmse.txt"), 'w') as f:
                 print(ate_rmse, file=f)
                 f.close()
+
+    # Tell WandB to finish logging
+    if not disable_wandb:
+        wandb_run.finish()
             
-    
 if __name__ == '__main__':
     """ Command line option for running the system """
 

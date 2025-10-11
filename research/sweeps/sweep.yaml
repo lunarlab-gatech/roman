@@ -8,11 +8,10 @@ parameters:
       - system_params:
           use_scene_graph: False
 
-      # MeronomyGraph Disabled
+      # MeronomyGraph
       - system_params:
           use_scene_graph: True
       
-      # 
       - system_params:
           use_scene_graph: True
         scene_graph_3D_params:
@@ -20,7 +19,6 @@ parameters:
         graph_node_params:
           require_valid_convex_hull: True
       
-      # 
       - system_params:
           use_scene_graph: True
         scene_graph_3D_params:
@@ -29,7 +27,6 @@ parameters:
           require_valid_convex_hull: True
           calculate_descriptor_incrementally: False
       
-      # 
       - system_params:
           use_scene_graph: True
         scene_graph_3D_params:
@@ -39,7 +36,6 @@ parameters:
           calculate_descriptor_incrementally: False
           ignore_descriptors_from_observation: False
       
-      # 
       - system_params:
           use_scene_graph: True
         scene_graph_3D_params:
@@ -50,7 +46,3 @@ parameters:
           calculate_descriptor_incrementally: False
           ignore_descriptors_from_observation: False
           merge_with_node_use_first_seen_time_from_self: False
-        
-        
-
-2025-10-10 17:42:17,482 - wandb.wandb_agent - INFO - About to run command: /usr/bin/env python run_sweep.py "--override_dictionary={'graph_node_params': {'calculate_descriptor_incrementally': False, 'require_valid_convex_hull': True}, 'scene_graph_3D_params': {'update_voxel_grid_on_inactivation_dbscan': True}, 'system_params': {'use_scene_graph': True}}"

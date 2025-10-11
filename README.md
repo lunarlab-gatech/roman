@@ -57,7 +57,7 @@ Run the following commands:
 export YOLO_VERBOSE=False
 export ROMAN_DEMO_DATA=/home/$USER/data/ROMAN_Kimera_Multi_Data
 export ROMAN_WEIGHTS=/home/$USER/roman/weights
-python3 demo/demo.py -p demo/params/demo
+python3 research/run_slam.py -p params/demo --disable-wandb
 ```
 
 For faster processing, run the following command first:
@@ -71,7 +71,7 @@ Run the following command to run this demo:
 
 ```
 export YOLO_VERBOSE=False
-python3 demo/demo.py -p demo/params/hercules_AustraliaEnv
+python3 research/run_slam.py -p params/hercules_AustraliaEnv
 ```
 
 In the output directory, the 'map' folder will contain .mp4 files with visualizations, and .pkl files with the stored ROMAN maps. 

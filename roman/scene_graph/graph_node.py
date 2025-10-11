@@ -223,6 +223,10 @@ class GraphNode():
         """ Returns True if self is the child of other. """
         return other.is_parent(self)
     
+    def is_segment_or_inactive(self) -> bool:
+        return self.get_status() == GraphNode.SegmentStatus.SEGMENT or \
+               self.get_status() == GraphNode.SegmentStatus.INACTIVE
+    
     def get_convex_hull(self) -> trimesh.Trimesh | None:
         if self.is_RootGraphNode():
             return None
@@ -998,17 +1002,22 @@ class GraphNode():
         self.last_updated = self.curr_time
         self.last_pose = self.curr_pose
             
-    def merge_parent_and_child(self, other: GraphNode) -> None:
+    def merge_parent_and_child(self, other: GraphNode) -> bool:
+        """ Merge child into parent and keep parent. Return True if self was parent (and thus kept). """
+
         # Determine which node is the parent
         if self.is_parent(other): 
             parent_node = self
             child_node = other
+            self_is_parent = True
         else: 
             parent_node = other
             child_node = self
+            self_is_parent = False
 
         # Conduct the merge
         parent_node.merge_child_with_self(child_node)
+        return self_is_parent
 
     def merge_child_with_self(self, other: GraphNode) -> None:
         # Make sure other is a child of self

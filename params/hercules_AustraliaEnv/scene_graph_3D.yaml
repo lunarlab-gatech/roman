@@ -1,23 +1,31 @@
-enable_rerun_viz: False
-
+# ===== Node Association =====
+min_iou_3d: 0.25
 use_convex_hull_for_iou: False
-min_iou_for_association: 0.25
 voxel_size_for_voxel_grid_iou: 0.2
 
+# ===== Node Status =====
+max_t_no_sightings: 0.4
+
+# ===== Association Merges =====
+min_iou_2d_for_merging: 0.8
+
+# ===== Synonym Merges =====
 enable_synonym_merges: False
-min_sem_con_for_association: 0.94
+min_cos_sim_for_synonym: 0.94
 ratio_dist2length_threshold_nearby_node_semantic_merge: 0.025
 
+# ===== Resolve Overlapping Nodes =====
 enable_resolve_overlapping_nodes: False
 iou_threshold_overlapping_obj: 0.2
 enc_threshold_overlapping_obj: 0.2
 
+# ===== Meronomy Relationship Inference =====
 enable_meronomy_relationship_inference: False
 ratio_dist2length_threshold_shared_holonym: 0.05
 ratio_dist2length_threshold_holonym_meronym: 0.05
 ratio_relationship_weight_2_total_weight: 2
 
-max_t_active_for_node: 15
-max_dist_active_for_node: 10
-run_dbscan_when_retiring_node: True
-delete_nodes_only_seen_once: True
+# ===== Parameters to mimic ROMAN functionality =====
+downsample_and_remove_outliers_after_hungarian_for_new_nodes: True
+enable_dbscan_on_node_inactivation: True
+update_voxel_grid_on_inactivation_dbscan: False

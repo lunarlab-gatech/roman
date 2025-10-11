@@ -182,6 +182,9 @@ class SceneGraph3D():
         # Run merging operations
         self.association_merges()
 
+        # Update the viewer
+        self.rerun_viewer.update_graph(self.root_node)
+
         if self.params.enable_synonym_merges:
             self.synonym_relationship_merging()
 
@@ -194,7 +197,7 @@ class SceneGraph3D():
         # Resolve any overlapping point clouds (TODO: Do we even need this?)
         # TODO: This seems to be causing bugs currently
         if self.params.enable_resolve_overlapping_nodes:
-            self.resolve_overlapping_convex_hulls()
+            self.resolve_overlapping_nodes()
 
         # Update the viewer
         self.rerun_viewer.update_graph(self.root_node)
@@ -390,10 +393,9 @@ class SceneGraph3D():
         return bool(iou >= self.params.min_iou_3d)
 
     @typechecked
-    def resolve_overlapping_convex_hulls(self):
-        # TODO: Should this be reworked? I've seen this triggered when two objects were the same
-        # but didn't have enough semantic similarity for a semantic merge.
-
+    def resolve_overlapping_nodes(self):
+        """ Resolve node overlaps to enforce impenetrability in our graph"""
+               
         # Iterate through entire graph until no overlaps with shared points are detected
         change_occured = True
         while change_occured:
@@ -401,9 +403,11 @@ class SceneGraph3D():
             # Track if we need to loop again
             change_occured =  False
 
+            seg_and_inactive_nodes = self.get_nodes_with_status(GraphNode.SegmentStatus.SEGMENT) + self.get_nodes_with_status(GraphNode.SegmentStatus.INACTIVE)
+
             # Iterate through each pair of nodes that aren't an ascendent or descendent with each other
-            for i, node_i in enumerate(self.root_node):
-                for j, node_j in enumerate(self.root_node):
+            for i, node_i in enumerate(seg_and_inactive_nodes):
+                for j, node_j in enumerate(seg_and_inactive_nodes):
                     if i < j and not node_i.is_descendent_or_ascendent(node_j):
 
                         # If the nodes are obviously seperated, no point in checking.
@@ -570,9 +574,10 @@ class SceneGraph3D():
         new_children: list[GraphNode] = []
         if not only_leaf:
             for child in new_parent.get_children():
-                _, child_enc, _ = self.geometric_overlap_cached(child, node)
-                if child_enc >= 0.5:
-                    new_children.append(child)
+                if child.is_segment_or_inactive():
+                    _, child_enc, _ = self.geometric_overlap_cached(child, node)
+                    if child_enc >= 0.5:
+                        new_children.append(child)
 
         # Place our already fully formed node into its spot
         self.place_node_in_graph(node, new_parent, new_children)
@@ -801,11 +806,9 @@ class SceneGraph3D():
         HOLONYM_MERONYM = 1
         SYNONYMY = 2
 
-    @staticmethod 
-    def find_putative_relationships(node_list_i: list[GraphNode], 
-                                      node_list_j: list[GraphNode] | None = None,
-                                      relationship_type: SceneGraph3D.NodeRelationship = NodeRelationship.SHARED_HOLONYM) \
-                                      -> list[tuple[int, int, Any]]:
+    def find_putative_relationships(node_list_i: list[GraphNode], node_list_j: list[GraphNode] | None = None,
+                                    relationship_type: SceneGraph3D.NodeRelationship = NodeRelationship.SHARED_HOLONYM,
+                                    min_cos_sim_for_synonym: float = 0.94) -> list[tuple[int, int, Any]]:
         """ 
         Finds putative relationships between two lists of nodes. 
         If second list is none, instead compute between nodes in the first list.
@@ -889,7 +892,7 @@ class SceneGraph3D():
                         sem_con = SceneGraph3D.cosine_similarity(node_i.get_semantic_descriptor(), node_j.get_semantic_descriptor())
 
                         # Check for synonymy (if any of shared lemmas are same & cosine similarity is high)
-                        if words_i == words_j or sem_con > SceneGraph3D.min_cos_sim_for_synonym:
+                        if words_i == words_j or sem_con > min_cos_sim_for_synonym:
                             putative_relationships.append((i, j, None))
 
         # Return all found putative relationships
@@ -899,11 +902,13 @@ class SceneGraph3D():
         """ Detect parent-child and nearby node synonymy merges. """
 
         # Get all putative synonymys based on WordNet & cosine similarity
+        seg_and_inactive_nodes = self.get_nodes_with_status(GraphNode.SegmentStatus.SEGMENT) + \
+                                 self.get_nodes_with_status(GraphNode.SegmentStatus.INACTIVE)
         putative_synonyms: list[tuple[int, int, None]] = SceneGraph3D.find_putative_relationships(
-                    list(self.root_node), relationship_type=SceneGraph3D.NodeRelationship.SYNONYMY)
+                    seg_and_inactive_nodes, relationship_type=SceneGraph3D.NodeRelationship.SYNONYMY, min_cos_sim_for_synonym=self.params.min_cos_sim_for_synonym)
         
-        # Get the list of nodes in the graph
-        node_list_initial = list(self.root_node).copy()
+        # Get the list of relevant nodes in the graph
+        node_list_initial = seg_and_inactive_nodes.copy()
         
         # For each putative synonymy, calculate detected ones based on graph structure & geometry
         detected_synonyms: list[set[int]] = []
@@ -915,7 +920,7 @@ class SceneGraph3D():
 
             # If they are parent-child OR geometrically close:
             if node_i.is_parent_or_child(node_j) or self.shortest_dist_to_node_size_ratio(node_i, node_j) < \
-                                                    self.ratio_dist2length_threshold_nearby_node_semantic_merge:
+                                                    self.params.ratio_dist2length_threshold_nearby_node_semantic_merge:
                 # Add to list of detected
                 detected_synonyms.append({putative_rel[0], putative_rel[1]})
 
@@ -923,15 +928,22 @@ class SceneGraph3D():
         i = 0
         while i < len(detected_synonyms):
             first = detected_synonyms[i]
-            j = i + 1
-            while j < len(detected_synonyms):
 
-                # If overlap is detected
-                if first & detected_synonyms[j]:  
-                    # Merge the sets
-                    first |= detected_synonyms.pop(j)
-                else:
-                    j += 1
+            merge_occured = True
+            while merge_occured:
+                merge_occured = False
+                
+                j = i + 1
+                while j < len(detected_synonyms):
+
+                    # If overlap is detected
+                    if first & detected_synonyms[j]:  
+                        # Merge the sets
+                        first |= detected_synonyms.pop(j)
+                        merge_occured = True
+                    else:
+                        j += 1
+
             i += 1
 
         # For each detected synonymy (after merging), merge all nodes one-by-one
@@ -939,6 +951,7 @@ class SceneGraph3D():
 
             # Get all nodes that are synonyms
             synonyms: list[GraphNode] = [node_list_initial[idx] for idx in detected_syn]
+            logger.info(f"Synonyms: {[n.get_id() for n in synonyms]}")
 
             # Phase 1: Merge parent-child relationships while ignoring nearby-node ones
             i = 0
@@ -950,43 +963,47 @@ class SceneGraph3D():
 
                     # If they are parent & child
                     if node_i.is_parent_or_child(node_j):
-
-                        # Merge child into parent & remove merged node from list
+                        # Merge child into parent & remove child node (which was merged into parent) from synonym list
                         logger.info(f"[green1]Parent-Child Synonymy[/green1]: Merging Node {node_i.get_id()} and Node {node_j.get_id()}")
-                        node_i.merge_parent_and_child(node_j)
-                        synonyms.pop(j)  
-
+                        node_i_is_parent: bool = node_i.merge_parent_and_child(node_j)
+                        if node_i_is_parent: 
+                            synonyms.pop(j)  
+                        else: 
+                            synonyms.pop(i)
+                            i -= 1
+                            break
+                        logger.info(f"Synonyms: {[n.get_id() for n in synonyms]}")
                     else:
                         j += 1
                 i += 1
 
             # Phase 2: Merge remaining nodes (non-parent/child)
-            i = 0
-            while i < len(synonyms):
-                node_i = synonyms[i]
-                j = i + 1
-                while j < len(synonyms):
-                    node_j = synonyms[j]
+            while len(synonyms) > 1:
+                logger.info(f"Synonyms: {[n.get_id() for n in synonyms]}")
+                node_i = synonyms[0]
+                node_j = synonyms[1]
 
-                    # Merge the two nodes
-                    logger.info(f"[green3]Nearby Obj Sem Merge[/green3]: Merging Node {node_j.get_id()} and Node {node_i.get_id()} and popping off graph")
-                    merged_node = node_i.merge_with_node(node_j)
-                    if merged_node is None:
-                        logger.info(f"[bright_red]Merge Fail[/bright_red]: Resulting Node was invalid.")
-                        j += 1
-                    else:
-                        # Add merged node to graph
-                        self.add_new_node_to_graph(merged_node, only_leaf=True)
-                        synonyms.pop(j)
-                        node_i = merged_node
-                i += 1
+                # Merge the two nodes
+                logger.info(f"[green3]Nearby Nodes Synonymy[/green3]: Merging Node {node_i.get_id()} and Node {node_j.get_id()} and popping off graph")
+                merged_node = node_i.merge_with_node(node_j)
+                if merged_node is None:
+                    logger.info(f"[bright_red]Merge Fail[/bright_red]: Resulting Node was invalid.")
+                else:
+                    # Add merged node to graph and to synonym list
+                    self.add_new_node_to_graph(merged_node, only_leaf=True)
+                    synonyms.append(merged_node)
+
+                # Pop the previous two nodes from the synonym list
+                synonyms.pop(0)
+                synonyms.pop(1)
+
 
     def holonym_meronym_relationship_inference(self):
         """ Detect parent-child relationships between non-ascendent/descendent nodes in the graph. """
 
         # Get all putative holonym-meronym relationships based on WordNet
         putative_holonym_meronyms: list[tuple[int, int, bool]] = SceneGraph3D.find_putative_relationships(
-                    list(self.root_node), relationship_type=SceneGraph3D.NodeRelationship.HOLONYM_MERONYM)
+                    list(self.root_node), relationship_type=SceneGraph3D.NodeRelationship.HOLONYM_MERONYM, min_cos_sim_for_synonym=self.params.min_cos_sim_for_synonym)
 
         # Get the list of nodes in the graph
         node_list_initial = list(self.root_node).copy()
@@ -1088,7 +1105,8 @@ class SceneGraph3D():
 
         # Get all putative holonyms based on WordNet
         putative_holonyms: list[tuple[int, int, list[str]]] = SceneGraph3D.find_putative_relationships(
-                self.root_node.get_children(), relationship_type=SceneGraph3D.NodeRelationship.SHARED_HOLONYM)
+                self.root_node.get_children(), relationship_type=SceneGraph3D.NodeRelationship.SHARED_HOLONYM,
+                min_cos_sim_for_synonym=self.params.min_cos_sim_for_synonym)
         
         # Get the list of children nodes
         children_list_initial = self.root_node.get_children().copy()

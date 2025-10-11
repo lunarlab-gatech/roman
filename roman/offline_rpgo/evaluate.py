@@ -65,6 +65,7 @@ def draw_plot_with_robot_trajectories_different_colors(traj_est_aligned_copies, 
     axs.set_ylabel("Y (meters)")
     axs.legend()
     plt.savefig(file_path, dpi=300)
+    plt.close(fig)
 
 def evaluate(est_g2o_file: str, est_time_file: str, gt_data: Dict[int, PoseData], 
              run_names: Dict[int, str] = None, run_env: str = None, output_dir: str = None):
@@ -102,6 +103,7 @@ def evaluate(est_g2o_file: str, est_time_file: str, gt_data: Dict[int, PoseData]
             }
             plot.trajectories(fig, traj_by_label, plot.PlotMode.xyz)
             plt.savefig(f"{output_dir}/offline_rpgo/aligned_gt_est.png")
+            plt.close(fig)
         except:
             print("WARNING: loading evo plotting failed, likely due to qt issues.")
 

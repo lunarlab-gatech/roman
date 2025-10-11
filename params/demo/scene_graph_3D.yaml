@@ -10,7 +10,7 @@ max_t_no_sightings: 0.4
 min_iou_2d_for_merging: 0.8
 
 # ===== Synonym Merges =====
-enable_synonym_merges: False
+enable_synonym_merges: True
 min_cos_sim_for_synonym: 0.94
 ratio_dist2length_threshold_nearby_node_semantic_merge: 0.025
 

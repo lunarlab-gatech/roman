@@ -26,6 +26,7 @@ erosion_size: 3
 
 # Used to determine voxel size of observations.
 # Increased so that it matches "segment_voxel_size" in mapper.yaml.
+downsample_point_cloud: True
 voxel_size: 0.25
 
 # Parts of FastSAM image to ignore, based on detected labels matching those passed

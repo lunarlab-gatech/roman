@@ -6,7 +6,7 @@ check_minimum_node_size_on_node_creation: False
 # ===== Convex Hull ===== 
 require_valid_convex_hull: True
 use_convex_hull_for_volume: True
-convex_hull_outward_offset: 0.2
+convex_hull_outward_offset: 0.0
 
 # ===== Voxel Downsampling ===== 
 enable_variable_voxel_size: False

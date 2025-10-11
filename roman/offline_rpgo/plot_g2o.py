@@ -172,6 +172,7 @@ def main(args):
         plt.savefig(os.path.expanduser(args.output), transparent=True)
     else:
         plt.show()
+    plt.close(fig)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
