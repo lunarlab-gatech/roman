@@ -5,6 +5,7 @@ from scipy.spatial import ConvexHull, Delaunay
 from scipy.spatial.distance import pdist
 import trimesh
 from typeguard import typechecked
+from typing import Any, Callable, TypeVar 
 
 """ Methods for interacting with Convex Hulls and Point Clouds. """
 
@@ -160,3 +161,48 @@ def shortest_dist_between_point_clouds(a: np.ndarray, b: np.ndarray):
 def longest_line_of_point_cloud(a: np.ndarray[np.float64]) -> float:
     if a.shape[0] == 0: return 0.0
     return pdist(a).max()
+
+@typechecked
+def merge_overlapping_sets(x: list[set[int]]) -> list[set[int]]:
+    """ Given a list of sets, merge any sets with integer overlaps"""
+    i = 0
+    while i < len(x):
+        first = x[i]
+        merge_occured = True
+        while merge_occured:
+            merge_occured = False
+            j = i + 1
+            while j < len(x):
+                if first & x[j]:  
+                    first |= x.pop(j)
+                    merge_occured = True
+                else:
+                    j += 1
+        i += 1
+    return x
+
+T = TypeVar("T")
+def merge_objs_via_function(x: list[T], func: Callable[[T, T], T | None]) -> list[T]:
+    """ 
+    Given a list of objects and a function that detects merges and executes them, 
+    will guarantee that all possible merges occur. 
+
+    func must return merged object if merge occured, and return None if no merge occurred.
+    """
+
+    i = 0
+    while i < len(x):
+        j = i + 1
+        while j < len(x):
+            obj_ij: T | None = func(x[i], x[j])
+            if obj_ij is not None:
+                x.pop(j)
+                x.pop(i)
+                x.append(obj_ij)
+                i = 0
+                break
+            else:
+                j += 1
+        else:
+            i += 1
+    return x

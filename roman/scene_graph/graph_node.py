@@ -4,7 +4,7 @@ from collections import defaultdict
 import cv2 as cv
 from enum import Enum
 import heapq
-from .hull_methods import get_convex_hull_from_point_cloud, find_point_overlap_with_hulls, longest_line_of_point_cloud, expand_hull_outward_by_fixed_offset
+from .scene_graph_utils import get_convex_hull_from_point_cloud, find_point_overlap_with_hulls, longest_line_of_point_cloud, expand_hull_outward_by_fixed_offset
 from ..logger import logger
 import numpy as np
 from numpy.typing import NDArray
@@ -1002,8 +1002,8 @@ class GraphNode():
         self.last_updated = self.curr_time
         self.last_pose = self.curr_pose
             
-    def merge_parent_and_child(self, other: GraphNode) -> bool:
-        """ Merge child into parent and keep parent. Return True if self was parent (and thus kept). """
+    def merge_parent_and_child(self, other: GraphNode) -> GraphNode:
+        """ Merge child into parent and keep parent, return parent node. """
 
         # Determine which node is the parent
         if self.is_parent(other): 
@@ -1017,9 +1017,10 @@ class GraphNode():
 
         # Conduct the merge
         parent_node.merge_child_with_self(child_node)
-        return self_is_parent
+        return parent_node
 
     def merge_child_with_self(self, other: GraphNode) -> None:
+        
         # Make sure other is a child of self
         if not self.is_parent(other) or not other in self.get_children():
             raise ValueError("Cannot merge_child_with_self; node {other} is not a child of self!")

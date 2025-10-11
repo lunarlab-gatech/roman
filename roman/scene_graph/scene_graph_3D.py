@@ -4,7 +4,7 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from enum import Enum
 from .graph_node import GraphNode, wordnetWrapper
-from .hull_methods import find_point_overlap_with_hulls, convex_hull_geometric_overlap, shortest_dist_between_convex_hulls, expand_hull_outward_by_fixed_offset
+from .scene_graph_utils import find_point_overlap_with_hulls, convex_hull_geometric_overlap, shortest_dist_between_convex_hulls, expand_hull_outward_by_fixed_offset, merge_overlapping_sets, merge_objs_via_function
 from ..logger import logger
 from ..map.observation import Observation
 import multiprocessing
@@ -925,26 +925,7 @@ class SceneGraph3D():
                 detected_synonyms.append({putative_rel[0], putative_rel[1]})
 
         # Merge all overlaps to get final sets of all synonymys
-        i = 0
-        while i < len(detected_synonyms):
-            first = detected_synonyms[i]
-
-            merge_occured = True
-            while merge_occured:
-                merge_occured = False
-                
-                j = i + 1
-                while j < len(detected_synonyms):
-
-                    # If overlap is detected
-                    if first & detected_synonyms[j]:  
-                        # Merge the sets
-                        first |= detected_synonyms.pop(j)
-                        merge_occured = True
-                    else:
-                        j += 1
-
-            i += 1
+        detected_synonyms = merge_overlapping_sets(detected_synonyms)
 
         # For each detected synonymy (after merging), merge all nodes one-by-one
         for detected_syn in detected_synonyms:
@@ -954,32 +935,19 @@ class SceneGraph3D():
             logger.info(f"Synonyms: {[n.get_id() for n in synonyms]}")
 
             # Phase 1: Merge parent-child relationships while ignoring nearby-node ones
-            i = 0
-            while i < len(synonyms):
-                node_i = synonyms[i]
-                j = i + 1
-                while j < len(synonyms):
-                    node_j = synonyms[j]
+            def merge_nodes_if_parent_and_child(node_i: GraphNode, node_j: GraphNode) -> GraphNode | None:
+                """ Helper function that will merge the two nodes if they are parent & child. 
+                If merge occured, returns the merged node; otherwise returns None. """
 
-                    # If they are parent & child
-                    if node_i.is_parent_or_child(node_j):
-                        # Merge child into parent & remove child node (which was merged into parent) from synonym list
-                        logger.info(f"[green1]Parent-Child Synonymy[/green1]: Merging Node {node_i.get_id()} and Node {node_j.get_id()}")
-                        node_i_is_parent: bool = node_i.merge_parent_and_child(node_j)
-                        if node_i_is_parent: 
-                            synonyms.pop(j)  
-                        else: 
-                            synonyms.pop(i)
-                            i -= 1
-                            break
-                        logger.info(f"Synonyms: {[n.get_id() for n in synonyms]}")
-                    else:
-                        j += 1
-                i += 1
+                if node_i.is_parent_or_child(node_j):
+                    logger.info(f"[green1]Parent-Child Synonymy[/green1]: Merging Node {node_i.get_id()} and Node {node_j.get_id()}")
+                    return node_i.merge_parent_and_child(node_j)
+                return None
+
+            synonyms = merge_objs_via_function(synonyms, merge_nodes_if_parent_and_child)
 
             # Phase 2: Merge remaining nodes (non-parent/child)
             while len(synonyms) > 1:
-                logger.info(f"Synonyms: {[n.get_id() for n in synonyms]}")
                 node_i = synonyms[0]
                 node_j = synonyms[1]
 
@@ -996,7 +964,6 @@ class SceneGraph3D():
                 # Pop the previous two nodes from the synonym list
                 synonyms.pop(0)
                 synonyms.pop(1)
-
 
     def holonym_meronym_relationship_inference(self):
         """ Detect parent-child relationships between non-ascendent/descendent nodes in the graph. """

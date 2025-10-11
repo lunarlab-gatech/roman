@@ -1,10 +1,10 @@
 import math
 import numpy as np
-from roman.scene_graph.hull_methods import *
+from roman.scene_graph.scene_graph_utils import *
 import trimesh
 import unittest
 
-class TestHullMethods(unittest.TestCase):
+class TestSceneGraphUtils(unittest.TestCase):
 
     def setUp(self):
         """ Build shapes that are useful in multiple tests."""
@@ -139,6 +139,41 @@ class TestHullMethods(unittest.TestCase):
         des_normals = des_normals_unnormalized / np.linalg.norm(des_normals_unnormalized, axis=1, keepdims=True)
         np.testing.assert_array_equal(faces[0:2], des_faces)
         np.testing.assert_array_almost_equal(face_normals[0:2], des_normals, decimal=5)
+
+    def test_merge_overlapping_sets(self):
+        # Generate example list of sets
+        A = [{0, 1, 5}, {2, 3}, {3, 4}, {5, 2}]
+        A_out_exp = [{0, 1, 5, 2, 3, 4}]
+
+        B = [{1, 3}, {0, 4}, {5, 6}, {3, 12}, {24, 5}]
+        B_out_exp = [{1, 3, 12}, {0, 4}, {5, 6, 24}]
+
+        # Run the method 
+        A_out = merge_overlapping_sets(A)
+        B_out = merge_overlapping_sets(B)
+        np.testing.assert_array_equal(A_out_exp, A_out)
+        np.testing.assert_array_equal(B_out_exp, B_out)
+
+    def test_merge_objs_via_function(self):
+        # Generate example list of sets
+        A = [{0, 1, 5}, {2, 3}, {3, 4}, {5, 2}]
+        A_out_exp = sorted([{0, 1, 5, 2, 3, 4}], key=lambda s: min(s))
+
+        B = [{1, 3}, {0, 4}, {5, 6}, {3, 12}, {24, 5}]
+        B_out_exp = sorted([{1, 3, 12}, {0, 4}, {5, 6, 24}], key=lambda s: min(s))
+
+        # Generate merge function
+        def merge_func(x: set[int], y: set[int]) -> set[int] | None:
+            if x & y:
+                x |= y
+                return x
+            return None
+        
+        # Run the test
+        A_out = sorted(merge_objs_via_function(A, merge_func), key=lambda s: min(s))
+        B_out = sorted(merge_objs_via_function(B, merge_func), key=lambda s: min(s))
+        np.testing.assert_array_equal(A_out_exp, A_out)
+        np.testing.assert_array_equal(B_out_exp, B_out)
 
 if __name__ == "__main__":
     unittest.main()
