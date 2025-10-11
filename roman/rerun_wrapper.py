@@ -301,9 +301,11 @@ class RerunWrapper():
             # Add edges
             if not node.is_RootGraphNode():
                 parent = node.get_parent()
-                edges.append((id, parent.get_id()))
+                if parent.get_status() != GraphNode.SegmentStatus.GRAVEYARD:
+                    edges.append((id, parent.get_id()))
             for child in node.get_children():
-                edges.append((id, child.get_id()))
+                if child.get_status() != GraphNode.SegmentStatus.GRAVEYARD:
+                    edges.append((id, child.get_id()))
 
             # Colors
             if RerunWrapper.RerunWrapperWindow.MapLive in self.windows:

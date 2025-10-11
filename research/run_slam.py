@@ -70,12 +70,13 @@ def run_slam(param_dir: str, output_dir: str | None, wandb_project: str, max_tim
         wandb_run = wandb.init(project=wandb_project)
 
         # Extract potential sweep values from wandb init and put into parameters
-        for param_class_str, param_dict in wandb_run.config['override_dictionary'].items():
-            for param_name, value in param_dict.items():
-                if param_class_str == "system_params":
-                    setattr(system_params, param_name, value)
-                else:
-                    setattr(getattr(system_params, param_class_str), param_name, value)
+        if 'override_dictionary' in wandb_run.config:
+            for param_class_str, param_dict in wandb_run.config['override_dictionary'].items():
+                for param_name, value in param_dict.items():
+                    if param_class_str == "system_params":
+                        setattr(system_params, param_name, value)
+                    else:
+                        setattr(getattr(system_params, param_class_str), param_name, value)
 
         # Take the parameters (default and overwritten) and write as new config back to WandB
         def shorten(d):

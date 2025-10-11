@@ -932,7 +932,6 @@ class SceneGraph3D():
 
             # Get all nodes that are synonyms
             synonyms: list[GraphNode] = [node_list_initial[idx] for idx in detected_syn]
-            logger.info(f"Synonyms: {[n.get_id() for n in synonyms]}")
 
             # Phase 1: Merge parent-child relationships while ignoring nearby-node ones
             def merge_nodes_if_parent_and_child(node_i: GraphNode, node_j: GraphNode) -> GraphNode | None:
@@ -953,7 +952,7 @@ class SceneGraph3D():
 
                 # Merge the two nodes
                 logger.info(f"[green3]Nearby Nodes Synonymy[/green3]: Merging Node {node_i.get_id()} and Node {node_j.get_id()} and popping off graph")
-                merged_node = node_i.merge_with_node(node_j)
+                merged_node = node_i.merge_with_node(node_j, keep_children=GraphNode.params.parent_node_inherits_data_from_children)
                 if merged_node is None:
                     logger.info(f"[bright_red]Merge Fail[/bright_red]: Resulting Node was invalid.")
                 else:
@@ -962,8 +961,8 @@ class SceneGraph3D():
                     synonyms.append(merged_node)
 
                 # Pop the previous two nodes from the synonym list
-                synonyms.pop(0)
                 synonyms.pop(1)
+                synonyms.pop(0)
 
     def holonym_meronym_relationship_inference(self):
         """ Detect parent-child relationships between non-ascendent/descendent nodes in the graph. """

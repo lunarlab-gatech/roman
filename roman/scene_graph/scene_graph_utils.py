@@ -6,6 +6,7 @@ from scipy.spatial.distance import pdist
 import trimesh
 from typeguard import typechecked
 from typing import Any, Callable, TypeVar 
+from ..logger import logger
 
 """ Methods for interacting with Convex Hulls and Point Clouds. """
 
