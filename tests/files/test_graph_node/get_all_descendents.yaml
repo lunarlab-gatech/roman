@@ -4,8 +4,8 @@ downsample_on_node_creation: False
 check_minimum_node_size_on_node_creation: False
 
 # ===== Convex Hull ===== 
-require_valid_convex_hull: True
-use_convex_hull_for_volume: True
+require_valid_convex_hull: False
+use_convex_hull_for_volume: False
 convex_hull_outward_offset: 0.0
 
 # ===== Voxel Downsampling ===== 
@@ -28,7 +28,7 @@ stat_out_std_ratio: 1.0
 
 # ===== Semantic Descriptor =====
 calculate_descriptor_incrementally: False
-use_weighted_average_for_descriptor: False
+use_weighted_average_for_descriptor: True
 ignore_descriptors_from_observation: False
 
 # ===== Data inheritance from child nodes =====

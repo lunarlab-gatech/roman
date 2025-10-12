@@ -34,7 +34,7 @@ class GraphNode():
         NURSERY = 0
         SEGMENT = 1
         INACTIVE = 2
-        GRAVEYARD =3
+        GRAVEYARD = 3
 
     params: GraphNodeParams
     camera_params: CameraParams
@@ -438,20 +438,16 @@ class GraphNode():
         if obb is not None: return obb.extent
         else: return np.zeros(3)
     
-    def get_point_cloud(self, recursive: bool | None = None) -> np.ndarray:
+    def get_point_cloud(self) -> np.ndarray:
         if self.is_RootGraphNode():
             raise RuntimeError("get_point_cloud() should not be called on RootGraphNode!")
         
-        if recursive is None:
-            recursive = self.params.parent_node_inherits_data_from_children
-
         if self._point_cloud is None:
-            if recursive:
+            if self.params.parent_node_inherits_data_from_children:
                 full_pc = np.zeros((0, 3), dtype=np.float64)
                 for child in self.get_children():
                     full_pc = np.concatenate((full_pc, child.get_point_cloud()), dtype=np.float64)
                 self._point_cloud = np.concatenate((full_pc, self.point_cloud), dtype=np.float64)
-                num_points = self._point_cloud.shape[0]
             else:
                 self._point_cloud = self.point_cloud.copy()
         return self._point_cloud
@@ -464,7 +460,7 @@ class GraphNode():
             raise RuntimeError("get_semantic_descriptors() should not be called on RootGraphNode!")
 
         descriptors = []
-        if self.params.parent_node_inherits_data_from_children:
+        if self.params.parent_node_inherits_descriptors_from_children:
             for child in self.get_children():
                 descriptors += child.get_semantic_descriptors()
 
@@ -477,14 +473,8 @@ class GraphNode():
     def get_total_weight_of_semantic_descriptors(self) -> float:
         descriptors: list[tuple[np.ndarray, float]] = self.get_semantic_descriptors()
         weights = np.array([w for _, w in descriptors])
-        return weights.sum()
+        return float(weights.sum())
     
-    def get_number_of_nodes(self) -> int:
-        num = 1
-        for child in self.get_children():
-            num += child.get_number_of_nodes()
-        return num
-        
     def get_children(self) -> list[GraphNode]:
         return self.child_nodes
     
@@ -654,9 +644,7 @@ class GraphNode():
         # Remove points that are in pc_to_remove
         mask = np.isin(view_pc, view_remove, invert=True).squeeze(axis=1)
         if np.sum(mask) != mask.shape[0]:
-            num_points_before = self.point_cloud.shape[0]
             self.point_cloud = self.point_cloud[mask]
-            num_points_after = self.point_cloud.shape[0]
             return self.reset_saved_point_vars()
 
         # Otherwise, we don't want to be deleted
@@ -686,8 +674,9 @@ class GraphNode():
         if child in self.child_nodes:
             self.child_nodes.remove(child)
 
-            if self.params.parent_node_inherits_data_from_children:
+            if self.params.parent_node_inherits_descriptors_from_children:
                 self.reset_saved_descriptor_vars()
+            if self.params.parent_node_inherits_data_from_children:
                 self.reset_saved_inheritance_vars()
                 return self.reset_saved_point_vars()
             else:
@@ -717,8 +706,9 @@ class GraphNode():
             return # Shouldn't add children more than once
         
         self.child_nodes.append(new_child)
-        if self.params.parent_node_inherits_data_from_children:
+        if self.params.parent_node_inherits_descriptors_from_children:
             self.reset_saved_descriptor_vars()
+        if self.params.parent_node_inherits_data_from_children:
             self.reset_saved_inheritance_vars()
             self.reset_saved_point_vars_safe()
 
@@ -1131,7 +1121,7 @@ class GraphNode():
             self._redo_word_comparisons = True
 
         # Do the same in parents
-        if self.parent_node is not None and self.params.parent_node_inherits_data_from_children:
+        if self.parent_node is not None and self.params.parent_node_inherits_descriptors_from_children:
             self.parent_node.reset_saved_descriptor_vars()
 
     def reset_saved_inheritance_vars(self) -> None:

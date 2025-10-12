@@ -401,7 +401,7 @@ class SceneGraph3D():
         while change_occured:
 
             # Track if we need to loop again
-            change_occured =  False
+            change_occured = False
 
             seg_and_inactive_nodes = self.get_nodes_with_status(GraphNode.SegmentStatus.SEGMENT) + self.get_nodes_with_status(GraphNode.SegmentStatus.INACTIVE)
 
@@ -427,14 +427,13 @@ class SceneGraph3D():
                             pc_merged = np.concatenate((pc_i, pc_j), dtype=np.float64)
 
                             # Find all points in this overlap region
-                            contain_masks = find_point_overlap_with_hulls(pc_merged, 
-                                                    [node_i.get_convex_hull(), node_j.get_convex_hull()])
+                            contain_masks = find_point_overlap_with_hulls(pc_merged, [node_i.get_convex_hull(), node_j.get_convex_hull()])
                             num_mask_assignments = np.sum(contain_masks, axis=0)
                             overlaps = np.where(num_mask_assignments > 1)[0]
                             pc_overlap = pc_merged[overlaps,:]
 
-                            # If there is at least four points in this region 
-                            if len(pc_overlap) >= 4:
+                            # If there is at least a single point in the region
+                            if len(pc_overlap) > 0:
 
                                 # Double check this isn't the same node
                                 assert node_i.get_id() != node_j.get_id(), f"Same node {node_i.get_id()} referred to as child of two parents!"
@@ -443,24 +442,27 @@ class SceneGraph3D():
                                 node_i.remove_points_complete(pc_overlap)
                                 node_j.remove_points_complete(pc_overlap)
 
-                                # Get the merged semantic descriptors and drop weight by factor of 10
-                                # TODO: Test this section manually
-                                descriptors = node_i.get_semantic_descriptors()
-                                descriptors += node_j.get_semantic_descriptors()
-                                for i in range(len(descriptors)):
-                                    embedding, volume = descriptors[i]
-                                    descriptors[i] = (embedding, volume)
-                      
-                                # Try to add the new observation to the graph
-                                logger.info(f"Adding overlap region of {len(pc_overlap)} points as observation to graph...")
-                                new_node: GraphNode | None = self.convert_overlap_to_node(pc_overlap, descriptors)
-                                if new_node is not None:
-                                    logger.info(f"[bright_red]Overlap Detected:[/bright_red] Between Node {node_i.get_id()} and Node {node_j.get_id()}, adding as Node {new_node.get_id()} to graph.")
-                                    new_id = self.add_new_node_to_graph(new_node, only_leaf=True)
-                                else:
-                                    logger.info(f"[bright_red]Overlap Detected:[/bright_red] Between Node {node_i.get_id()} and Node {node_j.get_id()}, discarding...")
+                                # If we don't just throw away the overlap
+                                if not self.params.overlapping_nodes_throw_away_overlap:
 
-                                # TODO: Lu recommended that we maybe just try throwing this away instead. Implement this!
+                                    # Get the merged semantic descriptors and drop weight by factor of 10
+                                    # TODO: Test this section manually
+                                    descriptors = node_i.get_semantic_descriptors()
+                                    descriptors += node_j.get_semantic_descriptors()
+                                    for i in range(len(descriptors)):
+                                        embedding, volume = descriptors[i]
+                                        descriptors[i] = (embedding, volume)
+                        
+                                    # Try to add the new observation to the graph
+                                    logger.info(f"Adding overlap region of {len(pc_overlap)} points as observation to graph...")
+                                    new_node: GraphNode | None = self.convert_overlap_to_node(pc_overlap, descriptors)
+                                    if new_node is not None:
+                                        logger.info(f"[blue_violet]Overlap Detected:[/blue_violet] Between Node {node_i.get_id()} and Node {node_j.get_id()}, adding as Node {new_node.get_id()} to graph.")
+                                        new_id = self.add_new_node_to_graph(new_node, only_leaf=True)
+                                    else:
+                                        logger.info(f"[blue_violet]Overlap Detected:[/blue_violet] Between Node {node_i.get_id()} and Node {node_j.get_id()}, discarding...")
+                                else:
+                                    logger.info(f"[blue_violet]Overlap Detected:[/blue_violet] Between Node {node_i.get_id()} and Node {node_j.get_id()}, discarding...")
 
                                 # Remember to reiterate
                                 change_occured = True
@@ -968,22 +970,25 @@ class SceneGraph3D():
         """ Detect parent-child relationships between non-ascendent/descendent nodes in the graph. """
 
         # Get all putative holonym-meronym relationships based on WordNet
+        seg_and_inactive_nodes = self.get_nodes_with_status(GraphNode.SegmentStatus.SEGMENT) + \
+                                 self.get_nodes_with_status(GraphNode.SegmentStatus.INACTIVE)
         putative_holonym_meronyms: list[tuple[int, int, bool]] = SceneGraph3D.find_putative_relationships(
-                    list(self.root_node), relationship_type=SceneGraph3D.NodeRelationship.HOLONYM_MERONYM, min_cos_sim_for_synonym=self.params.min_cos_sim_for_synonym)
+                    seg_and_inactive_nodes, relationship_type=SceneGraph3D.NodeRelationship.HOLONYM_MERONYM, 
+                    min_cos_sim_for_synonym=self.params.min_cos_sim_for_synonym)
 
         # Get the list of nodes in the graph
-        node_list_initial = list(self.root_node).copy()
+        node_list_initial = seg_and_inactive_nodes.copy()
 
         # For each putative relationship, calculate detected ones based on geometry
         detected_holonym_meronyms: list[tuple[int, int]] = [] # Meronym will be first
         for putative_rel in putative_holonym_meronyms:
 
             # Extract the corresponding nodes
-            node_i: GraphNode = node_list_initial[putative_rel[0]]
-            node_j: GraphNode = node_list_initial[putative_rel[1]]
+            node_meronym: GraphNode = node_list_initial[putative_rel[0]]
+            node_holonym: GraphNode = node_list_initial[putative_rel[1]]
 
             # If they are close enough
-            if self.shortest_dist_to_node_size_ratio(node_i, node_j) < self.ratio_dist2length_threshold_holonym_meronym:
+            if self.shortest_dist_to_node_size_ratio(node_meronym, node_holonym) < self.params.ratio_dist2length_threshold_holonym_meronym:
 
                 # Put into detected list with meronym first
                 if putative_rel[2]:
@@ -1002,12 +1007,12 @@ class SceneGraph3D():
                 meronym_list_index_to_holonym_list_index[a].append(b)
 
             # Find out if any meronyms have two or more detected holonyms
-            for i, detected_holonym_indices in meronym_list_index_to_holonym_list_index.items():
+            for meronym_index, detected_holonym_indices in meronym_list_index_to_holonym_list_index.items():
                 if len(detected_holonym_indices) > 1:
 
                     # If so, pick whichever one is closest to it geometrically
                     putative_holonyms: list[GraphNode] = [node_list_initial[idx] for idx in detected_holonym_indices]
-                    meronym: GraphNode = node_list_initial[i]
+                    meronym: GraphNode = node_list_initial[meronym_index]
 
                     meronym_cen: np.ndarray = meronym.get_centroid()
                     centroid_distances = [np.linalg.norm(meronym_cen - holonym.get_centroid()) for holonym in putative_holonyms]
@@ -1026,28 +1031,14 @@ class SceneGraph3D():
         for detected_rel in detected_holonym_meronyms:
 
             # Extract the corresponding nodes
-            node_i: GraphNode = node_list_initial[detected_rel[0]]
-            node_j: GraphNode = node_list_initial[detected_rel[1]]
+            node_meronym: GraphNode = node_list_initial[detected_rel[0]]
+            node_holonym: GraphNode = node_list_initial[detected_rel[1]]
 
             # Load words and some meronyms/holonyms
-            word_i: WordWrapper = node_i.get_words().words[0]
-            word_j: WordWrapper = node_j.get_words().words[0]
-            word_j_meronyms: set[str] = node_j.get_all_meronyms(2)
-            word_i_holonyms: set[str] = node_i.get_all_holonyms(True, 2)
-
-            # Find the meronym
-            if word_i.word in word_j_meronyms or word_j.word in word_i_holonyms:
-                node_meronym = node_i
-                node_holonym = node_j
-                word_holonym = word_j
-            else:
-                node_meronym = node_j
-                node_holonym = node_i
-                word_holonym = word_i
+            word_holonym: WordWrapper = node_holonym.get_words().words[0]
 
             # Move the meronym to be child of holonym
             deleted_ids = node_meronym.remove_from_graph_complete()
-            node_meronym.set_parent(None)
             node_holonym.add_child(node_meronym)
             node_meronym.set_parent(node_holonym)
 
@@ -1070,23 +1061,25 @@ class SceneGraph3D():
         """ Detect and add higher level objects to the graph. """
 
         # Get all putative holonyms based on WordNet
+        seg_and_inactive_nodes = self.get_nodes_with_status(GraphNode.SegmentStatus.SEGMENT) + \
+                                 self.get_nodes_with_status(GraphNode.SegmentStatus.INACTIVE)
         putative_holonyms: list[tuple[int, int, list[str]]] = SceneGraph3D.find_putative_relationships(
-                self.root_node.get_children(), relationship_type=SceneGraph3D.NodeRelationship.SHARED_HOLONYM,
+                seg_and_inactive_nodes, relationship_type=SceneGraph3D.NodeRelationship.SHARED_HOLONYM,
                 min_cos_sim_for_synonym=self.params.min_cos_sim_for_synonym)
         
         # Get the list of children nodes
-        children_list_initial = self.root_node.get_children().copy()
+        node_list_initial = seg_and_inactive_nodes.copy()
 
         # For each putative holonym, calculate detected ones based on map geometric knowledge
         detected_holonyms: list[tuple[list[int], list[str]]] = []
         for putative_holonym in putative_holonyms:
 
             # Extract the corresponding nodes
-            node_i: GraphNode = children_list_initial[putative_holonym[0]]
-            node_j: GraphNode = children_list_initial[putative_holonym[1]]
+            node_i: GraphNode = node_list_initial[putative_holonym[0]]
+            node_j: GraphNode = node_list_initial[putative_holonym[1]]
 
             # If they are close enough, declare this putative holonym as detected
-            if self.shortest_dist_to_node_size_ratio(node_i, node_j) < self.ratio_dist2length_threshold_shared_holonym:
+            if self.shortest_dist_to_node_size_ratio(node_i, node_j) < self.paramsratio_dist2length_threshold_shared_holonym:
                 detected_holonyms.append(([putative_holonym[0], putative_holonym[1]], putative_holonym[2]))
 
         # Iterate over all detected shared holonyms to resolve overlaps and conflicts
@@ -1137,7 +1130,7 @@ class SceneGraph3D():
         for detected_holonym in detected_holonyms:
 
             # Extract the corresponding nodes
-            nodes: list[GraphNode] = children_list_initial[detected_holonym[0]]
+            nodes: list[GraphNode] = node_list_initial[detected_holonym[0]]
 
             # Calculate the first seen time  and first pose as earliest from all nodes (and children)
             earliest_node = min(nodes, key=lambda n: n.get_time_first_seen())

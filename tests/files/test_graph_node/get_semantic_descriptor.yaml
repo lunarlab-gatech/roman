@@ -28,12 +28,12 @@ stat_out_std_ratio: 1.0
 
 # ===== Semantic Descriptor =====
 calculate_descriptor_incrementally: False
-use_weighted_average_for_descriptor: False
+use_weighted_average_for_descriptor: True
 ignore_descriptors_from_observation: False
 
 # ===== Data inheritance from child nodes =====
-parent_node_inherits_data_from_children: False
-parent_node_inherits_descriptors_from_children: False
+parent_node_inherits_data_from_children: True
+parent_node_inherits_descriptors_from_children: True
 
 # ===== Parameters to mimic ROMAN functionality =====
 merge_with_node_use_first_seen_time_from_self: False

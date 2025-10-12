@@ -28,6 +28,7 @@ class SceneGraph3DParams(BaseModel):
     enable_resolve_overlapping_nodes: bool
     iou_threshold_overlapping_obj: float
     enc_threshold_overlapping_obj: float
+    overlapping_nodes_throw_away_overlap: bool
     
     # ===== Meronomy Relationship Inference =====
     enable_meronomy_relationship_inference: bool
@@ -83,6 +84,7 @@ class GraphNodeParams(BaseModel):
 
     # ===== Data inheritance from child nodes =====
     parent_node_inherits_data_from_children: bool
+    parent_node_inherits_descriptors_from_children: bool
 
     # ===== Parameters to mimic ROMAN functionality =====
     merge_with_node_use_first_seen_time_from_self: bool
