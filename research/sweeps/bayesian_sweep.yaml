@@ -1,0 +1,35 @@
+program: run_sweep.py
+method: bayes
+metric:
+  goal: minimize
+  name: RMS ATE
+
+parameters:
+    scene_graph_3D_params.update_voxel_grid_on_inactivation_dbscan:
+      values: [True, False]
+    scene_graph_3D_params.min_iou_3d:
+      values: [0.3, 0.25, 0.2, 0.15, 0.1]
+    scene_graph_3D_params.use_convex_hull_for_iou:
+      values: [True, False]
+    scene_graph_3D_params.enable_synonym_merges:
+      values: [True, False]
+    scene_graph_3D_params.min_cos_sim_for_synonym:
+      values: [0.88, 0.91, 0.94, 0.97, 0.99]
+    scene_graph_3D_params.ratio_dist2length_threshold_nearby_node_semantic_merge:
+      values: [0.025, 0.05, 0.1, 0.01]
+    scene_graph_3D_params.enable_resolve_overlapping_nodes:
+      values: [True, False]
+    scene_graph_3D_params.iou_threshold_overlapping_obj:
+      values: [0.2, 0.15, 0.1, 0.05]
+    scene_graph_3D_params.enc_threshold_overlapping_obj:
+      values: [0.2, 0.15, 0.1, 0.05]
+    graph_node_params.use_convex_hull_for_volume:
+      values: [True, False]
+    graph_node_params.calculate_descriptor_incrementally:
+      values: [True, False]
+    graph_node_params.use_weighted_average_for_descriptor:
+      values: [True, False]
+    graph_node_params.ignore_descriptors_from_observation:
+      values: [True, False]
+    graph_node_params.merge_with_node_use_first_seen_time_from_self:
+      values: [True, False]

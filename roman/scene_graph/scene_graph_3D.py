@@ -444,6 +444,7 @@ class SceneGraph3D():
 
                                 # If we don't just throw away the overlap
                                 if not self.params.overlapping_nodes_throw_away_overlap:
+                                    raise NotImplementedError("Setting overlapping_nodes_throw_away_overlap to False isn't currently supported!")
 
                                     # Get the merged semantic descriptors and drop weight by factor of 10
                                     # TODO: Test this section manually
@@ -668,18 +669,19 @@ class SceneGraph3D():
     @staticmethod
     @typechecked
     def check_if_nodes_are_somewhat_nearby(a: GraphNode, b: GraphNode) -> bool:
-        """ Returns False if node centroids are not within size_a + size_b of each other. """
+        """ Returns False if centroid distance between nodes is greater than sum
+        of two distances from centroid to OBB corner for each node. """
 
         # If one is the RootGraphNode, then obviously they are nearby
         if a.is_RootGraphNode() or b.is_RootGraphNode():
             return True
 
         # See if they are close enough
-        size_a = a.get_longest_line_size()
-        size_b = b.get_longest_line_size()
         c_a = a.get_centroid()
         c_b = b.get_centroid()
-        if np.linalg.norm(c_a - c_b) > size_a + size_b: return False
+        f_a = np.linalg.norm(a.get_extent())
+        f_b = np.linalg.norm(b.get_extent())
+        if np.linalg.norm(c_a - c_b) > f_a + f_b: return False
         else: return True
 
     def get_nodes_with_status(self, status: GraphNode.SegmentStatus) -> list[GraphNode]:

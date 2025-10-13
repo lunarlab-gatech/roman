@@ -69,7 +69,7 @@ def run_slam(param_dir: str, output_dir: str | None, wandb_project: str, max_tim
     if not disable_wandb:
         wandb_run = wandb.init(project=wandb_project)
 
-        # Extract potential sweep values from wandb init and put into parameters
+        # Extract potential sweep values from wandb init and put into parameters (assuming sweep with specified values)
         if 'override_dictionary' in wandb_run.config:
             for param_class_str, param_dict in wandb_run.config['override_dictionary'].items():
                 for param_name, value in param_dict.items():
@@ -77,6 +77,30 @@ def run_slam(param_dir: str, output_dir: str | None, wandb_project: str, max_tim
                         setattr(system_params, param_name, value)
                     else:
                         setattr(getattr(system_params, param_class_str), param_name, value)
+
+        # Handle flat W&B sweep config with dot notation keys (assuming bayesian swee0)
+        for key, value in wandb_run.config.items():
+            # Skip non-parameter entries like 'program', 'method', etc.
+            if not any(prefix in key for prefix in ["scene_graph_3D_params", "graph_node_params"]):
+                continue
+            
+            # Split the key by period
+            parts = key.split('.') 
+
+            # Assign the corresponding attribute
+            if len(parts) == 1:
+                setattr(system_params, parts[0], value)
+                assert getattr(system_params, parts[0], None) == value
+            elif len(parts) == 2:
+                parent_name, param_name = parts
+                parent_obj = getattr(system_params, parent_name, None)
+                if parent_obj is not None:
+                    setattr(parent_obj, param_name, value)
+                    assert getattr(parent_obj, param_name, None) == value
+                else:
+                    raise ValueError(f"{parent_name} not found in system_params!")
+            else:
+                raise ValueError("Triple Nested keys not supported!")
 
         # Take the parameters (default and overwritten) and write as new config back to WandB
         def shorten(d):

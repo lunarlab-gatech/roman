@@ -1,7 +1,7 @@
 # ===== Node Association =====
 min_iou_3d: 0.25
 use_convex_hull_for_iou: False
-voxel_size_for_voxel_grid_iou: 0.2
+voxel_size_for_voxel_grid_iou: 1.0
 
 # ===== Node Status =====
 max_t_no_sightings: 0.4
@@ -18,6 +18,7 @@ ratio_dist2length_threshold_nearby_node_semantic_merge: 0.025
 enable_resolve_overlapping_nodes: False
 iou_threshold_overlapping_obj: 0.2
 enc_threshold_overlapping_obj: 0.2
+overlapping_nodes_throw_away_overlap: True
 
 # ===== Meronomy Relationship Inference =====
 enable_meronomy_relationship_inference: False
@@ -28,4 +29,4 @@ ratio_relationship_weight_2_total_weight: 2
 # ===== Parameters to mimic ROMAN functionality =====
 downsample_and_remove_outliers_after_hungarian_for_new_nodes: True
 enable_dbscan_on_node_inactivation: True
-update_voxel_grid_on_inactivation_dbscan: False
+update_voxel_grid_on_inactivation_dbscan: True

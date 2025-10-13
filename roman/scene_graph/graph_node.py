@@ -393,7 +393,7 @@ class GraphNode():
         if self.is_RootGraphNode():
             return None
         if self._longest_line_size is None:
-            self._longest_line_size = longest_line_of_point_cloud(self.get_point_cloud())
+            self._longest_line_size = longest_line_of_point_cloud(self.get_convex_hull().vertices)
         return self._longest_line_size
     
     def get_centroid(self) -> np.ndarray[float] | None:
@@ -767,7 +767,7 @@ class GraphNode():
             self.point_cloud = np.concatenate((self.point_cloud, new_points), axis=0)
             # self.point_cloud = np.unique(self.point_cloud, axis=0) # Prune any duplicates
             self.reset_saved_point_vars_safe() # Wipe saved point cloud for next steps
-
+        
         # =========== Clean-up Point Cloud  ============
         # Necessary to limit sizes of point clouds for computation purposes and for ensuring incoming point clouds only represent a single object.
         # Considers child cloud as part of self for determining how to downsample, remove outliers, and cluster. 
@@ -787,7 +787,7 @@ class GraphNode():
                     voxel_size = length * self.params.voxel_size_variable_ratio_to_length
                 else:
                     raise RuntimeError(f"Trying to use variable voxel size for Node {self.get_id()}, but length is invalid: {length}")
-            
+              
             pcd_sampled = pcd.voxel_down_sample(voxel_size=voxel_size)
 
             # Update the point cloud
