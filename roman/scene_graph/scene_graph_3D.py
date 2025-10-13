@@ -13,7 +13,7 @@ import os
 from ..params.data_params import ImgDataParams
 from ..params.scene_graph_3D_params import SceneGraph3DParams, GraphNodeParams
 import pickle
-from ..rerun_wrapper import RerunWrapper
+from ..rerun_wrapper.rerun_wrapper_window_map import RerunWrapperWindowMap
 from robotdatapy.data.img_data import CameraParams
 from robotdatapy.transform import transform
 from roman.map.map import ROMANMap
@@ -31,14 +31,13 @@ class SceneGraph3D():
 
     @typechecked
     def __init__(self, params: SystemParams, camera_params: CameraParams, _T_camera_flu: np.ndarray, 
-                 rerun_viewer: RerunWrapper, robot_index: int):
+                 rerun_viewer: RerunWrapperWindowMap):
 
         # Save parameters 
         self.system_params: SystemParams = params
         self.params: SceneGraph3DParams = params.scene_graph_3D_params
         GraphNode.params = params.graph_node_params
         GraphNode.camera_params = camera_params
-        self.robot_index = robot_index
 
         # Node that connects all highest-level objects together for implementation purposes
         self.root_node: GraphNode = GraphNode.create_node_if_possible(-1, None, [], None, 0, np.zeros((0, 3), dtype=np.float64), 
@@ -55,7 +54,6 @@ class SceneGraph3D():
 
         # Save the visualization
         self.rerun_viewer = rerun_viewer
-        self.rerun_viewer.set_curr_robot_index(self.robot_index)
 
         # Dictionaries to cache results of calculations for speed
         self.overlap_dict: defaultdict = defaultdict(lambda: defaultdict(lambda: None))
@@ -679,8 +677,8 @@ class SceneGraph3D():
         # See if they are close enough
         c_a = a.get_centroid()
         c_b = b.get_centroid()
-        f_a = np.linalg.norm(a.get_extent())
-        f_b = np.linalg.norm(b.get_extent())
+        f_a = np.linalg.norm(a.get_extent() / 2)
+        f_b = np.linalg.norm(b.get_extent() / 2)
         if np.linalg.norm(c_a - c_b) > f_a + f_b: return False
         else: return True
 
@@ -771,7 +769,7 @@ class SceneGraph3D():
                     if iou3d > self.params.min_iou_3d or iou2d > self.params.min_iou_2d_for_merging:
                         logger.info(f"[navy_blue]Association Merge[/navy_blue]: Merging segments {node1.id} and {node2.id} with 3D IoU {iou3d:.2f} and 2D IoU {iou2d:.2f}")
 
-                        new_node = node1.merge_with_node(node2, keep_children=GraphNode.params.parent_node_inherits_data_from_children)
+                        new_node = node1.merge_with_node(node2, keep_children=False)
                         new_node.status = GraphNode.SegmentStatus.SEGMENT
                         if new_node is None or new_node.get_num_points() == 0:
                             logger.info(f"[bright_red]Merge Fail[/bright_red]: Resulting Node was invalid.")
@@ -956,7 +954,7 @@ class SceneGraph3D():
 
                 # Merge the two nodes
                 logger.info(f"[green3]Nearby Nodes Synonymy[/green3]: Merging Node {node_i.get_id()} and Node {node_j.get_id()} and popping off graph")
-                merged_node = node_i.merge_with_node(node_j, keep_children=GraphNode.params.parent_node_inherits_data_from_children)
+                merged_node = node_i.merge_with_node(node_j, keep_children=False)
                 if merged_node is None:
                     logger.info(f"[bright_red]Merge Fail[/bright_red]: Resulting Node was invalid.")
                 else:
@@ -1081,7 +1079,7 @@ class SceneGraph3D():
             node_j: GraphNode = node_list_initial[putative_holonym[1]]
 
             # If they are close enough, declare this putative holonym as detected
-            if self.shortest_dist_to_node_size_ratio(node_i, node_j) < self.paramsratio_dist2length_threshold_shared_holonym:
+            if self.shortest_dist_to_node_size_ratio(node_i, node_j) < self.params.ratio_dist2length_threshold_shared_holonym:
                 detected_holonyms.append(([putative_holonym[0], putative_holonym[1]], putative_holonym[2]))
 
         # Iterate over all detected shared holonyms to resolve overlaps and conflicts
@@ -1091,7 +1089,7 @@ class SceneGraph3D():
 
             # Map each child list index of the detected holonyms to the indices of tuples containing it
             child_list_index_to_detected_holonym_indices = defaultdict(list)
-            for idx, (a, b, _) in enumerate(detected_holonyms):
+            for idx, (a, b) in enumerate(detected_holonyms):
                 child_list_index_to_detected_holonym_indices[a].append(idx)
                 child_list_index_to_detected_holonym_indices[b].append(idx)
 

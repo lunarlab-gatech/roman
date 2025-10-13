@@ -16,10 +16,10 @@ from copy import deepcopy
 import yaml
 
 from robotdatapy.data.pose_data import PoseData
-from robotdatapy.transform import transform_to_xytheta, transform_to_xyzrpy
-from robotdatapy.transform import transform
+from robotdatapy.transform import transform, transform_to_xytheta, transform_to_xyzrpy
 from robotdatapy.camera import CameraParams
 
+from roman.rerun_wrapper.rerun_wrapper_window_alignment import RerunWrapperWindowAlignment
 from roman.map.map import Submap, SubmapParams, submaps_from_roman_map
 from roman.align.object_registration import InsufficientAssociationsException, ObjectRegistration
 from roman.align.dist_reg_with_pruning import GravityConstraintError
@@ -36,19 +36,6 @@ from .roman_registration import ROMANRegistration
 
 import rerun as rr
 import rerun.blueprint as rrb
-
-def visualize_submap(map: Submap, name: str, color: np.ndarray):
-    # For each object in submap
-    T_odom_center = map.pose_gravity_aligned
-    all_points = np.zeros((0, 3), dtype=np.float64)
-    for j, obj in enumerate(map.segments):
-        # Send to Rerun
-        colors = np.full((len(obj.points), 3), color)
-        points_wrt_world = transform(T_odom_center, obj.points, axis=0)
-        all_points = np.concatenate((all_points, points_wrt_world), axis=0)
-    rr.log('/world/points/' + name, 
-            rr.Points3D(positions=all_points, colors=colors))
-    
 
 def build_frustum_mesh(pose_camera_gt: np.ndarray, cam: CameraParams, max_range=50.0):
     """
@@ -122,7 +109,7 @@ def fov_of_submaps_overlap(submap_a: Submap, submap_b: Submap, cam_params: Camer
     cm.add_object('mesh_b', mesh_b)
     return cm.in_collision_internal()
 
-def submap_align(system_params: SystemParams, sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput) -> SubmapAlignResults:
+def submap_align(system_params: SystemParams, sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput, rerun_viewer: RerunWrapperWindowAlignment) -> SubmapAlignResults:
     """
     Breaks maps into submaps and attempts to align each submap from one map with each submap from the second map.
 
@@ -133,14 +120,6 @@ def submap_align(system_params: SystemParams, sm_params: SubmapAlignParams, sm_i
 
     # TODO: Might need to drop mindist restrictions so small nearby objects in our meronomy can still be properly associated.
     # TODO: Maybe use node average size instead of longest size?
-
-    # Setup a Rerun visualization so we can see each submap
-    visualize = False
-    if visualize:
-        blueprint = rrb.Blueprint(
-                        rrb.Spatial3DView(name="World", origin='/world')
-                    )
-        rr.init("ROMAN: Submap Align Visualization", spawn=True, default_blueprint=blueprint)
 
     # Load image data so we have camera parameters
     img_data = system_params.data_params.load_img_data()
@@ -180,16 +159,11 @@ def submap_align(system_params: SystemParams, sm_params: SubmapAlignParams, sm_i
     registration: ObjectRegistration = sm_params.get_object_registration()
 
     # iterate over pairs of submaps and create registration results
-    update_frame = 0
     for i in tqdm(range(len(submaps[0]))):
         for j in (range(len(submaps[1]))):
 
-            # Visualize submaps if desired
-            if visualize:
-                rr.set_time("update_frame_tick", sequence=update_frame)
-                visualize_submap(submaps[0][i], "Submap0", np.array([220,20,60]))
-                visualize_submap(submaps[1][j], "Submap1", np.array([20,64,239]))
-                update_frame += 1
+            # Visualize the submaps (with no associations)
+            rerun_viewer.update_associations(submaps[0][i].segments, submaps[1][j].segments, np.zeros((0, 2)))
             
             # Calculate distances between robots when at the respective submaps (using GT if available)
             if submaps[0][i].has_gt and submaps[1][j].has_gt:
@@ -254,7 +228,7 @@ def submap_align(system_params: SystemParams, sm_params: SubmapAlignParams, sm_i
                 start_t = time.time()
                 if not system_params.use_roman_map_for_alignment:
                     raise NotImplementedError
-                associations = registration.register(submap_i.segments, submap_j.segments)
+                associations: np.ndarray = registration.register(submap_i.segments, submap_j.segments)
                 timing_list.append(time.time() - start_t)
                 
                 if sm_params.dim == 2:
@@ -300,6 +274,9 @@ def submap_align(system_params: SystemParams, sm_params: SubmapAlignParams, sm_i
             T_ij_hat_mat[i, j] = T_ij_hat
             associated_objs_mat[i][j] = associations
             overlapping_fov_mat[i, j] = fov_of_submaps_overlap(submap_i, submap_j, img_data.camera_params, system_params.data_params.pose_data_params.T_camera_flu)
+
+            # Visualize the associations
+            rerun_viewer.update_associations(submaps[0][i].segments, submaps[1][j].segments, associations)
 
             # Track metrics to match ROMAN paper
             if submap_distance <= 10 and overlapping_fov_mat[i, j]:

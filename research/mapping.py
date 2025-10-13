@@ -20,14 +20,14 @@ from os.path import expandvars
 
 from roman.map.run import ROMANMapRunner
 from roman.params.system_params import SystemParams
-from roman.rerun_wrapper import RerunWrapper
+from roman.rerun_wrapper.rerun_wrapper_window_map import RerunWrapperWindowMap
 
 from merge_demo_output import merge_demo_output
 
 
-def run(system_params: SystemParams, output_path: str, rerun_viewer: RerunWrapper, robot_index: int):
+def run(system_params: SystemParams, output_path: str, rerun_viewer: RerunWrapperWindowMap):
     
-    runner = ROMANMapRunner(system_params, rerun_viewer, robot_index, verbose=True)
+    runner = ROMANMapRunner(system_params, rerun_viewer, verbose=True)
 
     # Setup logging
     # TODO: add support for logfile
@@ -79,7 +79,7 @@ def run(system_params: SystemParams, output_path: str, rerun_viewer: RerunWrappe
     del runner
     return
 
-def mapping(system_params: SystemParams, output_path: str, rerun_viewer: RerunWrapper, robot_index: int, max_time: float = None) -> None:
+def mapping(system_params: SystemParams, output_path: str, rerun_viewer: RerunWrapperWindowMap, max_time: float = None) -> None:
 
     if max_time is not None:
         try:
@@ -91,11 +91,11 @@ def mapping(system_params: SystemParams, output_path: str, rerun_viewer: RerunWr
                     'tf': max_time * (mapping_iter + 1),
                     'relative': True}
                 
-                run(system_params, f"{output_path}_{mapping_iter}", rerun_viewer, robot_index)
+                run(system_params, f"{output_path}_{mapping_iter}", rerun_viewer)
                 mapping_iter += 1
         except:
             demo_output_files = [f"{output_path}_{mi}.pkl" for mi in range(mapping_iter)]
             merge_demo_output(demo_output_files, f"{output_path}.pkl")
     
     else:
-        run(system_params, output_path, rerun_viewer, robot_index)
+        run(system_params, output_path, rerun_viewer)

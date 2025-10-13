@@ -751,8 +751,8 @@ class GraphNode():
                            downsample: bool = True) -> set[GraphNode]:
         """ Returns nodes that might need to be deleted due to cleanup removing points..."""
         
-        # TODO: Make it so children point clouds are considered when downsampling, removing outliers, etc.
-        # Will need to either run downsampling and then pass points back to children (since points are changed),
+        # TODO: Should I consider children point clouds are considered when downsampling, removing outliers, etc?
+        # If so, will need to either run downsampling and then pass points back to children (since points are changed),
         # or make my own custom method that does downsampling but keeping the original points.
 
         # =========== Add to Point Cloud ============
@@ -966,7 +966,7 @@ class GraphNode():
             # Based on point assignments, update each child node
             for i, child in enumerate(self.get_children()):
                 child_pc = new_pc[contain_masks[i],:]
-                child.merge_with_observation(child_pc, None)
+                child.merge_with_observation(child_pc, None, None)
                 
             # Find points that had no assignment
             num_mask_assignments = np.sum(contain_masks, axis=0)

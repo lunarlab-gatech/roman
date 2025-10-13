@@ -39,7 +39,10 @@ from roman.params.data_params import DataParams
 from roman.params.scene_graph_3D_params import SceneGraph3DParams, GraphNodeParams
 from roman.params.system_params import SystemParams
 from roman.utils import expandvars_recursive
-from roman.rerun_wrapper import RerunWrapper
+from roman.rerun_wrapper.rerun_wrapper_window_alignment import RerunWrapperWindowAlignment
+from roman.rerun_wrapper.rerun_wrapper_window_map import RerunWrapperWindowMap
+from roman.rerun_wrapper.rerun_wrapper_window import RerunWrapperWindow
+from roman.rerun_wrapper.rerun_wrapper import RerunWrapper
 
 def convert_paths(obj):
     if isinstance(obj, dict):
@@ -53,7 +56,7 @@ def convert_paths(obj):
 
 def run_slam(param_dir: str, output_dir: str | None, wandb_project: str, max_time: int | None = None, 
              skip_map: bool = False, use_map: str | None = None, skip_align: bool = False, 
-             skip_rpgo: bool = False, skip_indices: list = [], disable_wandb: bool = False) -> None:
+             skip_rpgo: bool = False, disable_wandb: bool = False) -> None:
     """ Method that runs the SLAM system """
 
     # Check input values
@@ -146,22 +149,26 @@ def run_slam(param_dir: str, output_dir: str | None, wandb_project: str, max_tim
     # Extract GT Pose Data
     gt_pose_data: list[PoseData] = system_params.pose_data_gt_params.get_pose_data(system_params.data_params)
 
-    # Create the Rerun viewer (currently just for mapping step)
-    windows: list[RerunWrapper.RerunWrapperWindow] = []
-    for i, run in enumerate(system_params.data_params.runs):
-        if i in skip_indices: continue
-        windows.append(RerunWrapper.RerunWrapperWindow.MapLive)
-    rerun_viewer = RerunWrapper(name="MeronomyGraph Visualization", 
-                                windows=windows, 
-                                fastsam_params=system_params.fastsam_params, 
-                                enable=system_params.enable_rerun_viz)
+    # Create the Rerun visualization
+    windows_mapping: list[RerunWrapperWindow] = []
+    if not skip_map:
+        for i, run in enumerate(system_params.data_params.runs):
+            windows_mapping.append(RerunWrapperWindowMap(system_params.enable_rerun_viz, run, system_params.fastsam_params))
+
+    windows_alignment: list[RerunWrapperWindow] = []
+    if not skip_align:
+        for i in range(len(system_params.data_params.runs)):
+            for j in range(i, len(system_params.data_params.runs)):
+                windows_alignment.append(RerunWrapperWindowAlignment(system_params.enable_rerun_viz, system_params.data_params.runs[i], system_params.data_params.runs[j]))
+
+    rerun_viewer = RerunWrapper(enable=system_params.enable_rerun_viz,
+                                name="MeronomyGraph Visualization", 
+                                windows=windows_mapping + windows_alignment)
 
     # Run the Mapping step
     if not skip_map:
-
         for i, run in enumerate(system_params.data_params.runs):
-            if i in skip_indices: continue
-                
+
             # mkdir $output_path/map
             output_path_mapping = os.path.join(output_path, "map", f"{run}")
 
@@ -173,17 +180,15 @@ def run_slam(param_dir: str, output_dir: str | None, wandb_project: str, max_tim
             mapping.mapping(
                 system_params,
                 output_path=output_path_mapping,
-                rerun_viewer=rerun_viewer,
-                robot_index=i,
+                rerun_viewer=windows_mapping[i],
                 max_time=max_time,
             )
     
     # Iterate through each pair of runs and do alignment
     if not skip_align:
+        window_index = 0
         for i in range(len(system_params.data_params.runs)):
-            if skip_indices and i in skip_indices: continue
             for j in range(i, len(system_params.data_params.runs)):
-                if skip_indices and j in skip_indices: continue
 
                 print(f"Running alignment for {system_params.data_params.runs[i]}_{system_params.data_params.runs[j]}")
                 
@@ -211,7 +216,10 @@ def run_slam(param_dir: str, output_dir: str | None, wandb_project: str, max_tim
                 system_params.submap_align_params.single_robot_lc = (i == j)
 
                 # Run the alignment process
-                results: SubmapAlignResults = submap_align(system_params=system_params, sm_params=system_params.submap_align_params, sm_io=sm_io)
+                results: SubmapAlignResults = submap_align(system_params=system_params, 
+                                                           sm_params=system_params.submap_align_params, 
+                                                           sm_io=sm_io, 
+                                                           rerun_viewer=windows_alignment[window_index])
 
                 # Calculate loop closure errors
                 json_path = os.path.join(align_path, "align.json")      
@@ -231,7 +239,8 @@ def run_slam(param_dir: str, output_dir: str | None, wandb_project: str, max_tim
                 print("Submap Align Metrics: ", results_dict)
                 if not disable_wandb and i != j:
                     wandb_run.log(results_dict)
-                       
+                window_index += 1       
+                
     if not skip_rpgo:
         min_keyframe_dist = 0.01 if not system_params.offline_rpgo_params.sparsified else 2.0
         # Create g2o files for odometry
@@ -377,10 +386,9 @@ if __name__ == '__main__':
     parser.add_argument('--skip-map', action='store_true', help='Skip mapping')
     parser.add_argument('--skip-align', action='store_true', help='Skip alignment')
     parser.add_argument('--skip-rpgo', action='store_true', help='Skip robust pose graph optimization')
-    parser.add_argument('--skip-indices', type=int, nargs='+', help='Skip specific runs in mapping and alignment', default=[])
     parser.add_argument('--disable-wandb', action='store_true', help='Skip logging to W&B')
     parser.add_argument('--use-map', type=str, help='Run name with map we want to use', default=None)
     args = parser.parse_args()
     
     run_slam(args.params, args.output_dir, args.wandb_project, args.max_time, args.skip_map, 
-             args.use_map, args.skip_align, args.skip_rpgo, args.skip_indices, args.disable_wandb)
+             args.use_map, args.skip_align, args.skip_rpgo, args.disable_wandb)

@@ -24,7 +24,7 @@ from roman.map.mapper import Mapper
 from roman.scene_graph.scene_graph_3D import SceneGraph3D
 from roman.map.fastsam_wrapper import FastSAMWrapper
 from roman.params.system_params import SystemParams
-from roman.rerun_wrapper import RerunWrapper
+from ..rerun_wrapper.rerun_wrapper_window_map import RerunWrapperWindowMap
 from ..logger import logger
 
 @dataclass
@@ -34,7 +34,7 @@ class ProcessingTimes:
     total_times: list
 
 class ROMANMapRunner:
-    def __init__(self, system_params: SystemParams, rerun_viewer: RerunWrapper, robot_index: int, verbose=False):
+    def __init__(self, system_params: SystemParams, rerun_viewer: RerunWrapperWindowMap, verbose=False):
         self.system_params = system_params
         self.data_params = system_params.data_params
         self.fastsam_params = system_params.fastsam_params
@@ -70,7 +70,7 @@ class ROMANMapRunner:
         if verbose: print("Setting up mapper...")
         if system_params.use_scene_graph:
             self.mapper = SceneGraph3D(system_params, self.img_data.camera_params, self.data_params.pose_data_params.T_camera_flu, 
-                                       rerun_viewer, robot_index)
+                                       rerun_viewer)
         else: 
             self.mapper = Mapper(self.mapper_params, self.img_data.camera_params)
             if self.data_params.pose_data_params.T_camera_flu is not None:
