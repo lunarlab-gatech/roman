@@ -108,14 +108,14 @@ Category 1:
 data.yaml: runs, run_env, img_data, depth_data, pose_data
 fastsam.yaml: weights_path, yolo_weights_path, depth_scale, depth_data_type
 gt_pose.yaml: path, csv_options, time_tol, interp, causal
-offline_rpgo.yaml: odom_t_std, odom_r_std
 ```
 
 Category 2:
 ```
 fastsam.yaml: voxel_size, max_depth
 mapper.yaml: iou_voxel_size, segment_voxel_size
-submap_align.yaml: submap_radius, submap_center_dist
+submap_align.yaml: submap_radius, submap_center_dist, sigma, epsilon
+offline_rpgo.yaml: gnc_inlier_threshold
 ```
 
 For reasons for changes in category 2, see the corresponding .yaml files.
