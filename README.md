@@ -67,7 +67,7 @@ export TYPEGUARD_DISABLE=1
 
 ### HERCULES (Australia Environment)
 
-Run the following command to run this demo:
+First, edit the absolute paths the files in `params/hercules_AustraliaEnv`. Then, run the following command to run this demo:
 
 ```
 export YOLO_VERBOSE=False
@@ -106,14 +106,14 @@ For a fair comparison with ROMAN, ideally we only change parameters in category 
 Category 1:
 ```
 data.yaml: runs, run_env, img_data, depth_data, pose_data
-fastsam.yaml: depth_scale
+fastsam.yaml: weights_path, yolo_weights_path, depth_scale, depth_data_type
 gt_pose.yaml: path, csv_options, time_tol, interp, causal
 offline_rpgo.yaml: odom_t_std, odom_r_std
 ```
 
 Category 2:
 ```
-fastsam.yaml: max_depth, voxel_size
+fastsam.yaml: voxel_size, max_depth
 mapper.yaml: iou_voxel_size, segment_voxel_size
 submap_align.yaml: submap_radius, submap_center_dist
 ```
@@ -124,7 +124,3 @@ For reasons for changes in category 2, see the corresponding .yaml files.
 '''
 python3 -m cProfile -o profile.out research/run_slam.py -p params/hercules_AustraliaEnv --disable-wandb
 ```
-
-### GRaCo (Ground-04)
-
-This demo is run in a similar manner to the `HERCULES` demo from above, but using the parameter directory `demo/params/graco_ground04`.
