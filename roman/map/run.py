@@ -19,7 +19,6 @@ from copy import deepcopy
 from robotdatapy.data.robot_data import NoDataNearTimeException
 
 from roman.object.segment import Segment
-from roman.viz import visualize_map_on_img, visualize_observations_on_img, visualize_3d_on_img
 from roman.map.mapper import Mapper
 from roman.scene_graph.scene_graph_3D import SceneGraph3D
 from roman.map.fastsam_wrapper import FastSAMWrapper
