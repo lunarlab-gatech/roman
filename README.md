@@ -65,6 +65,8 @@ For faster processing, run the following command first:
 export TYPEGUARD_DISABLE=1
 ```
 
+NOTE: GT csv files in ROMAN_Kimera_Multi_data have erroneous headings; they say `qx,qy,qz,qw` when it should say `qw,qx,qy,qz`.
+
 ### HERCULES (Australia Environment)
 
 First, edit the absolute paths the files in `params/hercules_AustraliaEnv`. Then, run the following command to run this demo:
