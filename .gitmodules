@@ -5,3 +5,7 @@
 [submodule "dependencies/Kimera-RPGO"]
 	path = dependencies/Kimera-RPGO
 	url = https://github.com/MIT-SPARK/Kimera-RPGO.git
+[submodule "dependencies/robotdatapy"]
+	path = dependencies/robotdatapy
+	url = https://github.com/lunarlab-gatech/robotdatapy.git
+	branch = original

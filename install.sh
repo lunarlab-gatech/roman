@@ -13,6 +13,10 @@ mkdir $ROMAN_DIR/dependencies/Kimera-RPGO/build
 cd $ROMAN_DIR/dependencies/Kimera-RPGO/build
 cmake .. && make
 
+# Install robotdatapy
+cd $ROMAN_DIR/dependencies/robotdatapy
+pip install --no-cache-dir .
+
 # pip install
 cd $ROMAN_DIR
 pip install .
