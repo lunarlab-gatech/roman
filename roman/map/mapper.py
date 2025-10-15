@@ -247,7 +247,7 @@ class Mapper():
                 inactive_segments_list = sorted(self.segments, key=lambda s: s.id) + sorted(self.inactive_segments, key=lambda s: s.id)
             else:
                 segments_list = self.segments
-                inactive_segments_list = self.inactive_segments
+                inactive_segments_list = self.segments + self.inactive_segments
 
             for i, seg1 in enumerate(segments_list):
                 for j, seg2 in enumerate(inactive_segments_list):
