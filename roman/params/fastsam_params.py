@@ -58,6 +58,7 @@ class FastSAMParams:
     plane_filter_params: list[float]
     within_depth_frac: float
     downsample_point_cloud: bool
+    optimized_clip_embedding_calculation: bool
     weights_path: str = "$ROMAN_WEIGHTS/FastSAM-x.pt"
     yolo_weights_path: str = "$ROMAN_WEIGHTS/yolov7.pt"
     device: str = 'cuda'

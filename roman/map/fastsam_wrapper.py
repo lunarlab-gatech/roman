@@ -184,7 +184,8 @@ class FastSAMWrapper():
         self.clip_embedding = clip_embedding
         if clip_embedding:
             self.clip_model, self.clip_preprocess = clip.load(clip_model, device=self.device)
-            self.clip_model.eval()
+            if self.params.optimized_clip_embedding_calculation:
+                self.clip_model.eval()
         if triangle_ignore_masks is not None:
             self.constant_ignore_mask = np.zeros((self.depth_cam_params.height, self.depth_cam_params.width), dtype=np.uint8)
             for triangle in triangle_ignore_masks:
@@ -295,7 +296,6 @@ class FastSAMWrapper():
                     continue
                 
                 # Remove non-finite points and downsample
-                pcd_test_array = pcd_test_array[np.lexsort(pcd_test_array.T[::-1])]
                 pcd = o3d.geometry.PointCloud()
                 pcd.points = o3d.utility.Vector3dVector(pcd_test_array)
                 pcd.remove_non_finite_points()
@@ -330,36 +330,57 @@ class FastSAMWrapper():
                 interpolation=cv.INTER_NEAREST
             )).astype('uint8')
 
-            # Save the observation
-            self.observations.append(Observation(t, pose, mask, mask_downsampled, pcd_array))
+            if self.params.optimized_clip_embedding_calculation:
+                # Save the observation & calculate embeddings all at once later
+                self.observations.append(Observation(t, pose, mask, mask_downsampled, pcd_array))
+            
+            else:
+                if self.clip_embedding:
+                    ### Use bounding box
+                    bbox = mask_bounding_box(mask.astype('uint8'))
+                    if bbox is None:
+                        assert False, "Bounding box is None."
+                        self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld))
+                    else:
+                        min_col, min_row, max_col, max_row = bbox
+                        img_bbox = self.apply_rotation(img_orig[min_row:max_row, min_col:max_col])
+                        img_bbox = cv.cvtColor(img_bbox, cv.COLOR_BGR2RGB)
+                        processed_img = self.clip_preprocess(Image.fromarray(img_bbox, mode='RGB')).to(self.device)
+                        clip_embedding = self.clip_model.encode_image(processed_img.unsqueeze(dim=0))
+                        clip_embedding = clip_embedding.squeeze().cpu().detach().numpy()
+                        self.observations.append(Observation(t, pose, mask, mask_downsampled, pcd_array, clip_embedding=clip_embedding))
+                    
+                else:
+                    self.observations.append(Observation(t, pose, mask, mask_downsampled, pcd_array))
 
         # ===== Generate CLIP embeddings for remaining observations in a single batch =====
-        if self.clip_embedding and len(self.observations) > 0:
+        if self.params.optimized_clip_embedding_calculation:
+            if self.clip_embedding and len(self.observations) > 0:
 
-            # Get processed mask images
-            processed_imgs_list = []
-            for i, obs in enumerate(self.observations):
+                # Get processed mask images
+                processed_imgs_list = []
+                for i, obs in enumerate(self.observations):
 
-                # Calculate bounding box around mask
-                bbox = mask_bounding_box(obs.mask.astype('uint8'))
-                if bbox is None: raise RuntimeError("Bounding Box is None")
+                    # Calculate bounding box around mask
+                    bbox = mask_bounding_box(obs.mask.astype('uint8'))
+                    if bbox is None: raise RuntimeError("Bounding Box is None")
 
-                # Get processed image of this mask
-                min_col, min_row, max_col, max_row = bbox
-                img_bbox = self.apply_rotation(img_orig[min_row:max_row, min_col:max_col])
-                img_bbox = cv.cvtColor(img_bbox, cv.COLOR_BGR2RGB)
-                processed_imgs_list.append(self.clip_preprocess(Image.fromarray(img_bbox, mode='RGB')))
-            processed_imgs = torch.stack(processed_imgs_list).to(self.device)
-            
-            # Calculate CLIP embeddings
-            clip_embeddings: np.ndarray | None = None
-            with torch.no_grad():
-                with autocast(device_type='cuda', dtype=torch.float16):
-                    clip_embeddings = self.clip_model.encode_image(processed_imgs).cpu().detach().numpy()  
+                    # Get processed image of this mask
+                    min_col, min_row, max_col, max_row = bbox
+                    img_bbox = self.apply_rotation(img_orig[min_row:max_row, min_col:max_col])
+                    img_bbox = cv.cvtColor(img_bbox, cv.COLOR_BGR2RGB)
+                    processed_imgs_list.append(self.clip_preprocess(Image.fromarray(img_bbox, mode='RGB')))
+                processed_imgs = torch.stack(processed_imgs_list).to(self.device)
+                
+                # Calculate CLIP embeddings
+                clip_embeddings: np.ndarray | None = None
+                with torch.no_grad():
+                    with autocast(device_type='cuda', dtype=torch.float16):
+                        clip_embeddings = self.clip_model.encode_image(processed_imgs).cpu().detach().numpy()  
 
-            # Assign embeddings to observations
-            for i, obs in enumerate(self.observations):
-                obs.clip_embedding = clip_embeddings[i]
+                # Assign embeddings to observations
+                for i, obs in enumerate(self.observations):
+                    obs.clip_embedding = clip_embeddings[i]
 
         return self.observations
     

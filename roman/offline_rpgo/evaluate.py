@@ -36,7 +36,7 @@ def draw_plot_with_robot_trajectories_different_colors(traj_est_aligned_copies: 
         axs.set_facecolor("#F0F0F0")
 
     # Get the robot names
-    robot_names = [str(name) for name in list(run_names.values())]
+    robot_names = [run_names[i] for i in range(len(run_names))]
 
     # Setup custom color palette based on provided colors
     for i, color in enumerate(robot_colors):
