@@ -11,7 +11,7 @@ import seaborn as sns
 from typing import Dict
 
 
-def make_lightness_palette(base_color, n_colors=20, light_range=(0.3, 0.8)):
+def make_lightness_palette(base_color, n_colors=20, light_range=(0.3, 0.8)) -> list[tuple[float, float, float]]:
     # Convert base color to HLS
     rgb = mcolors.to_rgb(base_color)
     h, _, s = colorsys.rgb_to_hls(*rgb)
@@ -144,19 +144,6 @@ def evaluate(est_g2o_file: str, est_time_file: str, gt_data: Dict[int, PoseData]
         draw_plot_with_robot_trajectories_different_colors(traj_est_aligned_copies, traj_gt_copies, run_names, f"{output_dir}/offline_rpgo/aligned_gt_est_per_robot_noBackground.png",
             no_background=True, linewidth=2.0, robot_colors=robot_colors, plot_gt=False)
         
-        # for i in range(num_robots):
-        #     _traj_est_aligned_copies = [traj_est_aligned_copies[i]]
-        #     _traj_gt_copies = [traj_gt_copies[i]]
-        #     _run_names = [run_names[i]]
-        #     _robot_colors = [robot_colors[i]]
-
-        #     robot_colors = ["#11EE72", "#7211EE", "#38C2C7", "#2F3FD0"]
-
-        #     draw_plot_with_robot_trajectories_different_colors(_traj_est_aligned_copies, _traj_gt_copies, _run_names, f"{output_dir}/offline_rpgo/{i}_aligned_gt_est_per_robot.png",
-        #         no_background=True, linewidth=2.0, robot_colors=_robot_colors, aspect=1)
-        #     draw_plot_with_robot_trajectories_different_colors(_traj_est_aligned_copies, _traj_gt_copies, _run_names, f"{output_dir}/offline_rpgo/{i}_aligned_gt_est_per_robot_noBackground.png",
-        #         no_background=True, linewidth=2.0, robot_colors=_robot_colors, plot_gt=False)
-
     # Calculate the Absolute Pose Error
     ape_metric = metrics.APE(pose_relation)
     ape_metric.process_data(data)

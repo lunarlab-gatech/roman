@@ -68,7 +68,6 @@ class PoseDataGTParams:
                     for k, v in gt_pose_args.items():
                         if type(gt_pose_args[k]) == str:
                             gt_pose_args[k] = expandvars_recursive(gt_pose_args[k])
-                    print("Called from Submap_align.py: ", gt_pose_args)
                     gt_pose_data.append(PoseData.from_bag(**{k: v for k, v in gt_pose_args.items() if k != 'type'}))
                 elif gt_pose_args['type'] == 'csv':
                     gt_pose_data.append(PoseData.from_csv(**{k: v for k, v in gt_pose_args.items() if k != 'type'}))
@@ -76,6 +75,8 @@ class PoseDataGTParams:
                     gt_pose_data.append(PoseData.from_bag_tf(**{k: v for k, v in gt_pose_args.items() if k != 'type'}))
                 else:
                     raise ValueError("Invalid pose data type")
+        else:
+            raise ValueError("self.yaml_file doesn't exist!")
         return gt_pose_data
 
 @dataclass
