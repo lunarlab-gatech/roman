@@ -1,9 +1,7 @@
 import numpy as np
 from scipy.optimize import linear_sum_assignment
-from roman.logger import logger
-from roman.object.segment import Segment
 
-def global_nearest_neighbor(data1: list[Segment], data2: list, similarity_fun: callable, min_similarity: float = None):
+def global_nearest_neighbor(data1: list, data2: list, similarity_fun: callable, min_similarity: float = None):
     """
     Associates data1 with data2 using the global nearest neighbor algorithm.
 
@@ -23,15 +21,13 @@ def global_nearest_neighbor(data1: list[Segment], data2: list, similarity_fun: c
 
     for i in range(len1):
         for j in range(len2):
-            similarity = similarity_fun(data1[i], data2[j], j)
+            similarity = similarity_fun(data1[i], data2[j])
             
             # Geometry similarity value
-            logger.debug(f"Comparing Seg {data1[i].id} Obs {j} IOU: {similarity}")
             if min_similarity is not None and similarity < min_similarity:
                 score = M
             else:
                 score = -similarity
-                logger.debug(f"SCORE ({data1[i].id} & {j}): {score}")
             scores[i,j] = score # TODO: Hungarian is trying to associate low similarity values, score should maybe = - similarity....
 
     # augment cost to add option for no associations
