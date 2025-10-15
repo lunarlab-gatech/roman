@@ -62,3 +62,4 @@ enable_scene_flow_dynamic_obj_removal: False
 within_depth_frac: 0.25
 
 optimized_clip_embedding_calculation: False
+optimized_fastsam_inference: False

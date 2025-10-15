@@ -591,16 +591,26 @@ class FastSAMWrapper():
         image = cv.cvtColor(image_bgr, cv.COLOR_BGR2RGB)
 
         # Run FastSAM
-        with torch.no_grad():
-             with autocast(device_type='cuda', dtype=torch.float16):
-                everything_results = self.model(image, 
+        if self.params.optimized_fastsam_inference:
+            with torch.no_grad():
+                with autocast(device_type='cuda', dtype=torch.float16):
+                    everything_results = self.model(image, 
+                                                    retina_masks=True, 
+                                                    device=self.device, 
+                                                    imgsz=self.imgsz, 
+                                                    conf=self.conf, 
+                                                    iou=self.iou)
+                    prompt_process = FastSAMPrompt(image, everything_results, device=self.device)
+                    segmask = prompt_process.everything_prompt()
+        else:
+            everything_results = self.model(image, 
                                                 retina_masks=True, 
                                                 device=self.device, 
                                                 imgsz=self.imgsz, 
                                                 conf=self.conf, 
                                                 iou=self.iou)
-                prompt_process = FastSAMPrompt(image, everything_results, device=self.device)
-                segmask = prompt_process.everything_prompt()
+            prompt_process = FastSAMPrompt(image, everything_results, device=self.device)
+            segmask = prompt_process.everything_prompt()
 
         # If there were segmentations detected by FastSAM, transfer them from GPU to CPU and convert to Numpy arrays
         if (len(segmask) > 0):
