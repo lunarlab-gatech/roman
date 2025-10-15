@@ -72,10 +72,9 @@ def concatentate_pose_data(pose_data: List[PoseData]) -> PoseData:
             orientations = np.concatenate((orientations, pd.orientations))
     return PoseData(times=times, positions=positions, orientations=orientations, interp=False)
 
-def combine_multi_est_and_gt_pose_data(est: List[PoseData], gt: List[PoseData]) -> Tuple[PoseData, PoseData]:
+def make_start_and_end_times_match(est: List[PoseData], gt: List[PoseData]) -> Tuple[List[PoseData], List[PoseData]]:
     assert len(est) == len(gt), "Number of estimated and ground truth datasets do not match"
 
-    # first, make sure the start and end times are exactly the same
     for est_i, gt_i in zip(est, gt):
         if est_i.t0 < gt_i.t0:
             gt_i.times = np.concatenate(([est_i.t0], gt_i.times))
@@ -95,6 +94,11 @@ def combine_multi_est_and_gt_pose_data(est: List[PoseData], gt: List[PoseData]) 
             gt_i.positions = np.concatenate((gt_i.positions, [gt_i.positions[-1]]))
             gt_i.orientations = np.concatenate((gt_i.orientations, [gt_i.orientations[-1]]))
     
+    return est, gt
+
+def combine_multi_est_and_gt_pose_data(est: List[PoseData], gt: List[PoseData]) -> Tuple[PoseData, PoseData]:
+    assert len(est) == len(gt), "Number of estimated and ground truth datasets do not match"
+    est, gt = make_start_and_end_times_match(est, gt) 
     return concatentate_pose_data(est), concatentate_pose_data(gt)
 
 def gt_csv_est_g2o_to_pose_data(est_g2o_file: str, est_time_file: str, 

@@ -2,11 +2,12 @@ import colorsys
 import copy
 from evo.core import metrics
 from evo.core import sync
+from evo.core.trajectory import PoseTrajectory3D
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import numpy as np
 from robotdatapy.data.pose_data import PoseData
-from roman.offline_rpgo.g2o_and_time_to_pose_data import gt_csv_est_g2o_to_pose_data
+from roman.offline_rpgo.g2o_and_time_to_pose_data import gt_csv_est_g2o_to_pose_data, make_start_and_end_times_match
 import seaborn as sns
 from typing import Dict
 
@@ -72,14 +73,14 @@ def evaluate(est_g2o_file: str, est_time_file: str, gt_data: Dict[int, PoseData]
     pd_est, pd_gt = gt_csv_est_g2o_to_pose_data(
         est_g2o_file, est_time_file, gt_data, run_names, run_env)
         
-    traj_ref = pd_gt.to_evo()
-    traj_est = pd_est.to_evo()
+    traj_ref: PoseTrajectory3D = pd_gt.to_evo()
+    traj_est: PoseTrajectory3D = pd_est.to_evo()
 
     max_diff = 0.1
 
     traj_ref, traj_est = sync.associate_trajectories(traj_ref, traj_est, max_diff)
 
-    traj_est_aligned = copy.deepcopy(traj_est)
+    traj_est_aligned: PoseTrajectory3D = copy.deepcopy(traj_est)
     traj_est_aligned.align(traj_ref, correct_scale=False, correct_only_scale=False)
 
     pose_relation = metrics.PoseRelation.translation_part
@@ -109,37 +110,41 @@ def evaluate(est_g2o_file: str, est_time_file: str, gt_data: Dict[int, PoseData]
 
         from evo.tools import plot
 
-        # If number of robots is two, draw plot with colors per robot
-        num_robots = len(list(run_names.keys()))
-
-        # Get PoseData objects not merged between robots
+        # Get PoseData objects not merged between robots (but with updated times)
         list_est, list_gt = gt_csv_est_g2o_to_pose_data(est_g2o_file, est_time_file, gt_data, run_names, run_env, skip_final_merge=True)
+        list_est, list_gt = make_start_and_end_times_match(list_est, list_gt)
 
-        # Extract evo PoseTrajectory3Ds that corresond to each robot
-        time_offsets = []
-        for i in range(num_robots):
-            if i == 0:
-                time_offsets.append(0)
-            else:
-                time_offsets.append(list_est[i-1].tf - list_est[i].t0 + 1.0) # TODO: Why +1
+        def get_aligned_trajectories_specific_to_each_robot(list_pd: list[PoseData], aligned_traj: PoseTrajectory3D) -> list[PoseTrajectory3D]:
+            # Calculate the Start time for the beginning of each robots data
+            start_times: list[float] = []
+            end_times: list[float] = []
+            num_robots = len(list(run_names.keys()))
+            for i in range(num_robots): 
+                pd: PoseData = list_pd[i]
+                if i == 0:
+                    start_times.append(pd.t0)
+                    end_times.append(pd.tf)
+                else:
+                    start_times.append(end_times[-1] + 1)
+                    end_times.append(pd.tf - pd.t0 + end_times[-1] + 1)
+            
+            # Make deep copies of trajectories
+            aligned_traj_copies: list[PoseTrajectory3D] = [copy.deepcopy(aligned_traj) for x in range(len(list_pd))]
 
-        # Make deep copies of trajectories
-        traj_est_aligned_copies = [copy.deepcopy(traj_est_aligned) for x in range(num_robots)]
-        traj_gt_copies = [copy.deepcopy(traj_ref) for x in range(num_robots)]
+            # Reduce trajectories to the specific time that covers each robot
+            for i, traj in enumerate(aligned_traj_copies):
+                traj.reduce_to_time_range(start_times[i], end_times[i])
+            return aligned_traj_copies
 
-        # Reduce trajectories to the specific time that covers each robot
-        # TODO: THIS TIME OFFSET CODE IS COMPLETELY BUSTED.
-        print("WARNING: This code is not fully tested yet!")
-        for i, traj in enumerate(traj_est_aligned_copies):
-            print(f"Robot {i}: ", list_est[i].t0 + np.sum(time_offsets[0:i+1]), list_est[i].tf + np.sum(time_offsets[0:i+1]))
-            traj.reduce_to_time_range(list_est[i].t0 + np.sum(time_offsets[0:i+1]), list_est[i].tf + np.sum(time_offsets[0:i+1]))
-        for i, traj in enumerate(traj_gt_copies):
-            traj.reduce_to_time_range(list_est[i].t0 + np.sum(time_offsets[0:i+1]), list_est[i].tf + np.sum(time_offsets[0:i+1]))
+        # Get aligned trajectories for each robot for estimated and GT
+        traj_est_aligned_copies = get_aligned_trajectories_specific_to_each_robot(list_est, traj_est_aligned)
+        traj_gt_copies = get_aligned_trajectories_specific_to_each_robot(list_gt, traj_ref)
 
         # Draw a secondary plot where the trajectories from different robots have slightly different color
         robot_colors = ["#11EE72", "#7211EE", "#38C2C7", "#2F3FD0"]
         draw_plot_with_robot_trajectories_different_colors(traj_est_aligned_copies, traj_gt_copies, run_names, f"{output_dir}/offline_rpgo/aligned_gt_est_per_robot.png",
             no_background=True, linewidth=2.0, robot_colors=robot_colors, aspect=1)
+        
         robot_colors = ["#11EE72", "#7211EE", "#38C2C7", "#2F3FD0"]
         draw_plot_with_robot_trajectories_different_colors(traj_est_aligned_copies, traj_gt_copies, run_names, f"{output_dir}/offline_rpgo/aligned_gt_est_per_robot_noBackground.png",
             no_background=True, linewidth=2.0, robot_colors=robot_colors, plot_gt=False)
