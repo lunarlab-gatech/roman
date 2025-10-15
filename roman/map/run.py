@@ -46,22 +46,16 @@ class ROMANMapRunner:
             print("Loading image data...")
             print(f"Time range: {self.time_range}")
 
-        start_time = time.time()
         self.img_data = self.data_params.load_img_data()
-        print(f"Image Data Loading Time: {time.time() - start_time} seconds")
         if verbose:
             self.t0 = self.img_data.t0
             self.tf = self.img_data.tf
 
         if verbose: print("Loading depth data for time range {}...".format(self.time_range))
-        start_time = time.time()
         self.depth_data = self.data_params.load_depth_data()
-        print(f"Depth Data Loading Time: {time.time() - start_time} seconds")
 
         if verbose: print("Loading pose data...")
-        start_time = time.time()
         self.camera_pose_data = self.data_params.load_pose_data()
-        print(f"Pose Data Loading Time: {time.time() - start_time} seconds")
 
         if verbose: print("Setting up FastSAM...")
         self.fastsam = FastSAMWrapper.from_params(self.fastsam_params, self.depth_data.camera_params, self.system_params)

@@ -121,19 +121,17 @@ class Mapper():
 
         # add new segments
         associated_obs = [obs_idx for _, obs_idx in associated_pairs]
-        new_observations: list[tuple[Observation, int]] = [(obs, idx) for idx, obs in enumerate(observations) \
+        new_observations = [obs for idx, obs in enumerate(observations) \
                             if idx not in associated_obs]
 
-        for obs, idx in new_observations:
+        for obs in new_observations:
             new_seg = Segment(obs, self.camera_params, self.id_counter, self.params.segment_voxel_size)
             if new_seg.num_points == 0: # guard from observations coming in with no points
                 continue
             self.segment_nursery.append(new_seg)
             self.id_counter += 1
 
-        # Print Ids of nodes in each category
         self.merge()
-
         return
     
     def voxel_grid_similarity(self, segment: Segment, observation: Observation):
@@ -251,7 +249,6 @@ class Mapper():
                 segments_list = self.segments
                 inactive_segments_list = self.inactive_segments
 
-            # TODO: This was changed temporarily. Will need to change back AND ensure Meronomy matches!
             for i, seg1 in enumerate(segments_list):
                 for j, seg2 in enumerate(inactive_segments_list):
                     if i >= j:

@@ -53,13 +53,7 @@ class Observation():
     @property
     def transformed_points(self):
         if self._transformed_points is None:
-            Twb = self.pose
-            Rwb = Twb[:3,:3]
-            twb = Twb[:3,3].reshape((3,1))
-            points_obs_body = self.point_cloud.T
-            num_points_obs = points_obs_body.shape[1]
-            points_obs_world = Rwb @ points_obs_body + np.repeat(twb, num_points_obs, axis=1)
-            self._transformed_points = points_obs_world.T
+            self._transformed_points = transform(self.pose, self.point_cloud, axis=0)
         return self._transformed_points
     
     @property
