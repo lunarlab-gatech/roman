@@ -56,17 +56,9 @@ class Mapper():
         # mask_similarity = lambda seg, obs: max(self.mask_similarity(seg, obs, projected=False), 
         #                                        self.mask_similarity(seg, obs, projected=True))
 
-        for i, obs in enumerate(observations):
-            logger.debug(f"Observation {i} num of points: {obs.point_cloud.shape[0]}")
-
-        #segments_to_associate = sorted(self.segments, key=lambda s: s.id) + sorted(self.segment_nursery, key=lambda s: s.id)
         associated_pairs = global_nearest_neighbor(
             self.segments + self.segment_nursery, observations, self.voxel_grid_similarity, self.params.min_iou
         )
-
-        # Print associated pairs
-        for pair in associated_pairs:
-            logger.debug(f"Association (seg, obs): ({(self.segments + self.segment_nursery)[pair[0]].id} {pair[1]})")
 
         # separate segments associated with nursery and normal segments
         pairs_existing = [[seg_idx, obs_idx] for seg_idx, obs_idx \
@@ -96,18 +88,13 @@ class Mapper():
                         or seg.num_points == 0]
         for seg in to_rm:
             if seg.num_points == 0:
-                logger.debug(f"Deleting Segment {seg.id} due to too few points (during inactivation)")
                 self.segments.remove(seg)
                 continue
             try:
-                logger.debug(f"Node Point cloud: {seg.points[0:3]}")
-                logger.debug(f"Moving Segment {seg.id} from normal to inactive")
                 seg.final_cleanup(epsilon=self.params.segment_voxel_size*5.0)
-                logger.debug(f"Node Point cloud: {seg.points[0:3]}")
                 self.inactive_segments.append(seg)
                 self.segments.remove(seg)
             except: # too few points to form clusters
-                logger.debug(f"Deleting Segment {seg.id} due to too few points to form clusters (during inactivation)")
                 self.segments.remove(seg)
             
         # handle moving inactive segments to graveyard
@@ -116,7 +103,6 @@ class Mapper():
                         or np.linalg.norm(seg.last_observation.pose[:3,3] - pose[:3,3]) \
                             > self.params.segment_graveyard_dist]
         for seg in to_rm:
-            logger.debug(f"Downgrading Segment {seg.id} from inactive to graveyard")
             self.segment_graveyard.append(seg)
             self.inactive_segments.remove(seg)
 
@@ -124,14 +110,12 @@ class Mapper():
                     if t - seg.last_seen > self.params.max_t_no_sightings \
                         or seg.num_points == 0]
         for seg in to_rm:
-            logger.debug("Removing Segment {} from nursery due to no sightings or zero points".format(seg.id))
             self.segment_nursery.remove(seg)
 
         # handle moving segments from nursery to normal segments
         to_upgrade = [seg for seg in self.segment_nursery \
                         if seg.num_sightings >= self.params.min_sightings]
         for seg in to_upgrade:
-            logger.debug(f"Upgrading Segment {seg.id} from nursery to normal")
             self.segment_nursery.remove(seg)
             self.segments.append(seg)
 
@@ -143,49 +127,22 @@ class Mapper():
         for obs, idx in new_observations:
             new_seg = Segment(obs, self.camera_params, self.id_counter, self.params.segment_voxel_size)
             if new_seg.num_points == 0: # guard from observations coming in with no points
-                logger.debug(f"Observation {idx} discarded as it has no points")
                 continue
-            logger.debug(f"Observation {idx} turned into Segment {new_seg.id}")
             self.segment_nursery.append(new_seg)
             self.id_counter += 1
 
         # Print Ids of nodes in each category
-        logger.debug(f"Segment nursery Ids: {[seg.id for seg in self.segment_nursery]}")
-        logger.debug(f"Active segments Ids: {[seg.id for seg in self.segments]}")
-        logger.debug(f"Inactive segments Ids: {[seg.id for seg in self.inactive_segments]}")
-        logger.debug(f"Segment graveyard Ids: {[seg.id for seg in self.segment_graveyard]}")
+        self.merge()
 
-        logger.debug(f"Starting merging process")
-        self.merge(t)
-    
-        # Print Ids of nodes in each category
-        logger.debug(f"Segment nursery Ids: {sorted([seg.id for seg in self.segment_nursery])}")
-        logger.debug(f"Active segments Ids: {sorted([seg.id for seg in self.segments])}")
-        logger.debug(f"Inactive segments Ids: {sorted([seg.id for seg in self.inactive_segments])}")
-        logger.debug(f"Segment graveyard Ids: {sorted([seg.id for seg in self.segment_graveyard])}")
-
-        # Print the current number of points in each segment
-        for seg in self.segments:
-            logger.debug(f"Segment {seg.id}: num_points={seg.num_points}")
-        for seg in self.segment_nursery:
-            logger.debug(f"Nursery Segment {seg.id}: num_points={seg.num_points}")
-        for seg in self.inactive_segments:
-            logger.debug(f"Inactive Segment {seg.id}: num_points={seg.num_points}")
-        for seg in self.segment_graveyard:
-            logger.debug(f"Graveyard Segment {seg.id}: num_points={seg.num_points}")
         return
     
-    def voxel_grid_similarity(self, segment: Segment, observation: Observation, observation_id: int):
+    def voxel_grid_similarity(self, segment: Segment, observation: Observation):
         """
         Compute the similarity between the voxel grids of a segment and an observation
         """
         voxel_size = self.params.iou_voxel_size
-        logger.debug(f"Voxel Size: {voxel_size}")
         segment_voxel_grid = segment.get_voxel_grid(voxel_size)
         observation_voxel_grid = observation.get_voxel_grid(voxel_size)
-        if segment.id == 2 and observation_id ==0:
-            logger.debug(f"Seg: {segment_voxel_grid}")
-            logger.debug(f"Obs: {observation_voxel_grid}")
         return segment_voxel_grid.iou(observation_voxel_grid)
 
     def mask_similarity(self, segment: Segment, observation: Observation, projected: bool = False):
@@ -256,14 +213,12 @@ class Mapper():
                 to_delete.append(seg)
                 # reason.append(f"Segment {seg.id} has an error in extent/volume computation")
         for seg in to_delete:
-            # Print the id of the segment we're deleting
-            logger.debug(f"Deleting segment {seg.id} as it is a bad segment")
             segments.remove(seg)
             # for r in reason:
             #     print(r)
         return segments
     
-    def merge(self, t):
+    def merge(self):
         """
         Merge segments with high overlap
         """
@@ -313,24 +268,10 @@ class Mapper():
                     union2d = np.logical_or(maks1, maks2).sum()
                     iou2d = intersection2d / union2d
 
-                    if seg1.id == 301 and seg2.id == 291:
-                        logger.debug(f"{seg1.id} Point cloud: {seg1.points[0:3]}")
-                        logger.debug(f"{seg2.id} Point cloud: {seg2.points[0:3]}")
-                        if t == 1665777947.8362014:
-                            np.save(f"roman1_{n}.npy", seg1.points)
-                            np.save(f"roman2_{n}.npy", seg2.points)
-
-                        logger.debug(f"A Voxel Grid: {seg1.get_voxel_grid(self.params.iou_voxel_size)}")
-                        logger.debug(f"B Voxel Grid: {seg2.get_voxel_grid(self.params.iou_voxel_size)}")
-
                     iou3d = seg1.get_voxel_grid(self.params.iou_voxel_size).iou(
                         seg2.get_voxel_grid(self.params.iou_voxel_size))
                     
-                    if seg1.id == 301 and seg2.id == 291:
-                        logger.debug(f"MERGING CHECK: Seg {seg1.id} and Seg {seg2.id} with 3D IOU {iou3d} and 2D IOU {iou2d}")
-
                     if iou3d > self.params.merge_objects_iou_3d or iou2d > self.params.merge_objects_iou_2d:
-                        logger.debug(f"Merging segments {seg1.id} and {seg2.id} with 3D IoU {iou3d:.2f} and 2D IoU {iou2d:.2f}")
                         seg1.update_from_segment(seg2)
                         seg1.id = min(seg1.id, seg2.id)
                         if seg1.num_points == 0:

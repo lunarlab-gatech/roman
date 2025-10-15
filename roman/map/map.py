@@ -201,9 +201,6 @@ def submaps_from_roman_map(roman_map: ROMANMap, submap_params: SubmapParams,
                 pose_flu_gt=gt_flu_pose_data.pose(t) if gt_flu_pose_data is not None else None
             ))
 
-    # Debug Statements
-    # print("Total Number of Segments in this ROMAN Map: ", len(roman_map.segments))
-
     # add segments to submaps
     for i, sm in enumerate(submaps):
         
@@ -215,15 +212,10 @@ def submaps_from_roman_map(roman_map: ROMANMap, submap_params: SubmapParams,
             or seg.last_seen < tm1 - submap_params.time_threshold
         )
 
-        num_segments_in_submap_bounds = 0
         for seg in roman_map.segments:
-            if norm(seg.center.flatten() - sm.pose_flu[:3,3]) < submap_params.radius:
-                num_segments_in_submap_bounds += 1
-                if meets_time_constraints(seg):
-                    sm.segments.append(deepcopy(seg))
-
-        #print("Num of segments in submap bounds: ", num_segments_in_submap_bounds)
-        #print("Num of segments additionally meeting time constraints: ", len(sm.segments))
+            if norm(seg.center.flatten() - sm.pose_flu[:3,3]) < submap_params.radius \
+                    and meets_time_constraints(seg):
+                sm.segments.append(deepcopy(seg))
 
         T_center_odom = np.linalg.inv(sm.pose_gravity_aligned)
         for seg in sm.segments:
@@ -234,7 +226,6 @@ def submaps_from_roman_map(roman_map: ROMANMap, submap_params: SubmapParams,
                                              key=lambda seg: norm(seg.center.flatten()))
             sm.segments = segments_sorted_by_dist[:submap_params.max_size]
         
-        #print("Num of segments after max_size: ", len(sm.segments))
     return submaps
 
 
