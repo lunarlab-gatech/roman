@@ -24,7 +24,7 @@ class MapperParams():
     Args:
         min_iou (float): minimum voxel IOU for frame-to-frame association
         min_sightings (int): minimum number of sightings to consider an object
-        max_t_no_sightings (int): maximum time without a sighting before moving 
+        max_t_no_sightings (float): maximum time without a sighting before moving 
             an object to inactive
         merge_objects_iou_3d (float): minimum 3D IOU for merging objects
         merge_objects_iou_2d (float): minimum 2D IOU for merging objects
@@ -40,23 +40,22 @@ class MapperParams():
         MapperParams: params object
     """
 
+    plane_prune_params: list[float]
+    sort_segments_during_merge: bool # Enable to match functionality of MeronomyGraph Disabled
     min_iou: float = 0.25
     min_sightings: int = 2
-    max_t_no_sightings: int = 0.4
+    max_t_no_sightings: float = 0.4
     merge_objects_iou_3d: float = 0.25
     merge_objects_iou_2d: float = 0.8
     mask_downsample_factor: int = 8
     min_max_extent: float = 0.25
-    plane_prune_params: Tuple[float] = (3.0, 3.0, 0.5)
     segment_graveyard_time: float = 15.0
     segment_graveyard_dist: float = 10.0
     iou_voxel_size: float = 0.2
     segment_voxel_size: float = 0.05
     
     @classmethod
-    def from_yaml(cls, yaml_path: str, run: str = None):
+    def from_yaml(cls, yaml_path: str):
         with open(yaml_path) as f:
             data = yaml.safe_load(f)
-        if run is not None and run in data:
-            data = data[run]
         return cls(**data)

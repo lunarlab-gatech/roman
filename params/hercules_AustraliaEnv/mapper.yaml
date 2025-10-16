@@ -1,0 +1,46 @@
+# The minimum IOU overlap between two voxel grids (of obs/seg) for them to potentially be associated as the same
+min_iou: 0.25
+
+# Number of signtings necessary to promote segment from nursery to full segment
+min_sightings: 2
+
+# Time passed without sighting to:
+# - Move a segment to inactive
+# - Delete a nursery segment
+max_t_no_sightings: 0.4
+
+# Min 3D overlap needed to merge objects
+merge_objects_iou_3d: 0.25
+
+# Min 2D overlap needed to merge objects
+merge_objects_iou_2d: 0.8
+
+# Downsampling factor for segment when comparising similarity between
+# between the mask of a segment and an observation
+mask_downsample_factor: 8
+
+# During merging, delete segments whose extent in all axes is less than 
+# this parameters. To remove really small segments.
+min_max_extent: 0.25
+
+# Used to prune segments which are likely planes.
+plane_prune_params: [3.0, 3.0, 0.5]
+
+# Time and or dist, that, once achieved, will cause a segment to be moved
+# to the graveyard
+segment_graveyard_time: 15.0
+segment_graveyard_dist: 10.0
+
+# Voxel size for intersection over union calculation.
+# Increased by 5x as our max depth is 10x larger, and we
+# were having difficulty getting high enough ious on far
+# away objects.
+iou_voxel_size: 1.0 
+
+# Voxel size of segments, used in various places...
+# Also used to determine epsilon of DBSCAN, and keeping this
+# small meant that all points of far away objects were completely 
+# removed. Thus, we increased it by 5x.
+segment_voxel_size: 0.25
+
+sort_segments_during_merge: False

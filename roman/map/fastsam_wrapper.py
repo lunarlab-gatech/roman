@@ -11,35 +11,38 @@
 #
 #########################################
 
-
+import clip
+import copy
 import cv2 as cv
+import math
 import numpy as np
 import open3d as o3d
-import copy
 import torch
+from torch.amp import autocast
 from yolov7_package import Yolov7Detector
-import math
-import time
 from PIL import Image
 from fastsam import FastSAMPrompt
 from fastsam import FastSAM
-import clip
-import logging
-
 from robotdatapy.camera import CameraParams
-
+from robotdatapy.transform import transform
 from roman.map.observation import Observation
 from roman.params.fastsam_params import FastSAMParams
+from roman.params.system_params import SystemParams
 from roman.utils import expandvars_recursive
+import rerun as rr
+from ..logger import logger 
+from scipy.spatial.transform import Rotation as R
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.WARN)
 
-'''
-Helper function from Annika
-'''
-# my function to calculate a boounding box around a mask
-def mask_bounding_box(mask):
+from typeguard import typechecked
+
+@typechecked
+def mask_bounding_box(mask: np.ndarray) -> tuple:
+    """ 
+    Calculate the bounding box around a mask.
+    Originally by Annika Thomas.
+    """
+
     # Find the indices of the True values
     true_indices = np.argwhere(mask)
 
@@ -66,15 +69,8 @@ def mask_bounding_box(mask):
 
 class FastSAMWrapper():
 
-    def __init__(self, 
-        weights, 
-        conf=.5, 
-        iou=.9,
-        imgsz=(1024, 1024),
-        device='cuda',
-        mask_downsample_factor=1,
-        rotate_img=None,
-    ):
+    def __init__(self, params: FastSAMParams, system_params: SystemParams, weights: str, conf: float =.5, iou: float =.9, imgsz: tuple[int, int] =(1024, 1024),
+        device: str ='cuda', mask_downsample_factor: int = 1, rotate_img=None) -> None:
         """Wrapper for running FastSAM on images (especially RGB/depth pairs)
 
         Args:
@@ -89,6 +85,8 @@ class FastSAMWrapper():
                 feeding into FastSAM. Defaults to None.
         """
         # parameters
+        self.params = params
+        self.system_params = system_params
         self.weights = weights
         self.conf = conf
         self.iou = iou
@@ -97,9 +95,16 @@ class FastSAMWrapper():
         self.mask_downsample_factor = mask_downsample_factor
         self.rotate_img = rotate_img
 
+        # For calculating Scene Flow
+        self._last_pc = None
+        self._last_pose = None
+        self.frame_tick = 0
+        self.send_to_rerun = False
+        
         # member variables
         self.observations = []
         self.model = FastSAM(weights)
+
         # setup default filtering
         self.setup_filtering()
 
@@ -108,8 +113,10 @@ class FastSAMWrapper():
             or self.rotate_img == '180', "Invalid rotate_img option."
             
     @classmethod
-    def from_params(cls, params: FastSAMParams, depth_cam_params: CameraParams):
+    def from_params(cls, params: FastSAMParams, depth_cam_params: CameraParams, system_params: SystemParams):
         fastsam = cls(
+            params=params,
+            system_params=system_params,
             weights=expandvars_recursive(params.weights_path),
             imgsz=params.imgsz,
             device=params.device,
@@ -120,9 +127,11 @@ class FastSAMWrapper():
             depth_cam_params=depth_cam_params, 
             max_depth=params.max_depth,
             depth_scale=params.depth_scale,
+            depth_data_type=params.depth_data_type,
             voxel_size=params.voxel_size,
             erosion_size=params.erosion_size,
-            plane_filter_params=params.plane_filter_params
+            plane_filter_params=params.plane_filter_params,
+            within_depth_frac=params.within_depth_frac
         )
 
         img_area = depth_cam_params.width * depth_cam_params.height
@@ -141,20 +150,9 @@ class FastSAMWrapper():
 
         return fastsam
             
-    def setup_filtering(self,
-        ignore_labels = [],
-        use_keep_labels=False,
-        keep_labels = [],
-        keep_labels_option='intersect',          
-        yolo_weights=None,
-        yolo_det_img_size=None,
-        area_bounds=np.array([0, np.inf]),
-        allow_tblr_edges = [True, True, True, True],
-        keep_mask_minimal_intersection=0.3,
-        clip_embedding=False,
-        clip_model='ViT-L/14',
-        triangle_ignore_masks=None
-    ):
+    def setup_filtering(self, ignore_labels: list = [], use_keep_labels=False, keep_labels: list = [], keep_labels_option='intersect',          
+        yolo_weights=None, yolo_det_img_size=None, area_bounds=np.array([0, np.inf]), allow_tblr_edges = [True, True, True, True],
+        keep_mask_minimal_intersection=0.3, clip_embedding=False, clip_model='ViT-L/14', triangle_ignore_masks=None) -> None:
         """
         Filtering setup function
 
@@ -182,9 +180,12 @@ class FastSAMWrapper():
         self.allow_tblr_edges= allow_tblr_edges
         self.keep_mask_minimal_intersection = keep_mask_minimal_intersection
         self.run_yolo = len(ignore_labels) > 0 or use_keep_labels
+        
         self.clip_embedding = clip_embedding
         if clip_embedding:
             self.clip_model, self.clip_preprocess = clip.load(clip_model, device=self.device)
+            if self.params.optimized_clip_embedding_calculation:
+                self.clip_model.eval()
         if triangle_ignore_masks is not None:
             self.constant_ignore_mask = np.zeros((self.depth_cam_params.height, self.depth_cam_params.width), dtype=np.uint8)
             for triangle in triangle_ignore_masks:
@@ -197,17 +198,8 @@ class FastSAMWrapper():
         else:
             self.constant_ignore_mask = None
             
-    def setup_rgbd_params(
-        self, 
-        depth_cam_params, 
-        max_depth, 
-        depth_scale=1e3,
-        voxel_size=0.05, 
-        within_depth_frac=0.25, 
-        pcd_stride=4,
-        erosion_size=0,
-        plane_filter_params=None,
-    ):
+    def setup_rgbd_params(self, depth_cam_params: CameraParams, max_depth: float, depth_data_type: str, depth_scale: float = 1e3, voxel_size: float = 0.05, 
+        within_depth_frac: float = 0.25, pcd_stride: int = 4, erosion_size = 0, plane_filter_params = None) -> None:
         """Setup params for processing RGB-D depth measurements
 
         Args:
@@ -223,6 +215,7 @@ class FastSAMWrapper():
         self.max_depth = max_depth
         self.within_depth_frac = within_depth_frac
         self.depth_scale = depth_scale
+        self.depth_data_type = getattr(np, depth_data_type)
         self.depth_cam_intrinsics = o3d.camera.PinholeCameraIntrinsic(
             width=int(depth_cam_params.width),
             height=int(depth_cam_params.height),
@@ -242,18 +235,11 @@ class FastSAMWrapper():
             self.erosion_element = None
         self.plane_filter_params = plane_filter_params
 
-    def run(self, t, pose, img, img_depth=None, plot=False):
-        """
-        Takes and image and returns filtered FastSAM masks as Observations.
+    @typechecked
+    def run(self, t: float, pose: np.ndarray, img: np.ndarray, img_depth: np.ndarray[float] = None) -> list[Observation]:
+        """ Takes an image and returns filtered FastSAM masks as Observations. """
 
-        Args:
-            img (cv image): camera image
-            plot (bool, optional): Returns plots if true. Defaults to False.
-
-        Returns:
-            self.observations (list): list of Observations
-        """
-        self.observations = []
+        self.observations: list[Observation] = []
         
         # rotate image
         img_orig = img
@@ -269,61 +255,66 @@ class FastSAMWrapper():
             ignore_mask = np.bitwise_or(ignore_mask, self.constant_ignore_mask) \
                 if ignore_mask is not None else self.constant_ignore_mask  
         
-        # run fastsam
-        masks = self._process_img(img, ignore_mask=ignore_mask, keep_mask=keep_mask)
+        # Run FastSAM
+        masks: np.ndarray = self._process_img(img, ignore_mask=ignore_mask, keep_mask=keep_mask)
         
-        for mask in masks:
-            
-            mask = self.unapply_rotation(mask)
+        # Remove masks corresponding to dynamic objects
+        if self.params.enable_scene_flow_dynamic_obj_removal:
+            masks = self.remove_dynamic_object_masks(masks, img_depth, pose)
 
-            # Extract point cloud of object from RGBD
-            ptcld = None
+        # ================== Generate Observations ==================
+        for i, mask in enumerate(masks):
+            mask = self.apply_rotation(mask, unrotate=True)
+            mask = mask.astype(np.float32)
+
+            # ============= Extract point cloud of object from RGBD =============
+            pcd_array = None
             if img_depth is not None:
+
+                # Set depth to zero everywhere except detected object
                 depth_obj = copy.deepcopy(img_depth)
                 if self.erosion_element is not None:
                     eroded_mask = cv.erode(mask, self.erosion_element)
                     depth_obj[eroded_mask==0] = 0
                 else:
                     depth_obj[mask==0] = 0
-                logger.debug(f"img_depth type {img_depth.dtype}, shape={img_depth.shape}")
 
                 # Extract point cloud without truncation to heuristically check if enough of the object
                 # is within the max depth
                 pcd_test = o3d.geometry.PointCloud.create_from_depth_image(
-                    o3d.geometry.Image(np.ascontiguousarray(depth_obj).astype(np.uint16)),
+                    o3d.geometry.Image(np.ascontiguousarray(depth_obj).astype(self.depth_data_type)),
                     self.depth_cam_intrinsics,
                     depth_scale=self.depth_scale,
-                    # depth_trunc=self.max_depth,
                     stride=self.pcd_stride,
                     project_valid_depth_only=True
                 )
-                ptcld_test = np.asarray(pcd_test.points)
-                pre_truncate_len = len(ptcld_test)
-                ptcld_test = ptcld_test[ptcld_test[:,2] < self.max_depth]
+                pcd_test_array = np.asarray(pcd_test.points)
+                pre_truncate_len = len(pcd_test_array)
+                pcd_test_array = pcd_test_array[pcd_test_array[:,2] < self.max_depth] # Remove points past max depth
                 # require some fraction of the points to be within the max depth
-                if len(ptcld_test) < self.within_depth_frac*pre_truncate_len:
+                if len(pcd_test_array) < self.within_depth_frac*pre_truncate_len:
                     continue
                 
-                pcd = o3d.geometry.PointCloud.create_from_depth_image(
-                    o3d.geometry.Image(np.ascontiguousarray(depth_obj).astype(np.uint16)),
-                    self.depth_cam_intrinsics,
-                    depth_scale=self.depth_scale,
-                    depth_trunc=self.max_depth,
-                    stride=self.pcd_stride,
-                    project_valid_depth_only=True
-                )
+                # Remove non-finite points and downsample
+                pcd = o3d.geometry.PointCloud()
+                pcd.points = o3d.utility.Vector3dVector(pcd_test_array)
                 pcd.remove_non_finite_points()
-                pcd_sampled = pcd.voxel_down_sample(voxel_size=self.voxel_size)
-                if not pcd_sampled.is_empty():
-                    ptcld = np.asarray(pcd_sampled.points)
-                if ptcld is None:
+
+                # Downsample only if requested
+                if self.params.downsample_point_cloud:
+                    logger.debug(f"Downsampling point cloud with voxel size {self.voxel_size}")
+                    pcd = pcd.voxel_down_sample(voxel_size=self.voxel_size)
+
+                if not pcd.is_empty():
+                    pcd_array = np.asarray(pcd.points)
+                if pcd_array is None:
                     continue
                 
                 if self.plane_filter_params is not None:
                     # Create oriented bounding box
                     try:
                         obb = o3d.geometry.OrientedBoundingBox.create_from_points(
-                                o3d.utility.Vector3dVector(ptcld))
+                                o3d.utility.Vector3dVector(pcd_array))
                         extent = np.sort(obb.extent)[::-1] # in descending order
                         if  extent[0] > self.plane_filter_params[0] and \
                             extent[1] > self.plane_filter_params[1] and \
@@ -331,7 +322,7 @@ class FastSAMWrapper():
                                 continue
                     except:
                         continue
-
+  
             # Generate downsampled mask
             mask_downsampled = np.array(cv.resize(
                 mask,
@@ -339,34 +330,173 @@ class FastSAMWrapper():
                 interpolation=cv.INTER_NEAREST
             )).astype('uint8')
 
-            if self.clip_embedding:
-                ### Use masked image
-                # print("Img size: ", img.shape)
-                # print("Mask shape: ", mask.shape)
-                # # print("Masked image: ", cv.bitwise_and(img, img, mask = mask.astype('uint8')).shape)
-                # pre_processed_img = self.clip_preprocess(Image.fromarray(cv.bitwise_and(img, img, mask = mask.astype('uint8')))).to(self.device)
-                # clip_embedding = self.clip_model.encode_image(pre_processed_img.unsqueeze(dim=0))
-                # print("Clip embedding shape: ", clip_embedding.shape)
-                # clip_embedding = clip_embedding.squeeze().cpu().detach().numpy()
-
-                ### Use bounding box
-                bbox = mask_bounding_box(mask.astype('uint8'))
-                if bbox is None:
-                    assert False, "Bounding box is None."
-                    self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld))
+            if self.params.optimized_clip_embedding_calculation:
+                # Save the observation & calculate embeddings all at once later
+                self.observations.append(Observation(t, pose, mask, mask_downsampled, pcd_array))
+            
+            else:
+                if self.clip_embedding:
+                    ### Use bounding box
+                    bbox = mask_bounding_box(mask.astype('uint8'))
+                    if bbox is None:
+                        assert False, "Bounding box is None."
+                        self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld))
+                    else:
+                        min_col, min_row, max_col, max_row = bbox
+                        img_bbox = self.apply_rotation(img_orig[min_row:max_row, min_col:max_col])
+                        img_bbox = cv.cvtColor(img_bbox, cv.COLOR_BGR2RGB)
+                        processed_img = self.clip_preprocess(Image.fromarray(img_bbox, mode='RGB')).to(self.device)
+                        clip_embedding = self.clip_model.encode_image(processed_img.unsqueeze(dim=0))
+                        clip_embedding = clip_embedding.squeeze().cpu().detach().numpy()
+                        self.observations.append(Observation(t, pose, mask, mask_downsampled, pcd_array, clip_embedding=clip_embedding))
+                    
                 else:
+                    self.observations.append(Observation(t, pose, mask, mask_downsampled, pcd_array))
+
+        # ===== Generate CLIP embeddings for remaining observations in a single batch =====
+        if self.params.optimized_clip_embedding_calculation:
+            if self.clip_embedding and len(self.observations) > 0:
+
+                # Get processed mask images
+                processed_imgs_list = []
+                for i, obs in enumerate(self.observations):
+
+                    # Calculate bounding box around mask
+                    bbox = mask_bounding_box(obs.mask.astype('uint8'))
+                    if bbox is None: raise RuntimeError("Bounding Box is None")
+
+                    # Get processed image of this mask
                     min_col, min_row, max_col, max_row = bbox
                     img_bbox = self.apply_rotation(img_orig[min_row:max_row, min_col:max_col])
                     img_bbox = cv.cvtColor(img_bbox, cv.COLOR_BGR2RGB)
-                    processed_img = self.clip_preprocess(Image.fromarray(img_bbox, mode='RGB')).to(self.device)
-                    clip_embedding = self.clip_model.encode_image(processed_img.unsqueeze(dim=0))
-                    clip_embedding = clip_embedding.squeeze().cpu().detach().numpy()
-                    self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld, clip_embedding=clip_embedding))
+                    processed_imgs_list.append(self.clip_preprocess(Image.fromarray(img_bbox, mode='RGB')))
+                processed_imgs = torch.stack(processed_imgs_list).to(self.device)
                 
-            else:
-                self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld))
-                
+                # Calculate CLIP embeddings
+                clip_embeddings: np.ndarray | None = None
+                with torch.no_grad():
+                    with autocast(device_type='cuda', dtype=torch.float16):
+                        clip_embeddings = self.clip_model.encode_image(processed_imgs).cpu().detach().numpy()  
+
+                # Assign embeddings to observations
+                for i, obs in enumerate(self.observations):
+                    obs.clip_embedding = clip_embeddings[i]
+
         return self.observations
+    
+    @typechecked
+    def remove_dynamic_object_masks(self, masks: np.ndarray, img_depth: np.ndarray, pose: np.ndarray) -> np.ndarray:
+        """ Uses Scene Flow to detect masks of dynamic object and remove them. """
+
+        # Skip computation if we detect no objects
+        if len(masks) == 0: return masks
+
+        # Skip Scene Flow calculation on first frame
+        if self._last_pc is not None and self._last_pose is not None:
+
+            # Transform last point cloud into current frame
+            T_curr_wrt_last = np.linalg.inv(self._last_pose) @ pose
+            last_pc_wrt_curr = transform(np.linalg.inv(T_curr_wrt_last), self._last_pc, axis=0)
+
+            # Project transformed points into our current image frame
+            x, y, z = last_pc_wrt_curr[:,0], last_pc_wrt_curr[:,1], last_pc_wrt_curr[:,2]
+            u = (self.depth_cam_params.fx * x / z + self.depth_cam_params.cx).astype(int)
+            v = (self.depth_cam_params.fy * y / z + self.depth_cam_params.cy).astype(int)
+
+            # Filter valid pixel locations
+            H, W = img_depth.shape
+            valid = (z > 0) & (u >= 0) & (u < W) & (v >= 0) & (v < H)
+            u_valid, v_valid = u[valid], v[valid]
+            last_pc_wrt_curr = last_pc_wrt_curr[valid]
+
+            # Convert depth at (u, v) into 3D using intrinsics
+            depth_curr = img_depth[v_valid, u_valid]
+            depth_curr = np.clip(depth_curr, 0, self.max_depth)
+            x_curr = (u_valid - self.depth_cam_params.cx) * depth_curr / self.depth_cam_params.fx
+            y_curr = (v_valid - self.depth_cam_params.cy) * depth_curr / self.depth_cam_params.fy
+            z_curr = depth_curr
+            pc_curr_matched = np.stack([x_curr, y_curr, z_curr], axis=1)
+
+            # Calculate scene flow
+            scene_flow = pc_curr_matched - last_pc_wrt_curr
+            flow_mag = np.linalg.norm(scene_flow, axis=1)
+
+            # Set the threshold, which is calculated as expected translation and rotation error based on estimated odometry,
+            # and includes term to account for imprecision when aligning last points to current pixels
+            trans_norm = np.linalg.norm(T_curr_wrt_last[:3,3])
+            trans_error = 0.05 * trans_norm
+
+            rotation_norm = np.linalg.norm(R.from_matrix(T_curr_wrt_last[:3,:3]).as_rotvec())
+            rotation_error = 0.05 * rotation_norm
+            chord_length = 2 * depth_curr * math.sin(rotation_error / 2)
+
+            pixel_imprecision = 0.1 * depth_curr
+
+            threshold = trans_error + chord_length + pixel_imprecision
+
+            # Calculate dynamic object mask (must have flow above threshold and be within depth range)
+            is_dynamic = (flow_mag > threshold).astype(bool) & (depth_curr < self.max_depth).astype(bool)
+            u_dyn = u_valid[is_dynamic]
+            v_dyn = v_valid[is_dynamic]
+            
+            # Send data to Rerun for visualization
+            if self.send_to_rerun:
+                rr.set_time("fastsam_frame_tick", sequence=self.frame_tick)
+                rr.log("/fastsam/points/curr", rr.Points3D(positions=pc_curr_matched[is_dynamic]))
+                rr.log("/fastsam/points/last", rr.Points3D(positions=last_pc_wrt_curr[is_dynamic]))
+                
+                dynamic_mask_vis = np.zeros((H, W, 3), dtype=np.uint8)
+                kernel = np.ones((11, 11), np.uint8)
+                dynamic_mask_vis[v_dyn, u_dyn] = np.array([255, 255, 255], dtype=np.uint8)
+                dynamic_mask_vis = cv.dilate(dynamic_mask_vis, kernel)
+                rr.log("/fastsam/camera/depth", rr.DepthImage(img_depth))
+                rr.log("/fastsam/camera/mask", rr.Image(dynamic_mask_vis))
+                
+                # Visualize threshold and flow_mag (sparse image)
+                threshold_image = np.zeros((H, W), dtype=np.float32)
+                flow_mag_image = np.zeros((H, W), dtype=np.float32)
+                threshold_image[v_valid, u_valid] = threshold
+                flow_mag_image[v_valid, u_valid] = flow_mag
+                threshold_image = cv.dilate(threshold_image, kernel)
+                flow_mag_image = cv.dilate(flow_mag_image, kernel)
+                rr.log("/fastsam/camera/thresh", rr.DepthImage(threshold_image, meter=1.0))
+                rr.log("/fastsam/camera/flow_mag", rr.DepthImage(flow_mag_image, meter=1.0))
+
+                self.frame_tick += 1
+
+            # ============= Remove FastSAM Detections overlapping with dynamic mask =============
+            to_keep = []
+            for i, mask in enumerate(masks):
+
+                # Get dynamic point indices that lie within the mask
+                mask_flat = mask.astype(bool)
+                valid_in_mask = mask_flat[v_valid, u_valid]
+                dyn_in_mask = mask_flat[v_dyn, u_dyn]
+
+                num_valid_in_mask = np.count_nonzero(valid_in_mask)
+                if num_valid_in_mask > 0:
+                    overlap_ratio = np.count_nonzero(dyn_in_mask) / num_valid_in_mask
+                else: overlap_ratio = 0.0 # We saw no part of this object last frame
+
+                if overlap_ratio < 0.5:
+                    to_keep.append(i)
+                else:
+                    logger.info(f"[red]Discard[/red]: Mask {i} detected as a dynamic object.")
+                
+            masks = masks[to_keep,...]
+
+        # Generate point cloud at reduced resolution for next frame
+        masked_depth = np.clip(img_depth, 0, self.max_depth)
+        point_cloud: o3d.geometry.PointCloud = o3d.geometry.PointCloud.create_from_depth_image(
+            o3d.geometry.Image(np.ascontiguousarray(masked_depth).astype(np.float32)), self.depth_cam_intrinsics,
+            depth_scale=self.depth_scale, stride=10, project_valid_depth_only=True)
+        point_cloud: np.ndarray = np.asarray(point_cloud.points)
+
+        # Save current point cloud and pose for next frame calculating scene flow
+        self._last_pc = point_cloud
+        self._last_pose = pose
+
+        return masks
     
     def apply_rotation(self, img, unrotate=False):
         if self.rotate_img is None:
@@ -383,9 +513,6 @@ class FastSAMWrapper():
             raise Exception("Invalid rotate_img option.")
         return result
         
-    def unapply_rotation(self, img):
-        return self.apply_rotation(img, unrotate=True)
-
     def _create_mask(self, img):
         
         if len(img.shape) == 2: # image is mono
@@ -443,7 +570,7 @@ class FastSAMWrapper():
                             (np.sum(mask[:edge_width,:]) > 0 and not self.allow_tblr_edges[0]) or (np.sum(mask[-edge_width:, :]) > 0 and not self.allow_tblr_edges[1])
         return np.delete(segmask, contains_edge, axis=0)
 
-    def _process_img(self, image_bgr, ignore_mask=None, keep_mask=None):
+    def _process_img(self, image_bgr, ignore_mask=None, keep_mask=None) -> np.ndarray:
         """Process FastSAM on image, returns segment masks and center points from results
 
         Args:
@@ -464,14 +591,26 @@ class FastSAMWrapper():
         image = cv.cvtColor(image_bgr, cv.COLOR_BGR2RGB)
 
         # Run FastSAM
-        everything_results = self.model(image, 
-                                        retina_masks=True, 
-                                        device=self.device, 
-                                        imgsz=self.imgsz, 
-                                        conf=self.conf, 
-                                        iou=self.iou)
-        prompt_process = FastSAMPrompt(image, everything_results, device=self.device)
-        segmask = prompt_process.everything_prompt()
+        if self.params.optimized_fastsam_inference:
+            with torch.no_grad():
+                with autocast(device_type='cuda', dtype=torch.float16):
+                    everything_results = self.model(image, 
+                                                    retina_masks=True, 
+                                                    device=self.device, 
+                                                    imgsz=self.imgsz, 
+                                                    conf=self.conf, 
+                                                    iou=self.iou)
+                    prompt_process = FastSAMPrompt(image, everything_results, device=self.device)
+                    segmask = prompt_process.everything_prompt()
+        else:
+            everything_results = self.model(image, 
+                                                retina_masks=True, 
+                                                device=self.device, 
+                                                imgsz=self.imgsz, 
+                                                conf=self.conf, 
+                                                iou=self.iou)
+            prompt_process = FastSAMPrompt(image, everything_results, device=self.device)
+            segmask = prompt_process.everything_prompt()
 
         # If there were segmentations detected by FastSAM, transfer them from GPU to CPU and convert to Numpy arrays
         if (len(segmask) > 0):
@@ -519,6 +658,8 @@ class FastSAMWrapper():
             segmask = np.delete(segmask, to_delete, axis=0)
 
         else: 
-            return []
+            h, w, _ = image_bgr.shape
+            return np.zeros((0, h, w), dtype=bool)
 
         return segmask
+    

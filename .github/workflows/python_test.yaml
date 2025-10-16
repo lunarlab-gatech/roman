@@ -1,0 +1,41 @@
+name: Python Unit Tests
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+    branches: [ "**" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    container:
+      image: dlittleman/roman_baseline:v1.0.2
+      options: --user root  # optional, helps avoid permission issue
+      env:
+        CI_TESTS: true
+
+    steps:
+      - uses: actions/checkout@v3
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+      - name: Install dependencies 
+        run: |
+          ./install.sh
+      - name: Run tests
+        run: |
+          python3 -m coverage run --source roman -m unittest discover tests/ -v
+          python3 -m coverage xml
+      - name: Upload coverage to Coveralls
+        uses: coverallsapp/github-action@v2.3.6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          file: coverage.xml

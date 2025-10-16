@@ -1,0 +1,1 @@
+docker start meronomy && docker exec -it meronomy /bin/bash

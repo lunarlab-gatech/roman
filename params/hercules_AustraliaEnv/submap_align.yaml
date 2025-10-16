@@ -1,0 +1,40 @@
+# 2D or 3D object map registration
+dim: 3
+
+# Use semantic + pca + volume + gravity, same as ROMAN paper.
+method: 'roman'
+
+# How to fuse similarity scores (geometric_mean, arithmetic_mean, product)
+fusion_method: 'geometric_mean'
+
+# Multiplied by 5x, so there is a chance to have enough objects in a submap in our Australia environment
+submap_radius: 75.0      
+
+# Multiplied by 5x to match submap_radius, simply because if the submaps are getting larger, then they should be more spread apart.
+submap_center_dist: 50.0 
+
+# Time threshold between submaps, submap will be created if this time has passed and submap_center_dist hasn't been traveled yet.
+submap_center_time: 50.0 
+
+# Max number of segments in a submap (for compution)
+submap_max_size: 40
+
+# If true, don't try to perform loop closure with submaps nearby in time
+single_robot_lc: False
+
+# Time threshold for what submaps count as "nearby in time".
+single_robot_lc_time_thresh: 50.0
+
+# If true, remove parts of rotation about x or y axes.
+force_rm_lc_roll_pitch: False
+
+# Assumes upsidedown submap rotations are incorrect
+force_rm_upside_down: True
+
+# If true, use bottom middle of object as reference point
+# for registration rather than the center of the object
+use_object_bottom_middle: True
+
+# Increase both by 5.0x since the map is bigger
+sigma: 2.0
+epsilon: 3.0

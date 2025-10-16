@@ -13,6 +13,7 @@ import open3d as o3d
 from roman.map.observation import Observation
 from roman.map.voxel_grid import VoxelGrid
 from roman.object.object import Object
+from roman.logger import logger
 
 # TODO: use edited to help save computation in computing things 
 # like volume, extent, and pca shape attributes
@@ -81,6 +82,16 @@ class Segment(Object):
         
         self._integrate_points_from_observation(observation)
 
+    def __str__(self):
+        str_rep = ""
+        str_rep += f"Segment ID: {self.id}\n"
+        str_rep += f"Num Points: {self.num_points}\n"
+        str_rep += f"Volume: {self.volume}\n"
+        str_rep += f"First Seen: {self.first_seen}\n"
+        str_rep += f"Last Seen: {self.last_seen}\n"
+        str_rep += f"Num Sightings: {self.num_sightings}\n"
+        return str_rep
+
     def update(self, observation: Observation, integrate_points=True):
         """Update a 3D segment with a new observation
 
@@ -111,7 +122,7 @@ class Segment(Object):
             self.last_observation = observation.copy(include_mask=True)
         else:
             self.observations.append(observation.copy(include_mask=False))
-            
+
     def update_from_segment(self, segment):
         for obs in segment.observations:
             # none of the observations will have masks, so need to update with 
@@ -122,7 +133,7 @@ class Segment(Object):
         self._integrate_points_from_segment(segment)
         if segment.semantic_descriptor is not None:
             self._add_semantic_descriptor(segment.semantic_descriptor, segment.semantic_descriptor_cnt)
-    
+
     def _integrate_points_from_observation(self, observation: Observation):
         """Integrate point cloud in the input observation object
 

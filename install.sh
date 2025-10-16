@@ -1,6 +1,19 @@
 #!/bin/bash
+
+# Make script fail if anything goes wrong
+set -euo pipefail
+
+# Navigate into the directory
 ROMAN_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 cd $ROMAN_DIR
+
+# Install gdown if not already installed
+pip install --no-cache-dir gdown
+
+# For GitHub Actions, set directory as safe so submodule update works
+if [ "$CI_TESTS" = "true" ]; then
+  git config --global --add safe.directory "$ROMAN_DIR"
+fi
 
 # Install CLIPPER
 git submodule update --init --recursive
@@ -19,7 +32,7 @@ pip install --no-cache-dir .
 
 # pip install
 cd $ROMAN_DIR
-pip install .
+pip install --no-cache-dir .
 
 # download weights
 mkdir -p $ROMAN_DIR/weights

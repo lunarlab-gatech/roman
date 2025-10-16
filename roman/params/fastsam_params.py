@@ -52,9 +52,16 @@ class FastSAMParams:
         _type_: _description_
     """
     
+    enable_scene_flow_dynamic_obj_removal: bool
+    imgsz: list[int]
+    yolo_imgsz: list[int]
+    plane_filter_params: list[float]
+    within_depth_frac: float
+    downsample_point_cloud: bool
+    optimized_clip_embedding_calculation: bool
+    optimized_fastsam_inference: bool
     weights_path: str = "$ROMAN_WEIGHTS/FastSAM-x.pt"
     yolo_weights_path: str = "$ROMAN_WEIGHTS/yolov7.pt"
-    imgsz: Tuple[int, int] = (256, 256)
     device: str = 'cuda'
     mask_downsample_factor: int = 8
     min_mask_len_div: int = 30
@@ -66,19 +73,16 @@ class FastSAMParams:
     use_keep_labels: bool = False
     keep_labels: list = tuple([])
     keep_labels_option: dict = None
-    plane_filter_params: tuple = tuple([3.0, 1.0, 0.2])
     rotate_img: str = None
     clip: bool = True
-    yolo_imgsz: Tuple[int, int] = (256, 256)
     depth_scale: float = 1e3
+    depth_data_type: str = "uint16"
     max_depth: float = 7.5
     triangle_ignore_masks: List[Tuple[Tuple[int,int], Tuple[int,int], Tuple[int,int]]] = None
     
     @classmethod
-    def from_yaml(cls, yaml_path: str, run: str = None):
+    def from_yaml(cls, yaml_path: str):
         with open(yaml_path) as f:
             data = yaml.safe_load(f)
-        if run is not None and run in data:
-            data = data[run]
         return cls(**data)
     

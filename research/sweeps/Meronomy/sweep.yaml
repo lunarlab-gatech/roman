@@ -1,0 +1,48 @@
+program: run_sweep.py
+method: grid
+
+parameters:
+  override_dictionary:
+    values:
+      # ROMAN
+      - system_params:
+          use_scene_graph: False
+
+      # MeronomyGraph
+      - system_params:
+          use_scene_graph: True
+      
+      - system_params:
+          use_scene_graph: True
+        scene_graph_3D_params:
+          update_voxel_grid_on_inactivation_dbscan: True
+        graph_node_params:
+          require_valid_convex_hull: True
+      
+      - system_params:
+          use_scene_graph: True
+        scene_graph_3D_params:
+          update_voxel_grid_on_inactivation_dbscan: True
+        graph_node_params:
+          require_valid_convex_hull: True
+          calculate_descriptor_incrementally: False
+      
+      - system_params:
+          use_scene_graph: True
+        scene_graph_3D_params:
+          update_voxel_grid_on_inactivation_dbscan: True
+        graph_node_params:
+          require_valid_convex_hull: True
+          calculate_descriptor_incrementally: False
+          ignore_descriptors_from_observation: False
+      
+      - system_params:
+          use_scene_graph: True
+        scene_graph_3D_params:
+          update_voxel_grid_on_inactivation_dbscan: True
+        graph_node_params:
+          require_valid_convex_hull: True
+          use_convex_hull_for_volume: True
+          calculate_descriptor_incrementally: False
+          ignore_descriptors_from_observation: False
+          merge_with_node_use_first_seen_time_from_self: False

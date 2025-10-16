@@ -1,4 +1,4 @@
-demo_output
+results
 weights
 
 # Byte-compiled / optimized / DLL files
@@ -168,3 +168,11 @@ cython_debug/
 *.pt
 output/
 output_old/
+
+# Ignore certain folders
+datasets/
+playground/
+wandb/
+
+# Ignore porfiling results
+profile.out

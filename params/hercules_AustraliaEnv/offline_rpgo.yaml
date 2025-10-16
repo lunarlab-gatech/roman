@@ -1,0 +1,16 @@
+# Odometry covariance parameters.
+# This should likely be updated based on the drift of 
+# the odometry algorithm we're using.
+odom_t_std: 0.02 # 2 cm
+odom_r_std: 0.001745 # .1 deg
+
+# Loop closure covariance parameters
+lc_t_std: 2.0 # 2 m
+lc_r_std: 0.1745 # 10 deg
+
+# Whether to be sparse or dense
+sparsified: False
+
+# For Graduated-Non Convexity, set the maximum weighted residual error for an inlier 
+# Increase by x10 for Australian Environment due to lack of really good loop closures.
+gnc_inlier_threshold: 9

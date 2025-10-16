@@ -20,7 +20,7 @@ class ROMANMap:
 
     segments: List[Segment]
     trajectory: List[np.ndarray]
-    times: np.ndarray
+    times: list
     poses_are_flu: bool = True
 
     def __post_init__(self):
@@ -38,7 +38,7 @@ class ROMANMap:
             poses_are_flu=self.poses_are_flu
         )
         
-    def get_segment_by_id(self, seg_id) -> Segment:
+    def get_segment_by_id(self, seg_id) -> Segment | None:
         for seg in self.segments:
             if seg.id == seg_id:
                 return seg
@@ -225,6 +225,7 @@ def submaps_from_roman_map(roman_map: ROMANMap, submap_params: SubmapParams,
             segments_sorted_by_dist = sorted(sm.segments, 
                                              key=lambda seg: norm(seg.center.flatten()))
             sm.segments = segments_sorted_by_dist[:submap_params.max_size]
+        
     return submaps
 
 

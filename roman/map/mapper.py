@@ -23,10 +23,8 @@ from roman.map.observation import Observation
 from roman.map.global_nearest_neighbor import global_nearest_neighbor
 from roman.map.map import ROMANMap
 from roman.params.mapper_params import MapperParams
+from roman.logger import logger
 
-import logging
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
 
 class Mapper():
 
@@ -53,10 +51,11 @@ class Mapper():
         
         # store last pose
         self.last_pose = pose.copy()
-        
+
         # associate observations with segments
         # mask_similarity = lambda seg, obs: max(self.mask_similarity(seg, obs, projected=False), 
         #                                        self.mask_similarity(seg, obs, projected=True))
+
         associated_pairs = global_nearest_neighbor(
             self.segments + self.segment_nursery, observations, self.voxel_grid_similarity, self.params.min_iou
         )
@@ -124,6 +123,7 @@ class Mapper():
         associated_obs = [obs_idx for _, obs_idx in associated_pairs]
         new_observations = [obs for idx, obs in enumerate(observations) \
                             if idx not in associated_obs]
+
         for obs in new_observations:
             new_seg = Segment(obs, self.camera_params, self.id_counter, self.params.segment_voxel_size)
             if new_seg.num_points == 0: # guard from observations coming in with no points
@@ -132,7 +132,6 @@ class Mapper():
             self.id_counter += 1
 
         self.merge()
-            
         return
     
     def voxel_grid_similarity(self, segment: Segment, observation: Observation):
@@ -241,9 +240,17 @@ class Mapper():
         while n < max_iter and edited:
             edited = False
             n += 1
+            
+            # Enable to mimic MeronomyGraph Disabled. Set to False to mimic original ROMAN baseline.
+            if self.params.sort_segments_during_merge:
+                segments_list = sorted(self.segments, key=lambda s: s.id)
+                inactive_segments_list = sorted(self.segments, key=lambda s: s.id) + sorted(self.inactive_segments, key=lambda s: s.id)
+            else:
+                segments_list = self.segments
+                inactive_segments_list = self.segments + self.inactive_segments
 
-            for i, seg1 in enumerate(self.segments):
-                for j, seg2 in enumerate(self.segments + self.inactive_segments):
+            for i, seg1 in enumerate(segments_list):
+                for j, seg2 in enumerate(inactive_segments_list):
                     if i >= j:
                         continue
 
@@ -260,16 +267,16 @@ class Mapper():
 
                     iou3d = seg1.get_voxel_grid(self.params.iou_voxel_size).iou(
                         seg2.get_voxel_grid(self.params.iou_voxel_size))
-
+                    
                     if iou3d > self.params.merge_objects_iou_3d or iou2d > self.params.merge_objects_iou_2d:
                         seg1.update_from_segment(seg2)
                         seg1.id = min(seg1.id, seg2.id)
                         if seg1.num_points == 0:
-                            self.segments.pop(i)
+                            self.segments.remove(seg1)
                         elif j < len(self.segments):
-                            self.segments.pop(j)
+                            self.segments.remove(seg2)
                         else:
-                            self.inactive_segments.pop(j - len(self.segments))
+                            self.inactive_segments.remove(seg2)
                         edited = True
                         break
                 if edited:

@@ -1,0 +1,39 @@
+# ===== Initialization ===== 
+dbscan_and_remove_outliers_on_node_creation: False
+downsample_on_node_creation: False
+check_minimum_node_size_on_node_creation: False
+
+# ===== Convex Hull ===== 
+require_valid_convex_hull: True
+use_convex_hull_for_volume: True
+convex_hull_outward_offset: 0.0
+
+# ===== Voxel Downsampling ===== 
+enable_variable_voxel_size: False
+voxel_size_not_variable: 0.05
+voxel_size_variable_ratio_to_length: 0.01
+
+# ===== DBSCAN Parameters ===== 
+dbscan_min_points: 10
+enable_roman_dbscan: True
+enable_variable_epsilon: False
+epsilon_not_variable: 0.25
+epsilon_variable_ratio_to_length: 0.1
+min_cluster_percentage: 0.8
+
+# ===== Statistical Outlier Removal Parameters =====
+enable_remove_statistical_outliers: True
+stat_out_num_neighbors: 10
+stat_out_std_ratio: 1.0
+
+# ===== Semantic Descriptor =====
+calculate_descriptor_incrementally: False
+use_weighted_average_for_descriptor: True
+ignore_descriptors_from_observation: False
+
+# ===== Data inheritance from child nodes =====
+parent_node_inherits_data_from_children: True
+parent_node_inherits_descriptors_from_children: True
+
+# ===== Parameters to mimic ROMAN functionality =====
+merge_with_node_use_first_seen_time_from_self: False

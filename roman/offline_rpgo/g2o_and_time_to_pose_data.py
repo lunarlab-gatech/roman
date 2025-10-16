@@ -4,6 +4,7 @@ from typing import List, Tuple, Dict
 import os
 import yaml
 
+from roman.utils import expandvars_recursive
 from robotdatapy.data.pose_data import PoseData
 
 def time_vertex_mapping(time_file: int, robot_id: int = None, use_gtsam_idx: bool = False) -> Dict[int, float]:
@@ -71,10 +72,9 @@ def concatentate_pose_data(pose_data: List[PoseData]) -> PoseData:
             orientations = np.concatenate((orientations, pd.orientations))
     return PoseData(times=times, positions=positions, orientations=orientations, interp=False)
 
-def combine_multi_est_and_gt_pose_data(est: List[PoseData], gt: List[PoseData]) -> Tuple[PoseData, PoseData]:
+def make_start_and_end_times_match(est: List[PoseData], gt: List[PoseData]) -> Tuple[List[PoseData], List[PoseData]]:
     assert len(est) == len(gt), "Number of estimated and ground truth datasets do not match"
 
-    # first, make sure the start and end times are exactly the same
     for est_i, gt_i in zip(est, gt):
         if est_i.t0 < gt_i.t0:
             gt_i.times = np.concatenate(([est_i.t0], gt_i.times))
@@ -94,25 +94,16 @@ def combine_multi_est_and_gt_pose_data(est: List[PoseData], gt: List[PoseData]) 
             gt_i.positions = np.concatenate((gt_i.positions, [gt_i.positions[-1]]))
             gt_i.orientations = np.concatenate((gt_i.orientations, [gt_i.orientations[-1]]))
     
+    return est, gt
+
+def combine_multi_est_and_gt_pose_data(est: List[PoseData], gt: List[PoseData]) -> Tuple[PoseData, PoseData]:
+    assert len(est) == len(gt), "Number of estimated and ground truth datasets do not match"
+    est, gt = make_start_and_end_times_match(est, gt) 
     return concatentate_pose_data(est), concatentate_pose_data(gt)
 
-def load_gt_pose_data(gt_file):
-    if 'csv' in gt_file:
-        return PoseData.from_kmd_gt_csv(gt_file) 
-    with open(os.path.expanduser(gt_file), 'r') as f:
-        gt_pose_args = yaml.safe_load(f)
-    if gt_pose_args['type'] == 'bag':
-        return PoseData.from_bag(**{k: v for k, v in gt_pose_args.items() if k != 'type'})
-    elif gt_pose_args['type'] == 'csv':
-        return PoseData.from_csv(**{k: v for k, v in gt_pose_args.items() if k != 'type'})
-    elif gt_pose_args['type'] == 'bag_tf':
-        return PoseData.from_bag_tf(**{k: v for k, v in gt_pose_args.items() if k != 'type'})
-    else:
-        raise ValueError("Invalid pose data type")
-
 def gt_csv_est_g2o_to_pose_data(est_g2o_file: str, est_time_file: str, 
-        gt_csv_files: Dict[int, str], run_names: Dict[int, str] = None, 
-        run_env: str = None) -> Tuple[PoseData, PoseData]:
+        gt_pose_data: Dict[int, PoseData], run_names: Dict[int, str] = None, 
+        run_env: str = None, skip_final_merge: bool = False):
     """
     Generates two comparable PoseData objects from ground truth and estimated multi-robot poses.
     Designed for Kimera-Multi dataset where ground truth is stored in a csv file and estimated poses
@@ -121,19 +112,25 @@ def gt_csv_est_g2o_to_pose_data(est_g2o_file: str, est_time_file: str,
     Args:
         est_g2o_file (str): File path to the estimated poses in g2o format.
         est_time_file (str): File path to the estimated time file.
-        gt_csv_files (Dict[int, str]): Mapping from robot_id (with 0 corresponding to 'a' in gtsam g2o file)
+        gt_pose_data (Dict[int, str]): Mapping from robot_id (with 0 corresponding to 'a' in gtsam g2o file)
             to the corresponding ground truth csv file.
+        skip_final_merge (bool): If true, skip combining trajectories from various robots into 
+            single GT and single Est.
 
     Returns:
-        Tuple[PoseData, PoseData]: Estimated and ground truth PoseData objects
+        
+        Tuple[PoseData, PoseData] or Tuple[List[PoseData], List[PoseData]]: Estimated and ground truth PoseData objects
     """
     
     pose_data_gt = []
-    for i in sorted(gt_csv_files.keys()):
+    for i in sorted(gt_pose_data.keys()):
         if run_names is not None and run_env is not None:
             os.environ[run_env] = run_names[i]
-        pose_data_gt.append(load_gt_pose_data(gt_csv_files[i]))
+        pose_data_gt.append(gt_pose_data[i])
     pose_data_est = [g2o_and_time_to_pose_data(est_g2o_file, est_time_file, i)
-                     for i in sorted(gt_csv_files.keys())]
+                     for i in sorted(gt_pose_data.keys())]
     
-    return combine_multi_est_and_gt_pose_data(pose_data_est, pose_data_gt)
+    if skip_final_merge:
+        return (pose_data_est, pose_data_gt)
+    else:
+        return combine_multi_est_and_gt_pose_data(pose_data_est, pose_data_gt)
