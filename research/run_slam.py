@@ -78,8 +78,11 @@ def run_slam(param_dir: str, output_dir: str | None, wandb_project: str, max_tim
                 for param_name, value in param_dict.items():
                     if param_class_str == "system_params":
                         setattr(system_params, param_name, value)
+                        assert getattr(system_params, param_name, None) == value
                     else:
                         setattr(getattr(system_params, param_class_str), param_name, value)
+                        assert getattr(getattr(system_params, param_class_str), param_name, None) == value
+
 
         # Handle flat W&B sweep config with dot notation keys (assuming bayesian swee0)
         for key, value in wandb_run.config.items():

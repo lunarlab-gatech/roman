@@ -22,6 +22,7 @@ img_data:
   width: 752
   height: 480
   encoding: rgb8
+  time_tol: 0.025
 
 depth_data:
   type: "npy"
@@ -34,6 +35,7 @@ depth_data:
   width: 752
   height: 480
   encoding: 32FC1
+  time_tol: 0.025
 
 pose_data:
   # Load from csv to avoid expensive rosbag search
@@ -41,9 +43,9 @@ pose_data:
   path: "/home/${USER}/data/Hercules_datasets/V1.5/extract/files_for_roman_baseline/${ROBOT}/vins_result_no_loop_reformatted.csv"
 
   # Time tolerance used to reject available data if no pose data is within the time tolerance value
-  time_tol: 0.0249 # For a value right between both, won't do either. Thus, we enforce causality.
-  interp: False # Don't interpolate between poses.
-  causal: False # We enforce causality with time_tol, this allows us to get closest pose and not just the latest pose.
+  time_tol: 0.05
+  interp: True
+  causal: False 
 
   # Options that inform the algorithm where data is saved in the CSV file
   csv_options:
@@ -60,11 +62,33 @@ pose_data:
     timescale: 1.0
   
   # Pose of FLU frame (or base frame in same location as camera) w.r.t camera frame
+  # NOTE: For Demo, the GT is at camera position with an FLU frame. Thus, they transform
+  # using T_RDF->FLU. However, our GT is at the robot base frame, so we actually need to 
+  # provide T_camera->odombase instead of T_camera->FLU. These are the inverse transformations
+  # of the matrices in "T_odombase_camera".
   T_camera_flu:
-    input_type: "string"
-    string: "T_RDFFLU" 
+    input_type: matrix_${ROBOT}
+    matrix_Husky1: [ 0.0, -1.0, 0.0, 0.0,
+                     0.0, 0.0, -1.0, 0.35,
+                     1.0, 0.0, 0.0, 0.0,
+                     0.0, 0.0, 0.0, 1.0]
+    matrix_Husky2: [ 0.0, -1.0, 0.0, 0.0,
+                     0.0, 0.0, -1.0, 0.35,
+                     1.0, 0.0, 0.0, 0.0,
+                     0.0, 0.0, 0.0, 1.0]
+    matrix_Drone1: [                 -0.0, -1.0,                -0.0,                  0.0,
+                      0.17364817766693036, -0.0, -0.9848077530122082, -0.15925763748464644,
+                       0.9848077530122081,  0.0, 0.17364817766693036,  -0.3273178957875798,
+                                      0.0,  0.0,                 0.0,                  1.0]
+    matrix_Drone2: [                 -0.0, -1.0,                -0.0,                  0.0,
+                      0.17364817766693036, -0.0, -0.9848077530122082, -0.15925763748464644,
+                       0.9848077530122081,  0.0, 0.17364817766693036,  -0.3273178957875798,
+                                      0.0,  0.0,                 0.0,                  1.0]
 
   # Pose of the camera frame with respect to the odometry base frame
+  # NOTE: For Demo, the input odometry is in the camera frame, so thus they
+  # have no T_odombase_camera specified and just use eye(4) by default. However
+  # our input odometry is in the robot frame, so below we transform.
   T_odombase_camera:
     input_type: matrix_${ROBOT}
     matrix_Husky1: [ 0, 0, 1, 0,
@@ -75,11 +99,11 @@ pose_data:
                     -1, 0, 0, 0,
                      0,-1, 0, 0.35,
                      0, 0, 0, 1]
-    matrix_Drone1: [ 0,  0.17364818,  0.98480775,  0.35,      
-                    -1,           0,           0,     0,       
-                     0, -0.98480775,  0.17364818,  -0.1,    
-                     0,           0,           0,     1]
-    matrix_Drone2: [ 0,  0.17364818,  0.98480775,  0.35,      
-                    -1,           0,           0,     0,       
-                     0, -0.98480775,  0.17364818,  -0.1,    
-                     0,           0,           0,     1]
+    matrix_Drone1: [ 0.0, 0.17364817766693033,   0.984807753012208, 0.35,
+                    -1.0,                 0.0,                 0.0,  0.0,
+                     0.0,  -0.984807753012208, 0.17364817766693033, -0.1,
+                     0.0,                 0.0,                 0.0,  1.0]
+    matrix_Drone2: [ 0.0, 0.17364817766693033,   0.984807753012208, 0.35,
+                    -1.0,                 0.0,                 0.0,  0.0,
+                     0.0,  -0.984807753012208, 0.17364817766693033, -0.1,
+                     0.0,                 0.0,                 0.0,  1.0]

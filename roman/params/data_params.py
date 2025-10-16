@@ -38,6 +38,7 @@ class ImgDataParams:
     width: int = None
     height: int = None
     encoding: str = None
+    time_tol: float = None
     
     @classmethod
     def from_dict(cls, params_dict: dict):
@@ -252,6 +253,12 @@ class DataParams:
         else:
             params = self.depth_data_params
 
+        # Determine time tolerance
+        if params.time_tol is not None:
+            time_tol = params.time_tol
+        else:
+            time_tol = self.dt / 2.0
+
         # Depending on data type
         if self.kitti:
             raise NotImplementedError("This hasn't been fully tested with new params variable!")
@@ -268,14 +275,14 @@ class DataParams:
                 encoding=params.encoding,
                 width=params.width,
                 height=params.height, 
-                time_tol=self.dt / 2.0
+                time_tol=time_tol
             )
         else:
             img_file_path = expandvars_recursive(params.path)
             img_data = ImgData.from_bag(
                 path=img_file_path,
                 topic=expandvars_recursive(params.topic),
-                time_tol=self.dt / 2.0,
+                time_tol=time_tol,
                 time_range=self.time_range,
                 compressed=params.compressed,
                 compressed_rvl=params.compressed_rvl,
