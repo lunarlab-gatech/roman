@@ -40,7 +40,6 @@ class SystemParams(BaseModel):
     num_req_assoc: int
     use_scene_graph: bool
     use_roman_map_for_alignment: bool
-    random_seed: int
     enable_rerun_viz: bool
 
     @classmethod
@@ -61,7 +60,6 @@ class SystemParams(BaseModel):
         num_req_assoc = data['num_req_assoc']
         use_scene_graph = data['use_scene_graph']
         use_roman_map_for_alignment = data['use_roman_map_for_alignment']
-        random_seed = data['random_seed']
         enable_rerun_viz = data['enable_rerun_viz']
 
         if not use_roman_map_for_alignment and not use_scene_graph:
@@ -81,5 +79,4 @@ class SystemParams(BaseModel):
                    num_req_assoc=num_req_assoc,
                    use_scene_graph=use_scene_graph,
                    use_roman_map_for_alignment=use_roman_map_for_alignment,
-                   random_seed=random_seed,
                    enable_rerun_viz=enable_rerun_viz)

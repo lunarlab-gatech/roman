@@ -18,6 +18,7 @@ import os
 import numpy as np
 import yaml
 import wandb
+from wandb import Run
 from pathlib import Path
 import torch
 import random
@@ -53,6 +54,14 @@ def convert_paths(obj):
         return str(obj)
     else:
         return obj
+    
+def log_nested(wandb_run: Run, d: dict, parent_key: str =""):
+    for k, v in d.items():
+        full_key = f"{parent_key}.{k}" if parent_key else k
+        if isinstance(v, dict):
+            log_nested(wandb_run, v, full_key)
+        else:
+            wandb_run.log({full_key: v})
 
 def run_slam(param_dir: str, output_dir: str | None, wandb_project: str, max_time: int | None = None, 
              skip_map: bool = False, use_map: str | None = None, skip_align: bool = False, 
@@ -121,15 +130,6 @@ def run_slam(param_dir: str, output_dir: str | None, wandb_project: str, max_tim
         run_name = wandb_run.name
     else:
         run_name = 'latest'
-
-    # Set seeds to enforce determinism in the python segments of the algorithm
-    random.seed(system_params.random_seed)
-    np.random.seed(system_params.random_seed)
-    torch.manual_seed(system_params.random_seed)
-    torch.cuda.manual_seed_all(system_params.random_seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-    torch.use_deterministic_algorithms(True)
 
     # Create output directories
     params_path = Path(param_dir)
@@ -357,7 +357,7 @@ def run_slam(param_dir: str, output_dir: str | None, wandb_project: str, max_tim
 
         # Report ATE results
         if len(gt_pose_data) != 0:
-            ate_rmse = evaluate(
+            dict_all_results = evaluate(
                 result_g2o_file, 
                 odom_sparse_all_time_file  if system_params.offline_rpgo_params.sparsified else odom_dense_all_time_file, 
                 {i: gt_pose_data[i] for i in range(len(gt_pose_data))},
@@ -365,13 +365,14 @@ def run_slam(param_dir: str, output_dir: str | None, wandb_project: str, max_tim
                 system_params.data_params.run_env,
                 output_dir=str(output_path)
             )
+            RMS_ATE = dict_all_results['APE']['translation_part']['rmse']
             print("ATE results:")
             print("============")
-            print(ate_rmse)
+            print(RMS_ATE)
             if not disable_wandb:
-                wandb_run.log({"RMS ATE": ate_rmse})
+                log_nested(wandb_run, dict_all_results)
             with open(os.path.join(output_path, "offline_rpgo", "ate_rmse.txt"), 'w') as f:
-                print(ate_rmse, file=f)
+                print(RMS_ATE, file=f)
                 f.close()
 
     # Tell WandB to finish logging

@@ -31,11 +31,7 @@ class ObjectRegistration():
         # Calculate consistency scores
         clipper, A_init = self._clipper_score_all_to_all(clipper, map1, map2)
 
-        # Get random vector for solve (should be seeded by demo.py)
-        rand_vec = np.random.uniform(0.0, 1.0, A_init.shape[0])
-
-        # Solve for the maximum clique
-        clipper.solve(rand_vec)
+        clipper.solve()
 
         # Return the associations
         Ain = clipper.get_selected_associations()

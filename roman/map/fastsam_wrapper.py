@@ -591,7 +591,7 @@ class FastSAMWrapper():
         image = cv.cvtColor(image_bgr, cv.COLOR_BGR2RGB)
 
         # Run FastSAM
-        if self.params.optimized_fastsam_inference:
+        if self.params.optimized_fastsam_inference: # NOTE: If enabled, will change results but will still be deterministic run to run.
             with torch.no_grad():
                 with autocast(device_type='cuda', dtype=torch.float16):
                     everything_results = self.model(image, 

@@ -1,7 +1,9 @@
 import colorsys
 import copy
+from dataclasses import dataclass
 from evo.core import metrics
 from evo.core import sync
+from evo.core.metrics import PathPair
 from evo.core.trajectory import PoseTrajectory3D
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
@@ -69,7 +71,7 @@ def draw_plot_with_robot_trajectories_different_colors(traj_est_aligned_copies: 
     plt.close(fig)
 
 def evaluate(est_g2o_file: str, est_time_file: str, gt_data: Dict[int, PoseData], 
-             run_names: Dict[int, str] = None, run_env: str = None, output_dir: str = None):
+             run_names: Dict[int, str] = None, run_env: str = None, output_dir: str = None) -> dict:
     pd_est, pd_gt = gt_csv_est_g2o_to_pose_data(
         est_g2o_file, est_time_file, gt_data, run_names, run_env)
         
@@ -83,13 +85,7 @@ def evaluate(est_g2o_file: str, est_time_file: str, gt_data: Dict[int, PoseData]
     traj_est_aligned: PoseTrajectory3D = copy.deepcopy(traj_est)
     traj_est_aligned.align(traj_ref, correct_scale=False, correct_only_scale=False)
 
-    pose_relation = metrics.PoseRelation.translation_part
-    use_aligned_trajectories = True
-    
-    if use_aligned_trajectories:
-        data = (traj_ref, traj_est_aligned) 
-    else:
-        data = (traj_ref, traj_est)
+    data: PathPair = (traj_ref, traj_est_aligned) 
     
     if output_dir is not None:
         # evo/pyqt/opencv do not play well together - 
@@ -147,9 +143,43 @@ def evaluate(est_g2o_file: str, est_time_file: str, gt_data: Dict[int, PoseData]
         robot_colors = ["#11EE72", "#7211EE", "#38C2C7", "#2F3FD0"]
         draw_plot_with_robot_trajectories_different_colors(traj_est_aligned_copies, traj_gt_copies, run_names, f"{output_dir}/offline_rpgo/aligned_gt_est_per_robot_noBackground.png", no_background=True, linewidth=2.0, robot_colors=robot_colors, plot_gt=False)
         
-    # Calculate the Absolute Pose Error
-    ape_metric = metrics.APE(pose_relation)
-    ape_metric.process_data(data)
-    
-    ape_stat = ape_metric.get_statistic(metrics.StatisticsType.rmse)
-    return ape_stat
+    # Calculate various error metrics using evo, including APE and RPE
+    all_pose_relations: list[metrics.PoseRelation] = [metrics.PoseRelation.full_transformation, # dimensionless
+                                                      metrics.PoseRelation.translation_part, # meters
+                                                      metrics.PoseRelation.rotation_part, # dimensionless
+                                                      metrics.PoseRelation.rotation_angle_deg, # degrees
+                                                      metrics.PoseRelation.rotation_angle_rad, # radians
+                                                      metrics.PoseRelation.point_distance, # meters
+                                                      metrics.PoseRelation.point_distance_error_ratio] # percent
+    all_statistic_types: list[metrics.StatisticsType] = [metrics.StatisticsType.rmse,
+                                                         metrics.StatisticsType.mean,
+                                                         metrics.StatisticsType.median,
+                                                         metrics.StatisticsType.std,
+                                                         metrics.StatisticsType.min,
+                                                         metrics.StatisticsType.max,
+                                                         metrics.StatisticsType.sse]
+    all_metrics: list[metrics.PE] = [metrics.APE, metrics.RPE]
+    dict_all_results: dict = {}
+    for metric in all_metrics:
+        dict_metric: dict = {}
+
+        for pose_relation in all_pose_relations:
+            dict_relation: dict = {}
+
+            # Skip uncompatible relation with metric
+            if metric is metrics.APE and pose_relation == metrics.PoseRelation.point_distance_error_ratio:
+                continue
+
+            data_copied = copy.deepcopy(data)
+            metric_with_relation: metrics.PE = metric(pose_relation)
+            metric_with_relation.process_data(data_copied)
+
+            for stat in all_statistic_types:
+                final_stat = metric_with_relation.get_statistic(stat)
+                dict_relation[stat.name] = final_stat
+
+            dict_metric[pose_relation.name] = dict_relation
+        
+        dict_all_results[metric.__name__] = dict_metric
+
+    return dict_all_results
