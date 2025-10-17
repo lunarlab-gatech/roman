@@ -12,5 +12,5 @@ lc_r_std: 0.1745 # 10 deg
 sparsified: False
 
 # For Graduated-Non Convexity, set the maximum weighted residual error for an inlier 
-# Increase by x10 for Australian Environment due to lack of really good loop closures.
-gnc_inlier_threshold: 9
+# Increase by x5 for Australian Environment due to lack of really good loop closures.
+gnc_inlier_threshold: 4.5
