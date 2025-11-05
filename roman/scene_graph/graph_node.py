@@ -807,7 +807,7 @@ class GraphNode():
         """ Run DBScan clustering to cleanup the point cloud"""
         # NOTE: This actually ISN'T a safe operation, so calling method MUST call reset_saved_point_vars().
 
-        if self.point_cloud is not None:
+        if self.point_cloud is not None and len(self.point_cloud) != 0:
             # Convert into o3d PointCloud
             pcd = o3d.geometry.PointCloud()
             pcd.points = o3d.utility.Vector3dVector(self.point_cloud)
@@ -826,6 +826,9 @@ class GraphNode():
 
                 # Number of clusters, ignoring noise if present
                 max_label = labels.max()
+                if max_label == -1:
+                    logger.info(f"[bright_red]WARNING[/bright_red]: Largest cluster for Node {self.get_id()} is noise! Aborting DBScan... ")
+                    return
                 
                 # get largest cluster
                 cluster_sizes = np.zeros(max_label + 1)

@@ -21,12 +21,12 @@ enc_threshold_overlapping_obj: 0.2
 overlapping_nodes_throw_away_overlap: True
 
 # ===== Meronomy Relationship Inference =====
-enable_meronomy_relationship_inference: False
+enable_meronomy_relationship_inference: True
 ratio_dist2length_threshold_shared_holonym: 0.05
 ratio_dist2length_threshold_holonym_meronym: 0.05
 ratio_relationship_weight_2_total_weight: 2
 
 # ===== Parameters to mimic ROMAN functionality =====
 downsample_and_remove_outliers_after_hungarian_for_new_nodes: True
-enable_dbscan_on_node_inactivation: True
+enable_dbscan_on_node_inactivation: False
 update_voxel_grid_on_inactivation_dbscan: True

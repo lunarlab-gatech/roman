@@ -365,6 +365,7 @@ class WordNetWrapper():
         
     def get_embedding_for_word(self, word: str) -> np.ndarray:
         if not word in self.word_list:
+            # TODO: Calculate it on the fly
             raise RuntimeError(f"Trying to get embedding for word ({word}) not in our dictionary!")
 
         return self.word_features[self.word_list.index(word)]

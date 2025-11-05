@@ -992,9 +992,9 @@ class SceneGraph3D():
 
                 # Put into detected list with meronym first
                 if putative_rel[2]:
-                    detected_holonym_meronyms.append([(putative_rel[0], putative_rel[1])])
+                    detected_holonym_meronyms.append((putative_rel[0], putative_rel[1]))
                 else:
-                    detected_holonym_meronyms.append([(putative_rel[1], putative_rel[0])])
+                    detected_holonym_meronyms.append((putative_rel[1], putative_rel[0]))
        
         # Iterate over all detected holonym-meronym relationships to resolve overlaps and conflicts
         overlap = True
@@ -1003,8 +1003,8 @@ class SceneGraph3D():
 
             # Map each child list index of the detected holonyms to the indices of tuples containing it
             meronym_list_index_to_holonym_list_index = defaultdict(list)
-            for (a, b) in detected_holonym_meronyms:
-                meronym_list_index_to_holonym_list_index[a].append(b)
+            for dhm in detected_holonym_meronyms:
+                meronym_list_index_to_holonym_list_index[dhm[0]].append(dhm[1])
 
             # Find out if any meronyms have two or more detected holonyms
             for meronym_index, detected_holonym_indices in meronym_list_index_to_holonym_list_index.items():
@@ -1090,8 +1090,8 @@ class SceneGraph3D():
             # Map each child list index of the detected holonyms to the indices of tuples containing it
             child_list_index_to_detected_holonym_indices = defaultdict(list)
             for idx, (a, b) in enumerate(detected_holonyms):
-                child_list_index_to_detected_holonym_indices[a].append(idx)
-                child_list_index_to_detected_holonym_indices[b].append(idx)
+                child_list_index_to_detected_holonym_indices[a[0]].append(idx)
+                child_list_index_to_detected_holonym_indices[a[1]].append(idx)
 
             # Find out if any children of detected holonyms overlap, and if so, attempt to merge
             for detected_holonym_indices in child_list_index_to_detected_holonym_indices.values():
@@ -1130,7 +1130,8 @@ class SceneGraph3D():
         for detected_holonym in detected_holonyms:
 
             # Extract the corresponding nodes
-            nodes: list[GraphNode] = node_list_initial[detected_holonym[0]]
+            logger.info(f"Detected holonym: {detected_holonym}")
+            nodes: list[GraphNode] = [node_list_initial[i] for i in detected_holonym[0]]
 
             # Calculate the first seen time  and first pose as earliest from all nodes (and children)
             earliest_node = min(nodes, key=lambda n: n.get_time_first_seen())
@@ -1148,19 +1149,30 @@ class SceneGraph3D():
                 # TODO: Maybe search to see if other nodes are in the overlap space between
                 # the two children which should also be part of the set?
 
+                for node in nodes:
+                    holonym.num_sightings += node.num_sightings
+
                 self.place_node_in_graph(holonym, self.root_node, nodes)
 
                 # Update embedding so that it matches the word most of all!
                 # TODO: If there are multiple shared holonyms, maybe update with combination of all?
-                shared_holonyms: list[str] = putative_holonym[2]
-                holonym_emb: np.ndarray = wordnetWrapper.get_embedding_for_word(shared_holonyms[0])
-                total_weight = holonym.get_total_weight_of_semantic_descriptors()
-                holonym.add_semantic_descriptors([(holonym_emb, total_weight * self.params.ratio_relationship_weight_2_total_weight)])
-                if GraphNode.params.calculate_descriptor_incrementally:
-                    raise NotImplementedError("Holonym Inference not currently supported with incremental semantic descriptor!")
+                shared_holonyms: list[str] = detected_holonym[1]
+                try: 
+                    holonym_emb: np.ndarray = wordnetWrapper.get_embedding_for_word(shared_holonyms[0])
+                    total_weight = holonym.get_total_weight_of_semantic_descriptors()
+                    holonym.add_semantic_descriptors([(holonym_emb, total_weight * self.params.ratio_relationship_weight_2_total_weight)])
+                    if GraphNode.params.calculate_descriptor_incrementally:
+                        raise NotImplementedError("Holonym Inference not currently supported with incremental semantic descriptor!")
+                except RuntimeError as e:
+                    # TODO: THIS NEEDS TO BE HANDLED NOT JUTS PASSED
+                    pass # We don't have a corresponding embedding for this word calculated
 
-                # TODO: Need to get words for these children
-                logger.info(f"[gold1]Shared Holonym Detected[/gold1]: Node {holonym.get_id()} with words {shared_holonyms} {holonym.get_words()} from children with words {word_i.word} and {word_j.word}")
+                # Print the detected holonym
+                output_str = f"[gold1]Shared Holonym Detected[/gold1]: Node {holonym.get_id()} with words {shared_holonyms} {holonym.get_words()} from children with words"
+                for i in range(len(nodes)):
+                    output_str += f" {nodes[i].get_words().words[0].word}"
+                    if i + 1 < len(nodes): output_str += f", "
+                logger.info(output_str)
 
             else:
                 raise RuntimeError("Detected Holonym is not a valid GraphNode!")
