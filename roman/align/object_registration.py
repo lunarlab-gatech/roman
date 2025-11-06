@@ -31,7 +31,9 @@ class ObjectRegistration():
         # Calculate consistency scores
         clipper, A_init = self._clipper_score_all_to_all(clipper, map1, map2)
 
-        clipper.solve()
+        # Generate a random vector for solving
+        rand_vec: np.ndarray = np.random.rand(len(A_init))
+        clipper.solve(rand_vec)
 
         # Return the associations
         Ain = clipper.get_selected_associations()

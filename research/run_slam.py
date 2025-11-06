@@ -77,6 +77,9 @@ def run_slam(param_dir: str, output_dir: str | None, wandb_project: str, max_tim
     # Setup parameters
     system_params: SystemParams = SystemParams.from_param_dir(param_dir)
 
+    # Set the random seed
+    np.random.seed(85) # N-ZAP '85
+
     # Setup WandB to track this run
     if not disable_wandb:
         wandb_run = wandb.init(project=wandb_project)

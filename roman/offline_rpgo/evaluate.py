@@ -5,6 +5,7 @@ from evo.core import metrics
 from evo.core import sync
 from evo.core.metrics import PathPair
 from evo.core.trajectory import PoseTrajectory3D
+import hashlib
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import numpy as np
@@ -26,8 +27,33 @@ def make_lightness_palette(base_color, n_colors=20, light_range=(0.3, 0.8)) -> l
 
 def draw_plot_with_robot_trajectories_different_colors(traj_est_aligned_copies: list[PoseTrajectory3D], 
         traj_gt_copies: list[PoseTrajectory3D], run_names: dict, file_path, no_background=False,
-        robot_colors=["#B3A369", "#003057"], linewidth=1.0, plot_gt=True, aspect='equal'):
-        
+          linewidth=1.0, plot_gt=True, aspect='equal'):
+    
+    # Define a dictionary that maps from robot_name to robot_color
+    robot_name_to_color: dict = {
+        "Husky1": "#72FF26",
+        "Husky2": "#FF3DFF",
+        "Drone1": "#FFAE3D",
+        "Drone2": "#3DB4FF",
+    }
+
+    # Helper function to map names to colors if one doesn't exist in dictionary
+    def name_to_color(name: str) -> str:
+        h = hashlib.sha1(name.encode("utf-8")).hexdigest()
+        return f"#{h[:6]}"
+
+    # Get the robot names
+    robot_names = [run_names[i] for i in range(len(run_names))]
+
+    # Get robot colors based on name
+    robot_colors = []
+    for robot_name in robot_names:
+        if robot_name in robot_name_to_color:
+            color = robot_name_to_color[robot_name]
+        else:
+            color = name_to_color(robot_name)
+        robot_colors.append(make_lightness_palette(color))
+
     # Draw a plot where the trajectories from different robots have slightly different color
     fig, axs = plt.subplots(1, 1)
     if no_background:
@@ -36,13 +62,6 @@ def draw_plot_with_robot_trajectories_different_colors(traj_est_aligned_copies: 
     else:
         fig.patch.set_facecolor('white')
         axs.set_facecolor("#F0F0F0")
-
-    # Get the robot names
-    robot_names = [run_names[i] for i in range(len(run_names))]
-
-    # Setup custom color palette based on provided colors
-    for i, color in enumerate(robot_colors):
-        robot_colors[i] = make_lightness_palette(color)
 
     # Plot the trajectories
     for i in range(len(robot_names)):
@@ -63,7 +82,7 @@ def draw_plot_with_robot_trajectories_different_colors(traj_est_aligned_copies: 
         spine.set_linewidth(0.75)
 
     # Add labels
-    axs.set_title("Ground Truth vs. ROMAN Estimated Trajectories (Aligned)")
+    # axs.set_title("Ground Truth vs. ROMAN Estimated Trajectories (Aligned)")
     axs.set_xlabel("X (meters)")
     axs.set_ylabel("Y (meters)")
     axs.legend()
@@ -137,11 +156,9 @@ def evaluate(est_g2o_file: str, est_time_file: str, gt_data: Dict[int, PoseData]
         traj_gt_copies = get_aligned_trajectories_specific_to_each_robot(list_gt, traj_ref)
 
         # Draw a secondary plot where the trajectories from different robots have slightly different color
-        robot_colors = ["#11EE72", "#7211EE", "#38C2C7", "#2F3FD0"]
-        draw_plot_with_robot_trajectories_different_colors(traj_est_aligned_copies, traj_gt_copies, run_names, f"{output_dir}/offline_rpgo/aligned_gt_est_per_robot.png", no_background=True, linewidth=2.0, robot_colors=robot_colors, aspect=1)
+        draw_plot_with_robot_trajectories_different_colors(traj_est_aligned_copies, traj_gt_copies, run_names, f"{output_dir}/offline_rpgo/aligned_gt_est_per_robot.png", no_background=True, linewidth=2.0, aspect=1)
         
-        robot_colors = ["#11EE72", "#7211EE", "#38C2C7", "#2F3FD0"]
-        draw_plot_with_robot_trajectories_different_colors(traj_est_aligned_copies, traj_gt_copies, run_names, f"{output_dir}/offline_rpgo/aligned_gt_est_per_robot_noBackground.png", no_background=True, linewidth=2.0, robot_colors=robot_colors, plot_gt=False)
+        draw_plot_with_robot_trajectories_different_colors(traj_est_aligned_copies, traj_gt_copies, run_names, f"{output_dir}/offline_rpgo/aligned_gt_est_per_robot_noBackground.png", no_background=True, linewidth=2.0, plot_gt=False)
         
     # Calculate various error metrics using evo, including APE and RPE
     all_pose_relations: list[metrics.PoseRelation] = [metrics.PoseRelation.full_transformation, # dimensionless
