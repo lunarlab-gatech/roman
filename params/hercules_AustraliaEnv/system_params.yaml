@@ -8,3 +8,6 @@ path_params:
   path_to_dataset_folder: "/home/${USER}/data/Hercules_datasets/"
   path_to_robot_folder: "extract/files_for_roman_baseline/${ROBOT}/"
   dataset_version_number: "N/A"
+
+  path_background_img: "data/environment.png"
+  background_img_x_edge: 40000
