@@ -366,7 +366,9 @@ def run_slam(param_dir: str, output_dir: str | None, wandb_project: str, max_tim
                 {i: gt_pose_data[i] for i in range(len(gt_pose_data))},
                 {i: system_params.data_params.runs[i] for i in range(len(system_params.data_params.runs))},
                 system_params.data_params.run_env,
-                output_dir=str(output_path)
+                output_dir=str(output_path),
+                background_image_path=system_params.path_params.get_full_path_to_background_img(),
+                background_image_x_edge=system_params.path_params.background_img_x_edge
             )
             RMS_ATE = dict_all_results['APE']['translation_part']['rmse']
             print("ATE results:")

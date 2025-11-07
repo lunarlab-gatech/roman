@@ -2,8 +2,9 @@ num_req_assoc: 4
 use_scene_graph: False
 use_roman_map_for_alignment: True
 enable_rerun_viz: False
-
-path_to_dataset_folder: "/home/${USER}/data/Hercules_datasets/"
-path_to_robot_folder: "extract/files_for_roman_baseline/${ROBOT}/"
-dataset_version_number: "V1.5"
 seed: 85
+
+path_params:
+  path_to_dataset_folder: "/home/${USER}/data/Hercules_datasets/"
+  path_to_robot_folder: "extract/files_for_roman_baseline/${ROBOT}/"
+  dataset_version_number: "N/A"

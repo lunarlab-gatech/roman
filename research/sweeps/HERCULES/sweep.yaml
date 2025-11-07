@@ -4,28 +4,36 @@ method: grid
 parameters:
   override_dictionary:
     values:
-      - system_params:
-          dataset_version_number: "V1.5"
+      # - path_params:
+      #     dataset_version_number: "V1.5"
+      #   data_params:
+      #     runs: ["Husky1", "Husky2"]
+      # - path_params:
+      #     dataset_version_number: "V1.5"
+      #   data_params:
+      #     runs: ["Husky1", "Drone1"]
+      # - path_params:
+      #     dataset_version_number: "V1.5"
+      #   data_params:
+      #     runs: ["Drone1", "Drone2"]
+      - path_params:
+          dataset_version_number: "V1.4.1"
         data_params:
           runs: ["Husky1", "Husky2"]
-      - system_params:
-          dataset_version_number: "V1.5"
+      - path_params:
+          dataset_version_number: "V1.4.1"
         data_params:
           runs: ["Husky1", "Drone1"]
-      - system_params:
-          dataset_version_number: "V1.5"
+      - path_params:
+          dataset_version_number: "V1.4.1"
         data_params:
           runs: ["Drone1", "Drone2"]
-      - system_params:
-          dataset_version_number: "V1.4.1"
-        data_params:
-          runs: ["Husky1", "Husky2"]
-      - system_params:
+      - path_params:
           dataset_version_number: "V1.4.1"
         data_params:
           runs: ["Husky1", "Drone1"]
-      - system_params:
-          dataset_version_number: "V1.4.1"
+      - path_params:
+          dataset_version_number: "V1.5"
         data_params:
           runs: ["Drone1", "Drone2"]
         

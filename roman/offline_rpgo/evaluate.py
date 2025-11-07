@@ -6,12 +6,15 @@ from evo.core import sync
 from evo.core.metrics import PathPair
 from evo.core.trajectory import PoseTrajectory3D
 import hashlib
+import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+from matplotlib.ticker import MultipleLocator
 import numpy as np
+from pathlib import Path
 from robotdatapy.data.pose_data import PoseData
 from roman.offline_rpgo.g2o_and_time_to_pose_data import gt_csv_est_g2o_to_pose_data, make_start_and_end_times_match
-import seaborn as sns
+from roman.utils import expandvars_recursive
 from typing import Dict
 
 
@@ -25,16 +28,27 @@ def make_lightness_palette(base_color, n_colors=20, light_range=(0.3, 0.8)) -> l
     palette = [colorsys.hls_to_rgb(h, li, s) for li in lightnesses]
     return palette
 
-def draw_plot_with_robot_trajectories_different_colors(traj_est_aligned_copies: list[PoseTrajectory3D], 
-        traj_gt_copies: list[PoseTrajectory3D], run_names: dict, file_path, no_background=False,
-          linewidth=1.0, plot_gt=True, aspect='equal'):
+def draw_plot_with_robot_trajectories_different_colors(
+        traj_est_aligned_copies: list[PoseTrajectory3D], 
+        traj_gt_copies: list[PoseTrajectory3D], 
+        run_names: dict, 
+        file_path: str, 
+        no_background: bool =False,
+        linewidth: float = 1.0, 
+        plot_gt: bool =True, 
+        aspect: str = 'equal', 
+        show_grid: bool = False,
+        background_image_path: str | None = None,
+        background_image_x_edge: np.ndarray | None = None,
+        no_border: bool = False,
+        legend: bool = True):
     
     # Define a dictionary that maps from robot_name to robot_color
     robot_name_to_color: dict = {
-        "Husky1": "#9FEB2D",
-        "Husky2": "#C52DEB",
-        "Drone1": "#EB872D",
-        "Drone2": "#2DC6EB",
+        "Husky1": "#5FF598",
+        "Husky2": "#F5756E",
+        "Drone1": "#F5DA62",
+        "Drone2": "#6262F5",
     }
 
     # Helper function to map names to colors if one doesn't exist in dictionary
@@ -63,6 +77,30 @@ def draw_plot_with_robot_trajectories_different_colors(traj_est_aligned_copies: 
         fig.patch.set_facecolor('white')
         axs.set_facecolor("#F0F0F0")
 
+    # Draw background image
+    if background_image_path is not None:
+        img = mpimg.imread(expandvars_recursive(background_image_path))
+        if background_image_x_edge:
+            x_extent_meters = background_image_x_edge / 100.0
+            h, w = img.shape[0], img.shape[1]
+            y_extent_meters = x_extent_meters / w * h
+            extent = [-x_extent_meters, x_extent_meters, -y_extent_meters, y_extent_meters]
+            axs.imshow(img, extent=extent, origin="upper", alpha=1.0, zorder=0)
+        else:
+            raise ValueError("Extent must be provided with Background image.")
+
+    # Calculate trajectory bounds
+    all_x = np.concatenate([traj.positions_xyz[:, 0] for traj in traj_est_aligned_copies])
+    all_y = np.concatenate([traj.positions_xyz[:, 1] for traj in traj_est_aligned_copies])
+    if plot_gt:
+        all_x = np.concatenate([all_x] + [traj.positions_xyz[:, 0] for traj in traj_gt_copies])
+        all_y = np.concatenate([all_y] + [traj.positions_xyz[:, 1] for traj in traj_gt_copies])\
+        
+    padding_x = (all_x.max() - all_x.min()) * 0.05
+    padding_y = (all_y.max() - all_y.min()) * 0.05
+    x_min, x_max = all_x.min() - padding_x, all_x.max() + padding_x
+    y_min, y_max = all_y.min() - padding_y, all_y.max() + padding_y
+
     # Plot the trajectories
     for i in range(len(robot_names)):
         traj_est: PoseTrajectory3D = traj_est_aligned_copies[i]
@@ -74,23 +112,44 @@ def draw_plot_with_robot_trajectories_different_colors(traj_est_aligned_copies: 
             axs.plot(traj_gt.positions_xyz[:,0], traj_gt.positions_xyz[:,1], 
                         label=robot_names[i] + " (GT)", color=robot_colors[i][3], linewidth=linewidth,
                         linestyle="dotted")
+    axs.set_xlim(x_min, x_max)
+    axs.set_ylim(y_min, y_max)
     axs.set_aspect(aspect, adjustable='box')
+    
+    # Make the tick spacing match
+    yticks = axs.get_yticks()
+    if len(yticks) > 1:
+        y_spacing = yticks[1] - yticks[0]
+        axs.xaxis.set_major_locator(MultipleLocator(y_spacing))
 
     # Adjust the spines
     for spine in axs.spines.values():
         spine.set_edgecolor('black')
         spine.set_linewidth(0.75)
 
+    # Add Grid if Desired
+    if show_grid:
+        axs.grid(True, color="gray", linestyle="--", linewidth=0.5, alpha=0.7)
+    else:
+        axs.grid(False)
+
     # Add labels
-    # axs.set_title("Ground Truth vs. ROMAN Estimated Trajectories (Aligned)")
     axs.set_xlabel("X (meters)")
     axs.set_ylabel("Y (meters)")
-    axs.legend()
+
+    if legend:
+        axs.legend()
+    if no_border:
+        axs.set_axis_off()
+
     plt.savefig(file_path, dpi=300)
     plt.close(fig)
 
 def evaluate(est_g2o_file: str, est_time_file: str, gt_data: Dict[int, PoseData], 
-             run_names: Dict[int, str] = None, run_env: str = None, output_dir: str = None) -> dict:
+             run_names: Dict[int, str] = None, run_env: str = None, output_dir: str = None,
+             background_image_path: Path | None = None,
+             background_image_x_edge: float | None = None) -> dict:
+    
     pd_est, pd_gt = gt_csv_est_g2o_to_pose_data(
         est_g2o_file, est_time_file, gt_data, run_names, run_env)
         
@@ -155,10 +214,38 @@ def evaluate(est_g2o_file: str, est_time_file: str, gt_data: Dict[int, PoseData]
         traj_est_aligned_copies = get_aligned_trajectories_specific_to_each_robot(list_est, traj_est_aligned)
         traj_gt_copies = get_aligned_trajectories_specific_to_each_robot(list_gt, traj_ref)
 
-        # Draw a secondary plot where the trajectories from different robots have slightly different color
-        draw_plot_with_robot_trajectories_different_colors(traj_est_aligned_copies, traj_gt_copies, run_names, f"{output_dir}/offline_rpgo/aligned_gt_est_per_robot.png", no_background=True, linewidth=2.0, aspect=1)
+
+        # Draw Plots
+        draw_plot_with_robot_trajectories_different_colors(
+            traj_est_aligned_copies,
+            traj_gt_copies, 
+            run_names, 
+            f"{output_dir}/offline_rpgo/plot_white.png", 
+            no_background=True, 
+            linewidth=2.0, 
+            aspect=1)
         
-        draw_plot_with_robot_trajectories_different_colors(traj_est_aligned_copies, traj_gt_copies, run_names, f"{output_dir}/offline_rpgo/aligned_gt_est_per_robot_noBackground.png", no_background=True, linewidth=2.0, plot_gt=False)
+        draw_plot_with_robot_trajectories_different_colors(
+            traj_est_aligned_copies,
+            traj_gt_copies, 
+            run_names, 
+            f"{output_dir}/offline_rpgo/plot_grid.png", 
+            no_background=True, 
+            linewidth=2.0, 
+            aspect=1,
+            show_grid=True)
+        
+        draw_plot_with_robot_trajectories_different_colors(
+            traj_est_aligned_copies, 
+            traj_gt_copies, 
+            run_names, 
+            f"{output_dir}/offline_rpgo/plot_overlaid.png", 
+            no_background=True, 
+            linewidth=2.0, 
+            no_border=True,
+            plot_gt=False, 
+            background_image_path=background_image_path, 
+            background_image_x_edge=background_image_x_edge)
         
     # Calculate various error metrics using evo, including APE and RPE
     all_pose_relations: list[metrics.PoseRelation] = [metrics.PoseRelation.full_transformation, # dimensionless
