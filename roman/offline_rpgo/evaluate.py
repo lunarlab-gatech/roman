@@ -31,10 +31,10 @@ def draw_plot_with_robot_trajectories_different_colors(traj_est_aligned_copies: 
     
     # Define a dictionary that maps from robot_name to robot_color
     robot_name_to_color: dict = {
-        "Husky1": "#72FF26",
-        "Husky2": "#FF3DFF",
-        "Drone1": "#FFAE3D",
-        "Drone2": "#3DB4FF",
+        "Husky1": "#9FEB2D",
+        "Husky2": "#C52DEB",
+        "Drone1": "#EB872D",
+        "Drone2": "#2DC6EB",
     }
 
     # Helper function to map names to colors if one doesn't exist in dictionary

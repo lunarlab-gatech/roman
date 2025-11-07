@@ -41,13 +41,30 @@ class SystemParams(BaseModel):
     use_scene_graph: bool
     use_roman_map_for_alignment: bool
     enable_rerun_viz: bool
+    path_to_dataset_folder: str
+    path_to_robot_folder: str
+    dataset_version_number: str
+    seed: int
 
     @classmethod
     def from_param_dir(cls, path: str) -> SystemParams:
         params_path = Path(path)
 
-        data_params = DataParams.from_yaml(params_path / "data.yaml")
-        pose_data_gt_params = PoseDataGTParams.from_yaml(params_path / "gt_pose.yaml")
+        with open(params_path / "system_params.yaml") as f:
+            data = yaml.safe_load(f)
+        num_req_assoc = data['num_req_assoc']
+        use_scene_graph = data['use_scene_graph']
+        use_roman_map_for_alignment = data['use_roman_map_for_alignment']
+        enable_rerun_viz = data['enable_rerun_viz']
+        path_to_dataset_folder = data['path_to_dataset_folder']
+        path_to_robot_folder = data['path_to_robot_folder']
+        dataset_version_number = data['dataset_version_number']
+        seed = data['seed']
+
+        full_path_to_robot_folder = Path(path_to_dataset_folder) / dataset_version_number / path_to_robot_folder
+
+        data_params = DataParams.from_yaml(params_path / "data.yaml", full_path_to_robot_folder)
+        pose_data_gt_params = PoseDataGTParams.from_yaml(params_path / "gt_pose.yaml", full_path_to_robot_folder)
         fastsam_params = FastSAMParams.from_yaml(params_path / "fastsam.yaml")
         graph_node_params = GraphNodeParams.from_yaml(params_path / "graph_node.yaml")
         mapper_params = MapperParams.from_yaml(params_path / "mapper.yaml")
@@ -55,13 +72,6 @@ class SystemParams(BaseModel):
         scene_graph_3D_params = SceneGraph3DParams.from_yaml(params_path / "scene_graph_3D.yaml")
         submap_align_params = SubmapAlignParams.from_yaml(params_path / "submap_align.yaml")
         
-        with open(params_path / "system_params.yaml") as f:
-            data = yaml.safe_load(f)
-        num_req_assoc = data['num_req_assoc']
-        use_scene_graph = data['use_scene_graph']
-        use_roman_map_for_alignment = data['use_roman_map_for_alignment']
-        enable_rerun_viz = data['enable_rerun_viz']
-
         if not use_roman_map_for_alignment and not use_scene_graph:
             raise ValueError("Cannot set 'use_roman_map_for_alignment' to False when 'use_scene_graph' is also False.")
         
@@ -79,4 +89,8 @@ class SystemParams(BaseModel):
                    num_req_assoc=num_req_assoc,
                    use_scene_graph=use_scene_graph,
                    use_roman_map_for_alignment=use_roman_map_for_alignment,
-                   enable_rerun_viz=enable_rerun_viz)
+                   enable_rerun_viz=enable_rerun_viz,
+                   path_to_dataset_folder=path_to_dataset_folder,
+                   path_to_robot_folder=path_to_robot_folder,
+                   dataset_version_number=dataset_version_number,
+                   seed=seed)

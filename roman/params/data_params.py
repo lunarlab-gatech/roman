@@ -17,6 +17,7 @@ from dataclasses import dataclass
 import yaml
 from typing import List, Tuple, Optional
 from functools import cached_property
+from pathlib import Path
 from robotdatapy.data import ImgData, PoseData
 from robotdatapy.transform import T_FLURDF, T_RDFFLU
 from roman.utils import expandvars_recursive
@@ -41,16 +42,21 @@ class ImgDataParams:
     time_tol: float = None
     
     @classmethod
-    def from_dict(cls, params_dict: dict):
+    def from_dict(cls, params_dict: dict, full_path_to_robot_folder: Path):
+
+        params_dict['path'] = str(full_path_to_robot_folder / params_dict['path'])
+        if 'path_times' in params_dict:
+            params_dict['path_times'] = str(full_path_to_robot_folder / params_dict['path_times'])
         return cls(**params_dict)
 
 @dataclass
 class PoseDataGTParams:
     yaml_file: str
+    full_path_to_robot_folder: str
 
     @classmethod
-    def from_yaml(cls, yaml_file: str):
-        return cls(yaml_file)
+    def from_yaml(cls, yaml_file: str, full_path_to_robot_folder: str):
+        return cls(yaml_file, full_path_to_robot_folder)
         
     def get_pose_data(self, data_params: DataParams) -> list[PoseData]:
         gt_pose_data: list[PoseData] = []
@@ -62,6 +68,9 @@ class PoseDataGTParams:
                 # Load yaml file
                 with open(os.path.expanduser(self.yaml_file), 'r') as f:
                     gt_pose_args = yaml.safe_load(f)
+
+                # Update the path to be the full system path
+                gt_pose_args['path'] = str(self.full_path_to_robot_folder / gt_pose_args['path'])
                 
                 # Convert into a PoseData object
                 if gt_pose_args['type'] == 'bag':
@@ -88,12 +97,14 @@ class PoseDataParams:
     T_odombase_camera_dict: dict = None
     
     @classmethod
-    def from_dict(cls, params_dict: dict):
+    def from_dict(cls, params_dict: dict, full_path_to_robot_folder: Path):
         params_dict_subset = {k: v for k, v in params_dict.items() 
                        if k != 'T_camera_flu' and k != 'T_odombase_camera'}
         T_camera_flu_dict = params_dict['T_camera_flu']
         T_odombase_camera_dict = params_dict['T_odombase_camera'] \
             if 'T_odombase_camera' in params_dict else None
+        
+        params_dict_subset['path'] = str(full_path_to_robot_folder / params_dict_subset['path'])
         return cls(params_dict=params_dict_subset, T_camera_flu_dict=T_camera_flu_dict, 
                    T_odombase_camera_dict=T_odombase_camera_dict)
         
@@ -177,14 +188,14 @@ class DataParams:
             assert 'tf' in self.time_params['time'], "tf must be specified in params"
         
     @classmethod
-    def from_yaml(cls, yaml_path: str):
+    def from_yaml(cls, yaml_path: str, full_path_to_robot_folder: Path):
         with open(yaml_path) as f:
             data = yaml.safe_load(f)
 
         return cls(
-            ImgDataParams.from_dict(data['img_data']),
-            ImgDataParams.from_dict(data['depth_data']),
-            PoseDataParams.from_dict(data['pose_data']),
+            ImgDataParams.from_dict(data['img_data'], full_path_to_robot_folder),
+            ImgDataParams.from_dict(data['depth_data'], full_path_to_robot_folder),
+            PoseDataParams.from_dict(data['pose_data'], full_path_to_robot_folder),
             dt=data['dt'] if 'dt' in data else 1/6,
             runs=data['runs'] if 'runs' in data else None,
             run_env=data['run_env'] if 'run_env' in data else None,
