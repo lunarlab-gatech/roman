@@ -11,6 +11,7 @@ from robotdatapy.data.pose_data import PoseData
 from roman.utils import expandvars_recursive
 from .scene_graph_3D_params import SceneGraph3DParams, GraphNodeParams
 from .submap_align_params import SubmapAlignParams
+from .path_params import PathParams
 import yaml
 
 class SystemParams(BaseModel):
@@ -29,6 +30,7 @@ class SystemParams(BaseModel):
         num_req_assoc (int): Number of required associations for merging nodes.
     """
 
+    path_params: PathParams
     data_params: DataParams
     pose_data_gt_params: PoseDataGTParams
     fastsam_params: FastSAMParams
@@ -41,13 +43,23 @@ class SystemParams(BaseModel):
     use_scene_graph: bool
     use_roman_map_for_alignment: bool
     enable_rerun_viz: bool
+    seed: int
 
     @classmethod
     def from_param_dir(cls, path: str) -> SystemParams:
         params_path = Path(path)
 
-        data_params = DataParams.from_yaml(params_path / "data.yaml")
-        pose_data_gt_params = PoseDataGTParams.from_yaml(params_path / "gt_pose.yaml")
+        with open(params_path / "system_params.yaml") as f:
+            data = yaml.safe_load(f)
+        num_req_assoc = data['num_req_assoc']
+        use_scene_graph = data['use_scene_graph']
+        use_roman_map_for_alignment = data['use_roman_map_for_alignment']
+        enable_rerun_viz = data['enable_rerun_viz']
+        seed = data['seed']
+
+        path_params = PathParams.from_dict(data['path_params'])
+        data_params = DataParams.from_yaml(params_path / "data.yaml", path_params)
+        pose_data_gt_params = PoseDataGTParams.from_yaml(params_path / "gt_pose.yaml", path_params)
         fastsam_params = FastSAMParams.from_yaml(params_path / "fastsam.yaml")
         graph_node_params = GraphNodeParams.from_yaml(params_path / "graph_node.yaml")
         mapper_params = MapperParams.from_yaml(params_path / "mapper.yaml")
@@ -55,20 +67,14 @@ class SystemParams(BaseModel):
         scene_graph_3D_params = SceneGraph3DParams.from_yaml(params_path / "scene_graph_3D.yaml")
         submap_align_params = SubmapAlignParams.from_yaml(params_path / "submap_align.yaml")
         
-        with open(params_path / "system_params.yaml") as f:
-            data = yaml.safe_load(f)
-        num_req_assoc = data['num_req_assoc']
-        use_scene_graph = data['use_scene_graph']
-        use_roman_map_for_alignment = data['use_roman_map_for_alignment']
-        enable_rerun_viz = data['enable_rerun_viz']
-
         if not use_roman_map_for_alignment and not use_scene_graph:
             raise ValueError("Cannot set 'use_roman_map_for_alignment' to False when 'use_scene_graph' is also False.")
         
         if scene_graph_3D_params.use_convex_hull_for_iou and not graph_node_params.require_valid_convex_hull:
             raise ValueError("If Scene Graph uses Convex Hull IOU, then GraphNode must require Convex Hull.")
 
-        return cls(data_params=data_params, 
+        return cls(path_params=path_params,
+                   data_params=data_params, 
                    pose_data_gt_params=pose_data_gt_params,
                    fastsam_params=fastsam_params, 
                    graph_node_params=graph_node_params, 
@@ -79,4 +85,5 @@ class SystemParams(BaseModel):
                    num_req_assoc=num_req_assoc,
                    use_scene_graph=use_scene_graph,
                    use_roman_map_for_alignment=use_roman_map_for_alignment,
-                   enable_rerun_viz=enable_rerun_viz)
+                   enable_rerun_viz=enable_rerun_viz,
+                   seed=seed)

@@ -5,9 +5,9 @@ enable_rerun_viz: False
 seed: 85
 
 path_params:
-  path_to_dataset_folder: "${ROMAN_DEMO_DATA}"
+  path_to_dataset_folder: "${ROMAN_DEMO_DATA}/"
   path_to_robot_folder: ""
   dataset_version_number: ""
 
-  path_background_img: "environment.jpeg"
+  path_background_img: "environment.png"
   background_img_x_edge: 40000

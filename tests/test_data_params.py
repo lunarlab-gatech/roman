@@ -2,7 +2,7 @@ import numpy as np
 import os
 from pathlib import Path
 from robotdatapy.data.pose_data import PoseData
-from roman.params.data_params import PoseDataGTParams, DataParams, PoseDataParams
+from roman.params.data_params import PoseDataGTParams, PathParams, DataParams, PoseDataParams
 import unittest
 from typeguard import typechecked
 import yaml
@@ -16,8 +16,12 @@ class TestPoseDataGTParams(unittest.TestCase):
 
         # Load params
         files_path = Path(__file__).parent / "files" / "test_data_params" / "test_get_pose_data" 
-        data_params = DataParams.from_yaml(files_path / "data.yaml")
-        pose_data_gt_params = PoseDataGTParams.from_yaml(files_path / "gt_pose.yaml")
+
+        with open(files_path / "system_params.yaml") as f:
+            data = yaml.safe_load(f)
+        path_params = PathParams.from_dict(data['path_params'], check_background_img_path=False)
+        data_params = DataParams.from_yaml(files_path / "data.yaml", path_params)
+        pose_data_gt_params = PoseDataGTParams.from_yaml(files_path / "gt_pose.yaml", path_params)
 
         # Extract the pose data
         os.environ['ROMAN_DEMO_DATA'] = str(files_path)
@@ -37,10 +41,14 @@ class TestPoseDataParams(unittest.TestCase):
 
     def test_find_transformation(self):
         # Create the PoseDataParams object
-        yaml_path = Path(__file__).parent / "files" / "test_data_params" / "test_find_transformation" / 'pose_data.yaml'
-        with open(yaml_path) as f:
-            data = yaml.safe_load(f)
-        poseDataParams = PoseDataParams.from_dict(data)
+        files_path = Path(__file__).parent / "files" / "test_data_params" / "test_find_transformation"
+        with open(files_path / 'pose_data.yaml') as f:
+            pose_data = yaml.safe_load(f)
+        with open(files_path / 'system_params.yaml') as f:
+            path_data = yaml.safe_load(f)
+        path_params = PathParams.from_dict(path_data['path_params'], check_background_img_path=False)
+        path_params.path_to_dataset_folder = files_path
+        poseDataParams = PoseDataParams.from_dict(pose_data, path_params)
 
         # Make sure _find_transformation gets the correct matrix
         H_Drone1 =np.array([[ 0,  0.17364818,  0.98480775,  0.35],      
@@ -53,13 +61,13 @@ class TestPoseDataParams(unittest.TestCase):
                              [ 0, 0, 0, 1]])
 
         os.environ["ROBOT"] = "Drone1"
-        H: np.ndarray = poseDataParams._find_transformation(data['T_odombase_camera'])
+        H: np.ndarray = poseDataParams._find_transformation(pose_data['T_odombase_camera'])
         np.testing.assert_array_equal(H, H_Drone1)
         os.environ["ROBOT"] = "Husky1"
-        H: np.ndarray = poseDataParams._find_transformation(data['T_odombase_camera'])
+        H: np.ndarray = poseDataParams._find_transformation(pose_data['T_odombase_camera'])
         np.testing.assert_array_equal(H, H_Husky1)
         os.environ["ROBOT"] = "Drone2"
-        H: np.ndarray = poseDataParams._find_transformation(data['T_odombase_camera'])
+        H: np.ndarray = poseDataParams._find_transformation(pose_data['T_odombase_camera'])
         np.testing.assert_array_equal(H, H_Drone1)
 
 
