@@ -121,9 +121,7 @@ def run_slam(param_dir: str, output_dir: str | None, wandb_project: str, max_tim
                 raise ValueError("Triple Nested keys not supported!")
 
         # Take the parameters (default and overwritten) and write as new config back to WandB
-        def shorten(d):
-            return {(''.join([w[0] for w in k.split('_')]) if isinstance(v, dict) else k): (shorten(v) if isinstance(v, dict) else v) for k, v in d.items()}
-        config_dict = shorten({'system_params': system_params.model_dump()})
+        config_dict = {'system_params': system_params.model_dump()}
         config_dict['skip_map'] = skip_map
         config_dict['use_map'] = use_map
         for key, value in config_dict.items():
