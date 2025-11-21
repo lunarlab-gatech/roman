@@ -25,7 +25,7 @@ from typeguard import typechecked
 from .word_net_wrapper import WordNetWrapper, WordListWrapper
 
 # Initialize a WordNetWrapper for use by GraphNodes
-wordnetWrapper = WordNetWrapper(["curb", "tree", "garbage can", "door", "window", "pole", "street lamp", "trunk", "wall", "sign", "crosswalk", "sidewalk", "mulch", "leaves", "grass", "retaining wall", "railing", "curbstone", "bush", "hedge" "floor marking", "stairs", "column", "car", "wheel", "bike", "street", "manhole", "parking meter", "tree pit", "fire hydrant", "road marking", "zebra strips"])
+wordnetWrapper = WordNetWrapper(["curb", "tree", "garbage can", "door", "window", "pole", "street lamp", "trunk", "wall", "sign", "crosswalk", "sidewalk", "mulch", "leaves", "grass", "retaining wall", "railing", "curbstone", "bush", "hedge" "floor marking", "stairs", "column", "car", "wheel", "bike", "street", "manhole", "parking meter", "tree pit", "fire hydrant", "road marking", "zebra strips", "automotive vehicle", "motor vehicle", "bicycle", "aeroplane"])
 
 @typechecked
 class GraphNode():
@@ -179,7 +179,7 @@ class GraphNode():
 
         return (
             f"GraphNode(\n"
-            f"  Id: {id(self)}\n"
+            f"  Id: {self.get_id()}\n"
             f"  Parent: {'None' if self.parent_node is None else 'Present'}\n"
             f"  Semantic Descriptors: {semantic_count} descriptors\n"
             f"    Weights: {semantic_weights}\n"
@@ -900,7 +900,7 @@ class GraphNode():
         # NOTE: This actually ISN'T a safe operation, so calling method MUST call reset_saved_point_vars().
 
     # ==================== Merging ====================
-    def merge_with_node(self, other: GraphNode, keep_children=True, new_id: int | None = None) -> GraphNode | None:
+    def merge_with_node_mapping(self, other: GraphNode, keep_children=True, new_id: int | None = None) -> GraphNode | None:
         """
         As opposed to merge_with_observation (which can just be called), this method 
         will take out self and other from the graph and return a new node. This new
@@ -962,6 +962,50 @@ class GraphNode():
         for child in combined_children:
             child.set_parent(new_node)
         return new_node
+    
+    def merge_with_node_meronomy(self, other: GraphNode, keep_children=True, new_id: int | None = None) -> GraphNode | None:
+        """
+        As opposed to merge_with_observation (which can just be called), this method 
+        will take out self and other from the graph and return a new node. This new
+        node needs to be inserted back into the graph by the SceneGraph3D.
+
+        NOTE: other cannot be a descendent or ascendent of self!
+        NOTE: If the new node is invalid, then will just return None.
+        """
+
+        # Make sure they are not related
+        assert not (self.is_descendent_or_ascendent(other) and keep_children), "This method doesn't support merging ascendent/descendent nodes if keep_children is true!"
+
+        # Remove both nodes (and all descendants) from the graph
+        self.remove_from_graph_complete(keep_children)
+        other.remove_from_graph_complete(keep_children)
+
+        # Combine only semantic descriptors in the two nodes directly, not from children
+        combined_descriptors = self.semantic_descriptors + other.semantic_descriptors
+
+        # Do the same with point clouds specific to these two nodes, not children
+        combined_pc = np.concatenate((self.point_cloud, other.point_cloud), axis=0)
+
+        # Make a list of children
+        combined_children = (self.get_children() + other.get_children())
+
+        # Create a new node representing the merge
+        if new_id is None:
+            new_id = self.get_id() if self.get_id() < other.get_id() else other.get_id()
+        new_node = GraphNode.create_node_if_possible(new_id, None, combined_descriptors, self.semantic_descriptor_inc,
+                        self.semantic_descriptor_inc_count, combined_pc, combined_children, 0.0, 0.0, 0.0, np.eye(4),
+                        np.eye(4), np.eye(4), run_dbscan=False)
+        if new_node is None:
+            return None
+        if other.semantic_descriptor_inc is not None:
+            new_node.obs_descriptor = np.zeros((0, 1))
+            new_node.add_semantic_descriptors_incremental(other.semantic_descriptor_inc, other.semantic_descriptor_inc_count)
+ 
+        # Tell our children who their new parent is
+        for child in combined_children:
+            child.set_parent(new_node)
+        return new_node
+
 
     def merge_with_observation(self, new_pc: np.ndarray, new_descriptors: list[tuple[np.ndarray, float]] | None, 
                                descriptor_inc: np.ndarray | None) -> None:

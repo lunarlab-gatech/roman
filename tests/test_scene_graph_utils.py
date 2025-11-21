@@ -154,6 +154,22 @@ class TestSceneGraphUtils(unittest.TestCase):
         np.testing.assert_array_equal(A_out_exp, A_out)
         np.testing.assert_array_equal(B_out_exp, B_out)
 
+    def test_merge_overlapping_holonyms(self):
+        """ Ensure that we can merge overlapping holonyms correctly. """
+
+        input_detected_holonyms: list[tuple[set[int], set[str]]] = \
+            [({7, 26}, {'automotive vehicle', 'motor vehicle'}), 
+             ({9, 26}, {'automotive vehicle', 'motor vehicle'}), 
+             ({13, 26}, {'automotive vehicle', 'motor vehicle'})]
+        
+        output_detected_holonyms_exp: list[tuple[set[int], set[str]]] = \
+            [({7, 9, 13, 26}, {'automotive vehicle', 'motor vehicle'})]
+        
+        output_detected_holonyms: list[tuple[set[int], set[str]]] = merge_overlapping_holonyms(input_detected_holonyms)
+
+        for tup in output_detected_holonyms_exp:
+            self.assertIn(tup, output_detected_holonyms)
+
     def test_merge_objs_via_function(self):
         # Generate example list of sets
         A = [{0, 1, 5}, {2, 3}, {3, 4}, {5, 2}]

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import copy
 from enum import Enum
 from .graph_node import GraphNode, wordnetWrapper
 from .scene_graph_utils import *
@@ -53,12 +54,18 @@ class MeronomyGraph(SceneGraph3DBase):
         graph_changed = True
         while graph_changed:
             graph_changed = False
-            graph_changed |= self.synonym_relationship_merging()
-            self.rerun_window.update_graph(self.root_node)
-            graph_changed |= self.holonym_meronym_relationship_inference()
-            self.rerun_window.update_graph(self.root_node)
-            graph_changed |= self.shared_holonym_relationship_inference()
-            self.rerun_window.update_graph(self.root_node)
+
+            if self.meronomy_params.enable_synonym_merges:
+                graph_changed |= self.synonym_relationship_merging()
+                self.rerun_window.update_graph(self.root_node)
+
+            if self.meronomy_params.enable_holonym_meronym_inference:
+                graph_changed |= self.holonym_meronym_relationship_inference()
+                self.rerun_window.update_graph(self.root_node)
+
+            if self.meronomy_params.enable_shared_holonym_inference:
+                graph_changed |= self.shared_holonym_relationship_inference()
+                self.rerun_window.update_graph(self.root_node)
 
     class NodeRelationship(Enum):
         SHARED_HOLONYM = 0
@@ -106,6 +113,17 @@ class MeronomyGraph(SceneGraph3DBase):
                         # Check if there is a shared holonym
                         shared_holonyms: list[str] = sorted(set.intersection(word_i_holonyms_pure, word_j_holonyms_pure))
                         if len(shared_holonyms) > 0:
+
+                            # Make sure neither of them have a parent with the shared holonym already
+                            # NOTE: This is greedy, as it may not be paired to the best parent.
+                            node_i_parent = node_i.get_parent()
+                            node_j_parent = node_j.get_parent()
+                            if not node_i_parent.is_RootGraphNode():
+                                if node_i_parent.get_words() == WordListWrapper.from_words(shared_holonyms):
+                                    continue
+                            if not node_j_parent.is_RootGraphNode():
+                                if node_j_parent.get_words() == WordListWrapper.from_words(shared_holonyms):
+                                    continue
 
                             # Append to list of potential nodes with shared holonyms
                             putative_relationships.append((i, j, shared_holonyms))
@@ -177,9 +195,10 @@ class MeronomyGraph(SceneGraph3DBase):
             node_i: GraphNode = node_list_initial[putative_rel[0]]
             node_j: GraphNode = node_list_initial[putative_rel[1]]
 
-            # If they are parent-child OR geometrically close:
-            if node_i.is_parent_or_child(node_j) or self.shortest_dist_to_node_size_ratio(node_i, node_j) < \
-                                                    self.meronomy_params.ratio_dist2length_threshold_nearby_node_semantic_merge:
+            # If they are parent-child OR geometrically overlapping:
+            _, enc_i_ratio, enc_j_ratio = self.geometric_overlap_cached(node_i, node_j)
+            if node_i.is_parent_or_child(node_j) or enc_i_ratio >= self.meronomy_params.min_enc_for_synonym \
+                                                 or enc_j_ratio >= self.meronomy_params.min_enc_for_synonym:
                 # Add to list of detected
                 detected_synonyms.append({putative_rel[0], putative_rel[1]})
 
@@ -199,23 +218,27 @@ class MeronomyGraph(SceneGraph3DBase):
                 If merge occured, returns the merged node; otherwise returns None. """
 
                 if node_i.is_parent_or_child(node_j):
-                    logger.info(f"[green1]Parent-Child Synonymy[/green1]: Merging Node {node_i.get_id()} and Node {node_j.get_id()}")
+                    node_i_org_id = node_i.get_id()
+                    node_j_org_id = node_j.get_id()
+                    node_i_org_words = node_i.get_words()
+                    node_j_org_words = node_j.get_words()
+
                     merged_node = node_i.merge_parent_and_child(node_j, new_id=self.next_node_ID)
                     self.next_node_ID += 1
+                    self.rerun_window.update_graph(self.root_node)
+                    logger.info(f"[green1]Parent-Child Synonymy[/green1]: Merging Node {node_i_org_id} ({node_i_org_words}) and Node {node_j_org_id} ({node_j_org_words}) into Node {merged_node.get_id()} ({merged_node.get_words()})")
                     return merged_node
                 return None
 
             synonyms = merge_objs_via_function(synonyms, merge_nodes_if_parent_and_child)
-            self.rerun_window.update_graph(self.root_node)
-
+    
             # Phase 2: Merge remaining nodes (non-parent/child)
             while len(synonyms) > 1:
                 node_i = synonyms[0]
                 node_j = synonyms[1]
 
                 # Merge the two nodes
-                logger.info(f"[green3]Nearby Nodes Synonymy[/green3]: Merging Node {node_i.get_id()} and Node {node_j.get_id()} and popping off graph")
-                merged_node = node_i.merge_with_node(node_j, keep_children=False, new_id=self.next_node_ID)
+                merged_node = node_i.merge_with_node_meronomy(node_j, keep_children=True, new_id=self.next_node_ID)
                 if merged_node is None:
                     logger.info(f"[bright_red]Merge Fail[/bright_red]: Resulting Node was invalid.")
                 else:
@@ -229,6 +252,7 @@ class MeronomyGraph(SceneGraph3DBase):
                 synonyms.pop(0)
 
                 self.rerun_window.update_graph(self.root_node)
+                logger.info(f"[dark_green]Nearby Nodes Synonymy[/dark_green]: Merging Node {node_i.get_id()} ({node_i.get_words()}) and Node {node_j.get_id()} ({node_j.get_words()}) into Node {merged_node.get_id()} ({merged_node.get_words()})")
         
         return any_merges_occurred
 
@@ -341,7 +365,7 @@ class MeronomyGraph(SceneGraph3DBase):
         node_list_initial = all_nodes.copy()
 
         # For each putative holonym, calculate detected ones based on map geometric knowledge
-        detected_holonyms: list[tuple[list[int], list[str]]] = []
+        detected_holonyms: list[tuple[set[int], set[str]]] = []
         for putative_holonym in putative_holonyms:
 
             # Extract the corresponding nodes
@@ -350,57 +374,16 @@ class MeronomyGraph(SceneGraph3DBase):
 
             # If they are close enough, declare this putative holonym as detected
             if self.shortest_dist_to_node_size_ratio(node_i, node_j) < self.meronomy_params.ratio_dist2length_threshold_shared_holonym:
-                detected_holonyms.append(([putative_holonym[0], putative_holonym[1]], putative_holonym[2]))
+                detected_holonyms.append(({putative_holonym[0], putative_holonym[1]}, set(putative_holonym[2])))
+
 
         # Iterate over all detected shared holonyms to resolve overlaps and conflicts
-        overlap = True
-        while overlap:
-            overlap = False
-
-            # Map each child list index of the detected holonyms to the indices of tuples containing it
-            child_list_index_to_detected_holonym_indices = defaultdict(list)
-            for idx, (a, b) in enumerate(detected_holonyms):
-                child_list_index_to_detected_holonym_indices[a[0]].append(idx)
-                child_list_index_to_detected_holonym_indices[a[1]].append(idx)
-
-            # Find out if any children of detected holonyms overlap, and if so, attempt to merge
-            for detected_holonym_indices in child_list_index_to_detected_holonym_indices.values():
-                if len(detected_holonym_indices) > 1:
-
-                    # Get all sets of shared holonyms
-                    holonym_strs: list[set[str]] = []
-                    for detected_holonym_index in detected_holonym_indices:
-                        holonym_strs.append(set(detected_holonyms[detected_holonym_index][1]))
-
-                    # Calculate the intersection
-                    intersection: set[str] = holonym_strs[0].intersection(*holonym_strs[1:])
-
-                    # If there is a shared holonym to all of these 
-                    if len(intersection) > 0:
-                        # Add a merged detected holonym
-                        all_child_list_indices: list[int] = []
-                        for i in detected_holonym_indices:
-                            all_child_list_indices += detected_holonyms[i][0]
-                        detected_holonyms.append((all_child_list_indices, sorted(intersection)))
-
-                        # Pop all previous detected holonyms that formed the merge one
-                        for idx in sorted(detected_holonym_indices, reverse=True):
-                            detected_holonyms.pop(idx)
-                    else:
-                        # There is no shared holonym, so these detected holonyms are NOT consistent.
-                        # Just greedily pick the first one, which invalidates all others
-                        for idx in sorted(detected_holonym_indices[1:], reverse=True):
-                            detected_holonyms.pop(idx)
-
-                    # Regardless, our mapping has changed, so reloop
-                    overlap = True
-                    break
+        detected_holonyms = merge_overlapping_holonyms(detected_holonyms)
                     
         # For each detected holonym (after conflict resolution), add to graph
         for detected_holonym in detected_holonyms:
 
             # Extract the corresponding nodes
-            logger.info(f"Detected holonym: {detected_holonym}")
             nodes: list[GraphNode] = [node_list_initial[i] for i in detected_holonym[0]]
 
             # Calculate the first seen time  and first pose as earliest from all nodes (and children)
@@ -412,7 +395,7 @@ class MeronomyGraph(SceneGraph3DBase):
             holonym: GraphNode | None = GraphNode.create_node_if_possible(self.next_node_ID, 
                                             self.root_node, [], None, 0, np.zeros((0, 3), dtype=np.float64), 
                                             nodes, first_seen, 0.0, 0.0, 
-                                            first_pose, np.eye(4), np.eye(4), is_RootGraphNode=False)
+                                            first_pose, np.eye(4), np.eye(4), is_RootGraphNode=False, run_dbscan=False)
 
             # If the node was successfully created, add to the graph
             if holonym is not None:
@@ -429,21 +412,17 @@ class MeronomyGraph(SceneGraph3DBase):
 
                 # Update embedding so that it matches the word most of all!
                 # TODO: If there are multiple shared holonyms, maybe update with combination of all?
-                shared_holonyms: list[str] = detected_holonym[1]
-                try: 
-                    holonym_emb: np.ndarray = wordnetWrapper.get_embedding_for_word(shared_holonyms[0])
-                    total_weight = holonym.get_total_weight_of_semantic_descriptors()
-                    holonym.add_semantic_descriptors([(holonym_emb, total_weight * self.meronomy_params.ratio_relationship_weight_2_total_weight)])
-                    if GraphNode.params.calculate_descriptor_incrementally:
-                        raise NotImplementedError("Holonym Inference not currently supported with incremental semantic descriptor!")
-                except RuntimeError as e:
-                    # TODO: THIS NEEDS TO BE HANDLED NOT JUTS PASSED
-                    pass # We don't have a corresponding embedding for this word calculated
+                shared_holonyms: list[str] = sorted(detected_holonym[1])
+                holonym_emb: np.ndarray = wordnetWrapper.get_embedding_for_word(shared_holonyms[0])
+                total_weight = holonym.get_total_weight_of_semantic_descriptors()
+                holonym.add_semantic_descriptors([(holonym_emb, total_weight * self.meronomy_params.ratio_relationship_weight_2_total_weight)])
+                if GraphNode.params.calculate_descriptor_incrementally:
+                    raise NotImplementedError("Holonym Inference not currently supported with incremental semantic descriptor!")
 
                 # Print the detected holonym
-                output_str = f"[gold1]Shared Holonym Detected[/gold1]: Node {holonym.get_id()} with words {shared_holonyms} {holonym.get_words()} from children with words"
+                output_str = f"[gold1]Shared Holonym Detected[/gold1]: Node {holonym.get_id()} {shared_holonyms} from children "
                 for i in range(len(nodes)):
-                    output_str += f" {nodes[i].get_words().words[0].word}"
+                    output_str += f"{nodes[i].get_id()} {nodes[i].get_words()}"
                     if i + 1 < len(nodes): output_str += f", "
                 logger.info(output_str)
                 self.rerun_window.update_graph(self.root_node)

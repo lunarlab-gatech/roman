@@ -271,6 +271,7 @@ class WordNetWrapper():
 
     def __init__(self, word_list: list[str] | None):
 
+        self.model = None
         self.wordnet_emb_path = Path(__file__).resolve().parent / "files" / "word_features.npy"
         logger.info(f"WordNet Embeddings Path: {self.wordnet_emb_path}")
 
@@ -282,12 +283,15 @@ class WordNetWrapper():
             # Get meronyms and holonyms for each word and append to list
             word_list_initial: set[str] = set(word_list)
             word_list_final: set[str] = set()
+
             for word in word_list_initial:
                 wrapped = WordWrapper.from_word(word)
                 meronyms = wrapped.get_all_meronyms(True, 2)
                 holonyms = wrapped.get_all_holonyms(True, 2)
                 word_list_final.update(meronyms)
                 word_list_final.update(holonyms)
+
+            word_list_final.update(word_list_initial)
             self.word_list = list(word_list_final)
 
         self.word_list.sort()
@@ -302,45 +306,44 @@ class WordNetWrapper():
         except Exception:
             self.use_cupy = False
 
-        self._calculate_word_embeddings()
-            
-    def _calculate_word_embeddings(self):
-        """ Convert WordNet words into CLIP embeddings """
-
-        # Check if we've already calculated these embeddings
+        # Calculate embeddings if we haven't already
         if self.wordnet_emb_path.exists():
             self.word_features = np.load(str(self.wordnet_emb_path))
             logger.info(f"CLIP Features loaded successfully for dictionary")
         else:
-
-            # Load the CLIP model
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            self.model, preprocess = clip.load("ViT-L/14", device=device)
-            self.model.eval()
-            batch_size = 1000
-
-            # Get CLIP features
-            self.word_features = np.zeros((self.num_of_words, 768), dtype=np.float16)
-            for i in range(int(np.ceil(self.num_of_words / batch_size))):
-                # Tokenize the words
-                word_batch = self.word_list[i*batch_size:(i+1)*batch_size]
-                tokens = clip.tokenize(word_batch).to(device)
-
-                # Get text features and save in mapping
-                with torch.no_grad():
-                    text_features = self.model.encode_text(tokens).cpu().numpy()
-                    text_features /= np.linalg.norm(text_features, axis=1, keepdims=True)
-                self.word_features[i*batch_size:(i+1)*batch_size] = text_features
-            logger.info(f"CLIP Features encoded successfully for dictionary")
-
-            # Finally, save this on the comptuer
+            self.word_features = self._calculate_word_embeddings(self.word_list)
             os.makedirs(os.path.dirname(self.wordnet_emb_path), exist_ok=True)
             np.save(str(self.wordnet_emb_path), self.word_features)
 
         # Save word features into CuPy array
         if self.use_cupy:
             self.word_features_cupy = cp.asarray(self.word_features)
-    
+            
+    def _calculate_word_embeddings(self, word_list: list[str]) -> np.ndarray:
+        """ Convert WordNet words into CLIP embeddings """
+
+        # Load the CLIP model
+        if self.model is None:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            self.model, preprocess = clip.load("ViT-L/14", device=device)
+            self.model.eval()
+            batch_size = 1000
+
+        # Get CLIP features
+        word_features = np.zeros((len(word_list), 768), dtype=np.float16)
+        for i in range(int(np.ceil(len(word_list) / batch_size))):
+            # Tokenize the words
+            word_batch = word_list[i*batch_size:(i+1)*batch_size]
+            tokens = clip.tokenize(word_batch).to(device)
+
+            # Get text features and save in mapping
+            with torch.no_grad():
+                text_features = self.model.encode_text(tokens).cpu().numpy()
+                text_features /= np.linalg.norm(text_features, axis=1, keepdims=True)
+            word_features[i*batch_size:(i+1)*batch_size] = text_features
+        
+        return word_features
+
     def map_embedding_to_words(self, emb: np.ndarray, k: int = 5) -> list[str]:
         """ Returns the top-k words that match, with first word being most likely. """
 
@@ -365,8 +368,10 @@ class WordNetWrapper():
         
     def get_embedding_for_word(self, word: str) -> np.ndarray:
         if not word in self.word_list:
-            # TODO: Calculate it on the fly
-            raise RuntimeError(f"Trying to get embedding for word ({word}) not in our dictionary!")
+            word_feature = self._calculate_word_embeddings([word])
+
+            self.word_list.append(word)
+            self.word_features = np.vstack((self.word_features, word_feature))
 
         return self.word_features[self.word_list.index(word)]
     

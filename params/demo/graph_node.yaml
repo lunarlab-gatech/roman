@@ -5,7 +5,7 @@ check_minimum_node_size_on_node_creation: False
 
 # ===== Convex Hull ===== 
 require_valid_convex_hull: True
-use_convex_hull_for_volume: True
+use_convex_hull_for_volume: False
 convex_hull_outward_offset: 0.0
 
 # ===== Voxel Downsampling ===== 
@@ -33,7 +33,7 @@ ignore_descriptors_from_observation: False
 
 # ===== Data inheritance from child nodes =====
 parent_node_inherits_data_from_children: True
-parent_node_inherits_descriptors_from_children: True
+parent_node_inherits_descriptors_from_children: False
 
 # ===== Parameters to mimic ROMAN functionality =====
 merge_with_node_use_first_seen_time_from_self: False

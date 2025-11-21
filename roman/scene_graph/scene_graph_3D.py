@@ -466,7 +466,7 @@ class SceneGraph3D(SceneGraph3DBase):
                     if iou3d > self.scene_graph_3D_params.min_iou_3d or iou2d > self.scene_graph_3D_params.min_iou_2d_for_merging:
                         logger.info(f"[navy_blue]Association Merge[/navy_blue]: Merging segments {node1.id} and {node2.id} with 3D IoU {iou3d:.2f} and 2D IoU {iou2d:.2f}")
 
-                        new_node = node1.merge_with_node(node2, keep_children=False)
+                        new_node = node1.merge_with_node_mapping(node2, keep_children=False)
                         new_node.status = GraphNode.SegmentStatus.SEGMENT
                         if new_node is None or new_node.get_num_points() == 0:
                             logger.info(f"[bright_red]Merge Fail[/bright_red]: Resulting Node was invalid.")

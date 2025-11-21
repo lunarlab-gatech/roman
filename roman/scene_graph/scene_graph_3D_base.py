@@ -120,9 +120,9 @@ class SceneGraph3DBase:
 
         # Print action
         if len(new_children) > 0:
-            logger.info(f"[cyan]Added[/cyan]: Node {node.get_id()} added to graph as child of Node {new_parent.get_id()} and parent of Nodes {[c.get_id() for c in new_children]}")
+            logger.debug(f"[cyan]Added[/cyan]: Node {node.get_id()} added to graph as child of Node {new_parent.get_id()} and parent of Nodes {[c.get_id() for c in new_children]}")
         else:
-            logger.info(f"[cyan]Added[/cyan]: Node {node.get_id()} added to graph as child of Node {new_parent.get_id()}")
+            logger.debug(f"[cyan]Added[/cyan]: Node {node.get_id()} added to graph as child of Node {new_parent.get_id()}")
 
         # Print any deleted nodes
         if len(deleted_ids) > 0:

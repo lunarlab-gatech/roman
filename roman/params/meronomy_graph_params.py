@@ -11,7 +11,7 @@ class MeronomyGraphParams(BaseModel):
     # ===== Synonym Merges =====
     enable_synonym_merges: bool
     min_cos_sim_for_synonym: float
-    ratio_dist2length_threshold_nearby_node_semantic_merge: float
+    min_enc_for_synonym: float
 
     # ===== Resolve Overlapping Nodes =====
     enable_resolve_overlapping_nodes: bool
@@ -20,7 +20,8 @@ class MeronomyGraphParams(BaseModel):
     overlapping_nodes_throw_away_overlap: bool
 
     # ===== Meronomy Relationship Inference =====
-    enable_meronomy_relationship_inference: bool
+    enable_shared_holonym_inference: bool
+    enable_holonym_meronym_inference: bool
     ratio_dist2length_threshold_shared_holonym: float
     ratio_dist2length_threshold_holonym_meronym: float
     ratio_relationship_weight_2_total_weight: float

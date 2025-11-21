@@ -1,3 +1,4 @@
+from collections import defaultdict
 from scipy.spatial import KDTree
 import numpy as np
 import scipy
@@ -180,6 +181,43 @@ def merge_overlapping_sets(x: list[set[int]]) -> list[set[int]]:
                 else:
                     j += 1
         i += 1
+    return x
+
+@typechecked
+def merge_overlapping_holonyms(x: list[tuple[set[int], set[str]]]) -> list[tuple[set[int], set[str]]]:
+    """ Given a list of holonyms (node indices and synsets), merge any holonyms with node index overlaps and synset overlaps 
+    
+    TODO: This method is greedy, whenever there are node and synset overlaps but not identical synsets, we just merge the first
+    we find. This can lead to suboptimal merges. 
+    """
+    
+    i = 0
+    while i < len(x):
+        curr_int_set = x[i][0]
+        curr_str_set = x[i][1]
+        merge_occured = True
+        while merge_occured:
+            merge_occured = False
+            j = i + 1
+            while j < len(x):
+                if curr_int_set & x[j][0] and curr_str_set & x[j][1]:  
+
+                    # If synsets are identical, we can pop the merge set
+                    if curr_str_set == x[j][1]:
+                        merge_set = x.pop(j)
+                    # If not, we keep it around, and then detect node conflicts later
+                    else:
+                        merge_set = x[j]
+
+                    curr_int_set |= merge_set[0]
+                    curr_str_set &= merge_set[1]
+                    merge_occured = True
+                else:
+                    j += 1
+        i += 1
+
+
+    
     return x
 
 T = TypeVar("T")
