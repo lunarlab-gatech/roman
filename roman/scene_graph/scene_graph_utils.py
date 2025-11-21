@@ -207,3 +207,17 @@ def merge_objs_via_function(x: list[T], func: Callable[[T, T], T | None]) -> lis
         else:
             i += 1
     return x
+
+@typechecked
+def cosine_similarity(a: np.ndarray| None, b: np.ndarray | None) -> float:
+    # If either is none, then just assume neutral consistency
+    if a is None or b is None:
+        return 0.5
+
+    # Normalize both embeddings (just in case they aren't already)
+    a = a / np.linalg.norm(a)
+    b = b / np.linalg.norm(b)
+
+    # Calculate the cosine similarity
+    cos_sim = np.dot(a, b)
+    return np.clip(cos_sim, 0.0, 1.0)

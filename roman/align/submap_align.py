@@ -20,6 +20,7 @@ from robotdatapy.transform import transform, transform_to_xytheta, transform_to_
 from robotdatapy.camera import CameraParams
 
 from roman.rerun_wrapper.rerun_wrapper_window_alignment import RerunWrapperWindowAlignment
+from roman.rerun_wrapper.rerun_wrapper_window_meronomy import RerunWrapperWindowMeronomy
 from roman.map.map import Submap, SubmapParams, submaps_from_roman_map
 from roman.align.object_registration import InsufficientAssociationsException, ObjectRegistration
 from roman.align.dist_reg_with_pruning import GravityConstraintError
@@ -31,7 +32,7 @@ from roman.map.map import load_roman_map, ROMANMap
 from roman.object.segment import Segment
 from roman.scene_graph.graph_node import GraphNode
 from roman.scene_graph.scene_graph_3D import SceneGraph3D
-from roman.scene_graph.scene_graph_3D_submap import SceneGraph3DSubmap
+from roman.scene_graph.meronomy_graph import MeronomyGraph
 from .roman_registration import ROMANRegistration
 
 import rerun as rr
@@ -109,7 +110,7 @@ def fov_of_submaps_overlap(submap_a: Submap, submap_b: Submap, cam_params: Camer
     cm.add_object('mesh_b', mesh_b)
     return cm.in_collision_internal()
 
-def submap_align(system_params: SystemParams, sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput, rerun_viewer: RerunWrapperWindowAlignment) -> SubmapAlignResults:
+def submap_align(system_params: SystemParams, sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput, rerun_viewer: RerunWrapperWindowAlignment, rerun_meronomy_windows: list[RerunWrapperWindowMeronomy]) -> SubmapAlignResults:
     """
     Breaks maps into submaps and attempts to align each submap from one map with each submap from the second map.
 
@@ -126,16 +127,41 @@ def submap_align(system_params: SystemParams, sm_params: SubmapAlignParams, sm_i
     
     # Load maps and split into Submaps
     submap_params = SubmapParams.from_submap_align_params(sm_params)
-    submap_params.use_minimal_data = True
+    submap_params.use_minimal_data = False
     if system_params.use_roman_map_for_alignment:
         maps: list[ROMANMap] = [load_roman_map(sm_io.inputs[i]) for i in range(2)]
         submaps: list[list[Submap]] = [submaps_from_roman_map(
             maps[i], submap_params, sm_io.gt_pose_data[i]) for i in range(2)]
     else:
-        maps: list[SceneGraph3D] = [SceneGraph3D.load_map_from_pickle(sm_io.inputs[i]) for i in range(2)]
-        submaps: list[list[SceneGraph3DSubmap]] = [SceneGraph3DSubmap.generate_submaps(maps[i],
-                                                submap_params, sm_io.gt_pose_data[i]) for i in range(2)]
+        raise NotImplementedError("Submap alignment without ROMAN map now deprecated.")
+    
     print("Total Number of Submaps-  ROBOT1: ", len(submaps[0]), " ROBOT2: ", len(submaps[1]))
+
+    # If desired, generate higher-level objects via MeronomyGraph
+    if system_params.generate_meronomy:
+        for i in range(2):
+            for sm in submaps[i]:
+                # Convert all segments in the submap into GraphNodes
+                segments: list[Segment] = sm.segments
+                nodes: list[GraphNode] = []
+                GraphNode.params = system_params.graph_node_params
+                for seg in segments:
+                    node = GraphNode.from_segment(seg)
+                    if node is not None:
+                        nodes.append(node)
+
+                # Create a MeronomyGraph with them and infer relationships
+                meronomyGraph = MeronomyGraph(system_params, nodes, rerun_meronomy_windows[i])
+                meronomyGraph.infer_all_relationships()
+
+                # Get the new segments from the MeronomyGraph
+                meronomy_segments: list[Segment] = meronomyGraph.get_nodes_as_segments()
+
+                # For each meronomy segment with an id not in our segment list, add it to the submap
+                existing_ids = set([seg.id for seg in segments])
+                for mseg in meronomy_segments:
+                    if mseg.id not in existing_ids:
+                        sm.segments.append(mseg)
 
     # Registration setup
     clipper_angle_mat = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan

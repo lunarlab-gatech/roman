@@ -19,23 +19,6 @@ class SceneGraph3DParams(BaseModel):
     # ===== Association Merges =====
     min_iou_2d_for_merging: float
 
-    # ===== Synonym Merges =====
-    enable_synonym_merges: bool
-    min_cos_sim_for_synonym: float
-    ratio_dist2length_threshold_nearby_node_semantic_merge: float
-
-    # ===== Resolve Overlapping Nodes =====
-    enable_resolve_overlapping_nodes: bool
-    iou_threshold_overlapping_obj: float
-    enc_threshold_overlapping_obj: float
-    overlapping_nodes_throw_away_overlap: bool
-    
-    # ===== Meronomy Relationship Inference =====
-    enable_meronomy_relationship_inference: bool
-    ratio_dist2length_threshold_shared_holonym: float
-    ratio_dist2length_threshold_holonym_meronym: float
-    ratio_relationship_weight_2_total_weight: float
-
     # ===== Parameters to mimic ROMAN functionality =====
     downsample_and_remove_outliers_after_hungarian_for_new_nodes: bool
     enable_dbscan_on_node_inactivation: bool

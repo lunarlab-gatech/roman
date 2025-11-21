@@ -42,6 +42,7 @@ from roman.params.system_params import SystemParams
 from roman.utils import expandvars_recursive
 from roman.rerun_wrapper.rerun_wrapper_window_alignment import RerunWrapperWindowAlignment
 from roman.rerun_wrapper.rerun_wrapper_window_map import RerunWrapperWindowMap
+from roman.rerun_wrapper.rerun_wrapper_window_meronomy import RerunWrapperWindowMeronomy
 from roman.rerun_wrapper.rerun_wrapper_window import RerunWrapperWindow
 from roman.rerun_wrapper.rerun_wrapper import RerunWrapper
 
@@ -157,6 +158,11 @@ def run_slam(param_dir: str, output_dir: str | None, wandb_project: str, max_tim
     if not skip_map:
         for i, run in enumerate(system_params.data_params.runs):
             windows_mapping.append(RerunWrapperWindowMap(system_params.enable_rerun_viz, run, system_params.fastsam_params))
+    
+    windows_meronomy: list[RerunWrapperWindow] = []
+    if not skip_align and system_params.generate_meronomy:
+        for i, run in enumerate(system_params.data_params.runs):
+            windows_meronomy.append(RerunWrapperWindowMeronomy(system_params.enable_rerun_viz, run))
 
     windows_alignment: list[RerunWrapperWindow] = []
     if not skip_align:
@@ -166,7 +172,7 @@ def run_slam(param_dir: str, output_dir: str | None, wandb_project: str, max_tim
 
     rerun_viewer = RerunWrapper(enable=system_params.enable_rerun_viz,
                                 name="MeronomyGraph Visualization", 
-                                windows=windows_mapping + windows_alignment)
+                                windows=windows_mapping + windows_meronomy + windows_alignment)
 
     # Run the Mapping step
     if not skip_map:
@@ -222,7 +228,8 @@ def run_slam(param_dir: str, output_dir: str | None, wandb_project: str, max_tim
                 results: SubmapAlignResults = submap_align(system_params=system_params, 
                                                            sm_params=system_params.submap_align_params, 
                                                            sm_io=sm_io, 
-                                                           rerun_viewer=windows_alignment[window_index])
+                                                           rerun_viewer=windows_alignment[window_index],
+                                                           rerun_meronomy_windows=[windows_meronomy[i], windows_meronomy[j]])
 
                 # Calculate loop closure errors
                 json_path = os.path.join(align_path, "align.json")      

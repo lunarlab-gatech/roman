@@ -503,6 +503,22 @@ class GraphNode():
         seg.semantic_descriptor_cnt = None
 
         return seg
+    
+    @staticmethod
+    def from_segment(seg: Segment) -> GraphNode | None:
+        """ Creates a GraphNode from a Segment if possible, else returns None.
+         
+        NOTE: Doesn't support all functionality of GraphNode!
+        """
+        new_node: GraphNode | None = GraphNode.create_node_if_possible(seg.id, None, [], None, 0,
+                        seg.points, [], 0.0, 0.0, 0.0, np.eye(4), np.eye(4), np.eye(4))
+        if new_node is None: return None # Node creation failed
+
+        # Add the descriptor to the node
+        if seg.semantic_descriptor is not None:
+            new_node.add_semantic_descriptors([(seg.semantic_descriptor, new_node.get_volume())])
+            new_node.add_semantic_descriptors_incremental(seg.semantic_descriptor, 1)
+        return new_node
 
     # ==================== Calculations ====================
     def calculate_semantic_descriptor(self, descriptors: list[tuple[NDArray[np.float64], float]]) -> np.ndarray | None:
@@ -884,7 +900,7 @@ class GraphNode():
         # NOTE: This actually ISN'T a safe operation, so calling method MUST call reset_saved_point_vars().
 
     # ==================== Merging ====================
-    def merge_with_node(self, other: GraphNode, keep_children=True) -> GraphNode | None:
+    def merge_with_node(self, other: GraphNode, keep_children=True, new_id: int | None = None) -> GraphNode | None:
         """
         As opposed to merge_with_observation (which can just be called), this method 
         will take out self and other from the graph and return a new node. This new
@@ -924,8 +940,9 @@ class GraphNode():
         last_updated = max(self.get_time_last_updated(), other.get_time_last_updated())
 
         # Create a new node representing the merge
-        smallest_id = self.get_id() if self.get_id() < other.get_id() else other.get_id()
-        new_node = GraphNode.create_node_if_possible(smallest_id, None, combined_descriptors, self.semantic_descriptor_inc,
+        if new_id is None:
+            new_id = self.get_id() if self.get_id() < other.get_id() else other.get_id()
+        new_node = GraphNode.create_node_if_possible(new_id, None, combined_descriptors, self.semantic_descriptor_inc,
                         self.semantic_descriptor_inc_count, combined_pc, combined_children, first_seen, 
                         last_updated, self.curr_time, first_pose, self.curr_pose, self.curr_pose, run_dbscan=False)
         if new_node is None:
@@ -995,7 +1012,7 @@ class GraphNode():
         self.last_updated = self.curr_time
         self.last_pose = self.curr_pose
             
-    def merge_parent_and_child(self, other: GraphNode) -> GraphNode:
+    def merge_parent_and_child(self, other: GraphNode, new_id: int | None = None) -> GraphNode:
         """ Merge child into parent and keep parent, return parent node. """
 
         # Determine which node is the parent
@@ -1009,10 +1026,10 @@ class GraphNode():
             self_is_parent = False
 
         # Conduct the merge
-        parent_node.merge_child_with_self(child_node)
+        parent_node.merge_child_with_self(child_node, new_id=new_id)
         return parent_node
 
-    def merge_child_with_self(self, other: GraphNode) -> None:
+    def merge_child_with_self(self, other: GraphNode, new_id: int | None = None) -> None:
         
         # Make sure other is a child of self
         if not self.is_parent(other) or not other in self.get_children():
@@ -1034,6 +1051,10 @@ class GraphNode():
         for grandchild in other.get_children():
             self.add_child(grandchild)
             grandchild.set_parent(self)
+
+        # Update the id if desired
+        if new_id is not None:
+            self.set_id(new_id)
 
         # Remove child
         other.remove_from_graph_complete()
