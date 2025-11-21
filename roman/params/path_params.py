@@ -13,14 +13,8 @@ class PathParams(BaseModel):
     background_img_x_edge: float
 
     @classmethod
-    def from_dict(cls, params_dict: dict, check_background_img_path: bool = True) -> PathParams:
+    def from_dict(cls, params_dict: dict) -> PathParams:
         path_params_class = cls(**params_dict)
-
-        # Ensure both full paths exist
-        if check_background_img_path:
-            if not os.path.isfile(expandvars_recursive(str(path_params_class.get_full_path_to_background_img()))):
-                raise ValueError("Parameters for background_img do not point to an existing file!")
-
         return path_params_class
     
     def get_full_path_to_robot_folder(self) -> Path:
