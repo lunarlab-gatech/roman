@@ -78,6 +78,9 @@ def run_slam(param_dir: str, output_dir: str | None, wandb_project: str, max_tim
     # Setup parameters
     system_params: SystemParams = SystemParams.from_param_dir(param_dir)
 
+    # Set the random seed
+    np.random.seed(system_params.seed)
+
     # Setup WandB to track this run
     if not disable_wandb:
         wandb_run = wandb.init(project=wandb_project)
@@ -119,9 +122,7 @@ def run_slam(param_dir: str, output_dir: str | None, wandb_project: str, max_tim
                 raise ValueError("Triple Nested keys not supported!")
 
         # Take the parameters (default and overwritten) and write as new config back to WandB
-        def shorten(d):
-            return {(''.join([w[0] for w in k.split('_')]) if isinstance(v, dict) else k): (shorten(v) if isinstance(v, dict) else v) for k, v in d.items()}
-        config_dict = shorten({'system_params': system_params.model_dump()})
+        config_dict = {'system_params': system_params.model_dump()}
         config_dict['skip_map'] = skip_map
         config_dict['use_map'] = use_map
         for key, value in config_dict.items():
@@ -374,7 +375,9 @@ def run_slam(param_dir: str, output_dir: str | None, wandb_project: str, max_tim
                 {i: gt_pose_data[i] for i in range(len(gt_pose_data))},
                 {i: system_params.data_params.runs[i] for i in range(len(system_params.data_params.runs))},
                 system_params.data_params.run_env,
-                output_dir=str(output_path)
+                output_dir=str(output_path),
+                background_image_path=system_params.path_params.get_full_path_to_background_img(),
+                background_image_x_edge=system_params.path_params.background_img_x_edge
             )
             RMS_ATE = dict_all_results['APE']['translation_part']['rmse']
             print("ATE results:")

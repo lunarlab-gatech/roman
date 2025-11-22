@@ -17,6 +17,8 @@ from dataclasses import dataclass
 import yaml
 from typing import List, Tuple, Optional
 from functools import cached_property
+from pathlib import Path
+from .path_params import PathParams
 from robotdatapy.data import ImgData, PoseData
 from robotdatapy.transform import T_FLURDF, T_RDFFLU
 from roman.utils import expandvars_recursive
@@ -27,6 +29,7 @@ class ImgDataParams:
     
     type: str
     path: str
+    path_params: PathParams
     path_times: Optional[str] = None
     topic: Optional[str] = None
     camera_info_topic: Optional[str] = None
@@ -41,16 +44,23 @@ class ImgDataParams:
     time_tol: float = None
     
     @classmethod
-    def from_dict(cls, params_dict: dict):
-        return cls(**params_dict)
+    def from_dict(cls, params_dict: dict, path_params: PathParams):
+        return cls(path_params=path_params, **params_dict)
+    
+    def get_path_to_img_data(self) -> Path:
+        return self.path_params.get_full_path_to_robot_folder() / self.path
+    
+    def get_path_to_img_times(self) -> Path:
+        return self.path_params.get_full_path_to_robot_folder() / self.path_times
 
 @dataclass
 class PoseDataGTParams:
     yaml_file: str
+    path_params: PathParams
 
     @classmethod
-    def from_yaml(cls, yaml_file: str):
-        return cls(yaml_file)
+    def from_yaml(cls, yaml_file: str, path_params: PathParams):
+        return cls(yaml_file, path_params)
         
     def get_pose_data(self, data_params: DataParams) -> list[PoseData]:
         gt_pose_data: list[PoseData] = []
@@ -62,6 +72,9 @@ class PoseDataGTParams:
                 # Load yaml file
                 with open(os.path.expanduser(self.yaml_file), 'r') as f:
                     gt_pose_args = yaml.safe_load(f)
+
+                # Update the path to be the full system path
+                gt_pose_args['path'] = str(self.path_params.get_full_path_to_robot_folder() / gt_pose_args['path'])
                 
                 # Convert into a PoseData object
                 if gt_pose_args['type'] == 'bag':
@@ -84,17 +97,19 @@ class PoseDataGTParams:
 class PoseDataParams:
     
     params_dict: dict
+    path_params: PathParams
     T_camera_flu_dict: dict
     T_odombase_camera_dict: dict = None
     
     @classmethod
-    def from_dict(cls, params_dict: dict):
+    def from_dict(cls, params_dict: dict, path_params: PathParams):
         params_dict_subset = {k: v for k, v in params_dict.items() 
                        if k != 'T_camera_flu' and k != 'T_odombase_camera'}
         T_camera_flu_dict = params_dict['T_camera_flu']
         T_odombase_camera_dict = params_dict['T_odombase_camera'] \
             if 'T_odombase_camera' in params_dict else None
-        return cls(params_dict=params_dict_subset, T_camera_flu_dict=T_camera_flu_dict, 
+        
+        return cls(params_dict=params_dict_subset, path_params=path_params, T_camera_flu_dict=T_camera_flu_dict, 
                    T_odombase_camera_dict=T_odombase_camera_dict)
         
     @property
@@ -118,6 +133,9 @@ class PoseDataParams:
         params_dict = {k: v for k, v in self.params_dict.items()}
         for k, v in extra_key_vals.items():
             params_dict[k] = v
+
+        # Calculate the full path using path params
+        params_dict['path'] = self.path_params.get_full_path_to_robot_folder() / params_dict['path']
             
         # expand variables
         for k, v in params_dict.items():
@@ -177,14 +195,14 @@ class DataParams:
             assert 'tf' in self.time_params['time'], "tf must be specified in params"
         
     @classmethod
-    def from_yaml(cls, yaml_path: str):
+    def from_yaml(cls, yaml_path: str, path_params: PathParams):
         with open(yaml_path) as f:
             data = yaml.safe_load(f)
 
         return cls(
-            ImgDataParams.from_dict(data['img_data']),
-            ImgDataParams.from_dict(data['depth_data']),
-            PoseDataParams.from_dict(data['pose_data']),
+            ImgDataParams.from_dict(data['img_data'], path_params),
+            ImgDataParams.from_dict(data['depth_data'], path_params),
+            PoseDataParams.from_dict(data['pose_data'], path_params),
             dt=data['dt'] if 'dt' in data else 1/6,
             runs=data['runs'] if 'runs' in data else None,
             run_env=data['run_env'] if 'run_env' in data else None,
@@ -262,11 +280,11 @@ class DataParams:
         # Depending on data type
         if self.kitti:
             raise NotImplementedError("This hasn't been fully tested with new params variable!")
-            img_data = ImgData.from_kitti(img_data_params.path, 'rgb' if color else 'depth')
+            img_data = ImgData.from_kitti(str(img_data_params.get_path_to_img_data()), 'rgb' if color else 'depth')
             img_data.extract_params()
         elif params.type == "npy":
-            img_file_path = expandvars_recursive(params.path)
-            times_file_path = expandvars_recursive(params.path_times)
+            img_file_path = expandvars_recursive(str(params.get_path_to_img_data()))
+            times_file_path = expandvars_recursive(str(params.get_path_to_img_times()))
             img_data = ImgData.from_npy(
                 path=img_file_path,
                 path_times=times_file_path,
@@ -278,7 +296,7 @@ class DataParams:
                 time_tol=time_tol
             )
         else:
-            img_file_path = expandvars_recursive(params.path)
+            img_file_path = expandvars_recursive(str(params.get_path_to_img_data()))
             img_data = ImgData.from_bag(
                 path=img_file_path,
                 topic=expandvars_recursive(params.topic),
@@ -304,7 +322,7 @@ class DataParams:
         if self.kitti:
             time_range = [self.time_params['t0'], self.time_params['tf']]
         else:
-            img_file_path = expandvars_recursive(self.img_data_params.path)
+            img_file_path = expandvars_recursive(str(self.img_data_params.get_path_to_img_data()))
             if self.time_params is not None:
                 if self.time_params['relative']:
                     topic_t0 = ImgData.topic_t0(img_file_path, 

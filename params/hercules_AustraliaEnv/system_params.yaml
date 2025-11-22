@@ -3,3 +3,12 @@ use_scene_graph: False
 use_roman_map_for_alignment: True
 generate_meronomy: False
 enable_rerun_viz: False
+seed: 85
+
+path_params:
+  path_to_dataset_folder: "/home/${USER}/data/Hercules_datasets/"
+  path_to_robot_folder: "extract/files_for_roman_baseline/${ROBOT}/"
+  dataset_version_number: "N/A"
+
+  path_background_img: "data/environment.png"
+  background_img_x_edge: 40000

@@ -58,8 +58,8 @@ class TestDemo(unittest.TestCase):
             urllib.request.urlretrieve("https://www.dropbox.com/scl/fi/wdtulm31ubnmiu3sk5016/sparkal2_vio.bag?rlkey=xm9yiuke7csebvfqylpt4uwdd&st=ejhnwhkk&dl=1", dataset_dir / "sparkal2_vio.bag", reporthook)
 
         # Run ROMAN and MeronomyGraph Disabled
-        subprocess.run(['python3', repo_dir / 'demo' / 'demo.py', '-p', files_dir / 'demo_ROMAN', '--disable-wandb', '--output-dir', ROMAN_result_dir])
-        subprocess.run(['python3', repo_dir / 'demo' / 'demo.py', '-p', files_dir / 'demo_MERONOMY', '--disable-wandb', '--output-dir', MERONOMY_result_dir])
+        subprocess.run(['python3', repo_dir / 'research' / 'run_slam.py', '-p', files_dir / 'demo_ROMAN', '--disable-wandb', '--output-dir', ROMAN_result_dir], check=True)
+        subprocess.run(['python3', repo_dir / 'research' / 'run_slam.py', '-p', files_dir / 'demo_MERONOMY', '--disable-wandb', '--output-dir', MERONOMY_result_dir], check=True)
 
         # Load the two RMS ATE and assert they are the same
         result_ROMAN = float((ROMAN_result_dir / 'offline_rpgo' / 'ate_rmse.txt').read_text().strip())

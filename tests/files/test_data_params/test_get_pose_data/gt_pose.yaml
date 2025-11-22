@@ -1,5 +1,5 @@
 type: "csv"
-path: "${ROMAN_DEMO_DATA}/${ROBOT}_gt.csv"
+path: "${ROBOT}_gt.csv"
 csv_options:
   cols:
     time: ["#timestamp_kf"]
