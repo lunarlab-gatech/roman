@@ -511,7 +511,7 @@ class GraphNode():
         NOTE: Doesn't support all functionality of GraphNode!
         """
         new_node: GraphNode | None = GraphNode.create_node_if_possible(seg.id, None, [], None, 0,
-                        seg.points, [], 0.0, 0.0, 0.0, np.eye(4), np.eye(4), np.eye(4))
+                        seg.points, [], 0.0, 0.0, 0.0, np.eye(4), np.eye(4), np.eye(4), run_dbscan=False)
         if new_node is None: return None # Node creation failed
 
         # Add the descriptor to the node
@@ -846,7 +846,7 @@ class GraphNode():
                     logger.info(f"[bright_red]WARNING[/bright_red]: Largest cluster for Node {self.get_id()} is noise! Aborting DBScan... ")
                     return
                 
-                # get largest cluster
+                # Get largest cluster
                 cluster_sizes = np.zeros(max_label + 1)
                 for i in range(max_label + 1):
                     cluster_sizes[i] = np.sum(labels == i)
@@ -974,7 +974,9 @@ class GraphNode():
         """
 
         # Make sure they are not related
-        assert not (self.is_descendent_or_ascendent(other) and keep_children), "This method doesn't support merging ascendent/descendent nodes if keep_children is true!"
+        if  self.is_descendent_or_ascendent(other) and keep_children:
+            # Keep children not possible in this situation, so turn it off
+            keep_children = False
 
         # Remove both nodes (and all descendants) from the graph
         self.remove_from_graph_complete(keep_children)

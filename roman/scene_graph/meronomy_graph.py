@@ -277,8 +277,8 @@ class MeronomyGraph(SceneGraph3DBase):
             node_meronym: GraphNode = node_list_initial[putative_rel[0]]
             node_holonym: GraphNode = node_list_initial[putative_rel[1]]
 
-            # If they are close enough
-            if self.shortest_dist_to_node_size_ratio(node_meronym, node_holonym) < self.meronomy_params.ratio_dist2length_threshold_holonym_meronym:
+            # If they are close enough and the holonym is larger than the meronym, declare this putative relationship as detected
+            if self.shortest_dist_to_node_size_ratio(node_meronym, node_holonym) < self.meronomy_params.ratio_dist2length_threshold_holonym_meronym and node_holonym.get_volume() > node_meronym.get_volume():
 
                 # Put into detected list with meronym first
                 if putative_rel[2]:
@@ -331,9 +331,8 @@ class MeronomyGraph(SceneGraph3DBase):
             # Move the meronym to be child of holonym
             deleted_ids = node_meronym.remove_from_graph_complete()
             node_holonym.add_child(node_meronym)
+            node_meronym.get_parent().remove_child(node_meronym)
             node_meronym.set_parent(node_holonym)
-
-            logger.info(f"[dark_goldenrod]Holonym-Meronym Relationship Detected[/dark_goldenrod]: Node {node_meronym.get_id()} as meronym of {node_holonym.get_id()}")
 
             # Now that we've detected this relationship, we want to strengthen our
             # believed embeddings towards these word for holonym (since adding meronym
@@ -347,7 +346,9 @@ class MeronomyGraph(SceneGraph3DBase):
             # Print any deleted nodes
             if len(deleted_ids) > 0:
                 logger.info(f"[bright_red] Discard: [/bright_red] Node(s) {deleted_ids} removed as not enough remaining points with children removal.")
+
             self.rerun_window.update_graph(self.root_node)
+            logger.info(f"[dark_goldenrod]Holonym-Meronym Relationship Detected[/dark_goldenrod]: Node {node_meronym.get_id()} {node_meronym.get_words()} as meronym of {node_holonym.get_id()} {node_holonym.get_words()}")
         
         return any_inferences_occurred
 

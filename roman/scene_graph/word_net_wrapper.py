@@ -377,14 +377,14 @@ class WordNetWrapper():
     
 def main():
 
-    words = ["automotive vehicle"]
+    words = ["windscreenwiper"]
     for word in words:
         print(WordWrapper.from_word(word))
 
-    wordnetWrapper = WordNetWrapper(["curb", "tree", "garbage can", "door", "window", "pole", "street lamp", "trunk", "wall", "sign", "crosswalk", "sidewalk", "mulch", "leaves", "grass", "retaining wall", "railing", "curbstone", "bush", "hedge" "floor marking", "stairs", "column", "car", "wheel", "bike", "street", "manhole", "parking meter", "tree pit", "fire hydrant", "road marking", "zebra strips"])
+    # wordnetWrapper = WordNetWrapper(["curb", "tree", "garbage can", "door", "window", "pole", "street lamp", "trunk", "wall", "sign", "crosswalk", "sidewalk", "mulch", "leaves", "grass", "retaining wall", "railing", "curbstone", "bush", "hedge" "floor marking", "stairs", "column", "car", "wheel", "bike", "street", "manhole", "parking meter", "tree pit", "fire hydrant", "road marking", "zebra strips"])
     
-    wrapped = WordWrapper.from_word('car')
-    print(wrapped.get_all_holonyms(True, 2))
+    # wrapped = WordWrapper.from_word('car')
+    # print(wrapped.get_all_holonyms(True, 2))
 
 if __name__ == "__main__":
     main()

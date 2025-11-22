@@ -224,12 +224,16 @@ def run_slam(param_dir: str, output_dir: str | None, wandb_project: str, max_tim
                 # This avoids doing loop closures with itself, not sure why they do this.
                 system_params.submap_align_params.single_robot_lc = (i == j)
 
+                # Setup meronomy windows to pass in
+                if system_params.generate_meronomy: rerun_meronomy_windows = [windows_meronomy[i], windows_meronomy[j]]
+                else: rerun_meronomy_windows = []
+
                 # Run the alignment process
                 results: SubmapAlignResults = submap_align(system_params=system_params, 
                                                            sm_params=system_params.submap_align_params, 
                                                            sm_io=sm_io, 
                                                            rerun_viewer=windows_alignment[window_index],
-                                                           rerun_meronomy_windows=[windows_meronomy[i], windows_meronomy[j]])
+                                                           rerun_meronomy_windows=rerun_meronomy_windows)
 
                 # Calculate loop closure errors
                 json_path = os.path.join(align_path, "align.json")      
