@@ -9,7 +9,7 @@ from open3d.geometry import OrientedBoundingBox
 import random
 import rerun as rr
 import rerun.blueprint as rrb
-from roman.scene_graph.word_net_wrapper import WordListWrapper
+from roman.scene_graph.word_net_wrapper import WordWrapper
 from scipy.spatial.transform import Rotation as R
 import trimesh
 
@@ -101,8 +101,8 @@ class RerunWrapperWindow():
             # Box colors
             box_colors.append([id_to_color_mapping[node.get_id()]])
             box_ids.append(node.get_id())
-            words: WordListWrapper | None = node.get_words()
-            if words is not None: box_words.append(words.to_list())
+            word: WordWrapper | None = node.get_word()
+            if word is not None: box_words.append(word.word)
             else: box_words.append([])
 
             # Line segments

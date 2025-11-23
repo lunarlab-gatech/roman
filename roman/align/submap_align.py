@@ -1,5 +1,6 @@
 import argparse
 import numpy as np
+import copy
 from numpy.linalg import inv, norm
 from scipy.spatial.transform import Rotation as Rot
 import pickle
@@ -139,16 +140,29 @@ def submap_align(system_params: SystemParams, sm_params: SubmapAlignParams, sm_i
 
     # If desired, generate higher-level objects via MeronomyGraph
     if system_params.generate_meronomy:
+        GraphNode.params = system_params.graph_node_params
+
+        # Generate GraphNodes from segments in the map
+        list_seg_id_to_node: list[dict[int, GraphNode]] = []
+        for map in maps:
+            seg_id_to_node: dict[int, GraphNode] = {}
+
+            for seg in map.segments:
+                node = GraphNode.from_segment(seg)
+                if node is not None:
+                    seg_id_to_node[seg.id] = node
+
+            list_seg_id_to_node.append(seg_id_to_node)
+
         for i in range(2):
             for sm in submaps[i]:
-                # Convert all segments in the submap into GraphNodes
+                # Get GraphNodes for relevant segments
                 segments: list[Segment] = sm.segments
                 nodes: list[GraphNode] = []
-                GraphNode.params = system_params.graph_node_params
                 for seg in segments:
-                    node = GraphNode.from_segment(seg)
+                    node = list_seg_id_to_node[i].get(seg.id, None)
                     if node is not None:
-                        nodes.append(node)
+                        nodes.append(copy.deepcopy(node))
 
                 # Create a MeronomyGraph with them and infer relationships
                 meronomyGraph = MeronomyGraph(system_params, nodes, rerun_meronomy_windows[i])
@@ -159,9 +173,13 @@ def submap_align(system_params: SystemParams, sm_params: SubmapAlignParams, sm_i
 
                 # For each meronomy segment with an id not in our segment list, add it to the submap
                 existing_ids = set([seg.id for seg in segments])
+                meronomy_segments_added = 0
                 for mseg in meronomy_segments:
                     if mseg.id not in existing_ids:
                         sm.segments.append(mseg)
+                        meronomy_segments_added += 1
+                print(f"Added {meronomy_segments_added} meronomy segments to submap {sm.id}")
+                print(f"Submap now has {len(sm.segments)} segments total.")
 
     # Registration setup
     clipper_angle_mat = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
@@ -209,6 +227,7 @@ def submap_align(system_params: SystemParams, sm_params: SubmapAlignParams, sm_i
             # I think single_robot_lc means that it will try to avoid doing loop closures at all for a single robot with itself.
             # TODO: Ask advisors; why would they do this?
             if sm_params.single_robot_lc:
+                raise AssertionError("THIS IS CURRENTLY BROKEN DUE TO CHANGES IN SEGMENT/GRAPHNODE HANDLING.")
 
                 if system_params.use_roman_map_for_alignment:
                     ids_i = set([seg.id for seg in submap_i.segments])

@@ -22,11 +22,9 @@ import trimesh
 from typing import Iterator
 from scipy.spatial import ConvexHull, cKDTree
 from typeguard import typechecked
-from .word_net_wrapper import WordNetWrapper, WordListWrapper
+from .word_net_wrapper import WordNetWrapper, WordWrapper
 
 # Initialize a WordNetWrapper for use by GraphNodes
-wordnetWrapper = WordNetWrapper(["curb", "tree", "garbage can", "door", "window", "pole", "street lamp", "trunk", "wall", "sign", "crosswalk", "sidewalk", "mulch", "leaves", "grass", "retaining wall", "railing", "curbstone", "bush", "hedge" "floor marking", "stairs", "column", "car", "wheel", "bike", "street", "manhole", "parking meter", "tree pit", "fire hydrant", "road marking", "zebra strips", "automotive vehicle", "motor vehicle", "bicycle", "aeroplane"])
-
 @typechecked
 class GraphNode():
 
@@ -38,6 +36,7 @@ class GraphNode():
 
     params: GraphNodeParams
     camera_params: CameraParams
+    wordnetWrapper = WordNetWrapper()
 
     # ================ Initialization =================
     def __init__(self, id: int, parent_node: GraphNode | None, semantic_descriptors: list[tuple[np.ndarray, float]], 
@@ -111,7 +110,7 @@ class GraphNode():
         self._centroid: np.ndarray = None
         self._oriented_bbox: OrientedBoundingBox = None
         self._semantic_descriptor: np.ndarray = None
-        self._words: WordListWrapper = None
+        self._word: WordWrapper = None
         self._meronyms: dict[int, set[str]] = defaultdict(lambda: None)
         self._holonyms: dict[int, set[str]] = defaultdict(lambda: None)
         self._holonyms_pure: dict[int, set[str]] = defaultdict(lambda: None)
@@ -257,29 +256,55 @@ class GraphNode():
                 self._semantic_descriptor = self.calculate_semantic_descriptor(self.get_semantic_descriptors())
         return self._semantic_descriptor
     
-    def get_words(self) -> WordListWrapper | None:
-        if self._words is None:
+    def get_word(self) -> WordWrapper | None:
+        if self._word is None:
             descriptor = self.get_semantic_descriptor()
             if descriptor is None:
-                self._words = None
+                self._word = None
             else:
-                self._words = WordListWrapper.from_words(wordnetWrapper.map_embedding_to_words(descriptor, 1))
-        return self._words
+                self._word = WordWrapper.from_word(self.wordnetWrapper.map_embedding_to_words(descriptor, 1)[0])
+        return self._word
     
     def get_all_meronyms(self, meronym_level: int = 1) -> set[str]:
         if self._meronyms[meronym_level] is None:
-            self._meronyms[meronym_level] = self.get_words().words[0].get_all_meronyms(True, meronym_level)
+            self._meronyms[meronym_level] = self.get_word().get_all_meronyms(True, meronym_level)
         return self._meronyms[meronym_level]
     
     def get_all_holonyms(self, include_hypernyms: bool, holonym_level: int = 1) -> set[str]:
-        if include_hypernyms:
-            if self._holonyms[holonym_level] is None:
-                self._holonyms[holonym_level] = self.get_words().words[0].get_all_holonyms(True, holonym_level)
-            return self._holonyms[holonym_level]
-        else:
-            if self._holonyms_pure[holonym_level] is None:
-                self._holonyms_pure[holonym_level] = self.get_words().words[0].get_all_holonyms(False, holonym_level)
-            return self._holonyms_pure[holonym_level]
+        if self._holonyms[holonym_level] is None:
+            self._holonyms[holonym_level] = self.get_word().get_all_holonyms(include_hypernyms, holonym_level)
+        return self._holonyms[holonym_level]
+    
+    def check_if_meronoym_holonym_relationships(self, other: GraphNode) -> tuple[bool, bool]:
+        """ Checks if self and other have meronym-holonym relationships. 
+            Returns (relationship_exists, self_is_meronym) """
+        
+        # Get likeliest wrapped for each node
+        word_s: WordWrapper = self.get_word()
+        word_o: WordWrapper = other.get_word()
+
+        logger.debug(f"Words: {word_s.word} {word_o.word}")
+
+        # Get all holonyms/meronyms for each node
+        word_s_meronyms: set[str] = self.get_all_meronyms(2)
+        word_o_meronyms: set[str] = other.get_all_meronyms(2)
+        word_s_holonyms: set[str] = self.get_all_holonyms(True, 2)
+        word_o_holonyms: set[str] = other.get_all_holonyms(True, 2)
+
+        logger.debug(f"All Holonyms: {word_s_holonyms} {word_o_holonyms}")
+
+        # Check if there is a Holonym-Meronym relationship
+        if word_s.word in word_o_meronyms or word_s.word in word_o_holonyms or \
+            word_o.word in word_s_meronyms or word_o.word in word_s_holonyms:
+
+            # Determine which is the meronym
+            self_is_meronym: bool = False
+            if word_s.word in word_o_meronyms or word_o.word in word_s_holonyms:
+                self_is_meronym = True
+
+            return (True, self_is_meronym)
+    
+        return (False, False)
     
     def is_descendent_or_ascendent(self, other: GraphNode) -> bool:
         """ Returns True if this node is a descendent or ascendent of other."""
@@ -1172,15 +1197,15 @@ class GraphNode():
 
         # Track the previous word to see if it changed
         prev_word = None
-        if self._words is not None:
-            prev_word = self._words.words[0]
+        if self._word is not None:
+            prev_word = self._word
 
         # Wipe variables
         self._semantic_descriptor = None
-        self._words = None
+        self._word = None
 
         # Get the new word and see if it changed
-        if prev_word is None or not self.get_words().words[0] == prev_word:
+        if prev_word is None or not self.get_word() == prev_word:
 
             # Reset all our meronyms & holonyms since it changed            
             self._meronyms = defaultdict(lambda: None)
@@ -1200,6 +1225,7 @@ class GraphNode():
         self._descendents = None
 
         # Also wipe this in parents
+        print("")
         if self.parent_node is not None:
             self.parent_node.reset_saved_inheritance_vars()
 

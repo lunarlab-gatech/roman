@@ -1,3 +1,5 @@
+initial_word_dict: ["curb", "tree", "garbage can", "door", "window", "pole", "street lamp", "trunk", "wall", "sign", "crosswalk", "sidewalk", "mulch", "leaves", "grass", "retaining wall", "railing", "curbstone", "bush", "hedge", "floor marking", "stairs", "column", "car", "wheel", "bike", "street", "manhole", "parking meter", "tree pit", "fire hydrant", "road marking", "zebra strips", "automotive vehicle", "motor vehicle", "bicycle", "aeroplane"]
+
 # ===== Synonym Merges =====
 enable_synonym_merges: False
 min_cos_sim_for_synonym: 0.94

@@ -1,5 +1,5 @@
 # ===== Initialization ===== 
-dbscan_and_remove_outliers_on_node_creation: False
+dbscan_and_remove_outliers_on_node_creation: True
 downsample_on_node_creation: False
 check_minimum_node_size_on_node_creation: False
 
@@ -10,7 +10,7 @@ convex_hull_outward_offset: 0.0
 
 # ===== Voxel Downsampling ===== 
 enable_variable_voxel_size: False
-voxel_size_not_variable: 0.25
+voxel_size_not_variable: 0.05
 voxel_size_variable_ratio_to_length: 0.01
 
 # ===== DBSCAN Parameters ===== 
@@ -27,12 +27,12 @@ stat_out_num_neighbors: 10
 stat_out_std_ratio: 1.0
 
 # ===== Semantic Descriptor =====
-calculate_descriptor_incrementally: True
+calculate_descriptor_incrementally: False
 use_weighted_average_for_descriptor: False
 ignore_descriptors_from_observation: False
 
 # ===== Data inheritance from child nodes =====
-parent_node_inherits_data_from_children: False
+parent_node_inherits_data_from_children: True
 parent_node_inherits_descriptors_from_children: False
 
 # ===== Parameters to mimic ROMAN functionality =====

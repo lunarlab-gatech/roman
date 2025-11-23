@@ -81,7 +81,6 @@ class SynsetWrapper():
                 holonyms += SynsetWrapper(hypernym).get_all_holonyms(False, holonym_levels)
         return holonyms
 
-
     @staticmethod
     def synsets_as_strings(synsets: list[Synset], max_len: int = 7) -> list[str]:
         wrapped: list[SynsetWrapper] = SynsetWrapper.synset_to_wrapper(synsets)
@@ -122,7 +121,7 @@ class SynsetWrapper():
                             "Part Holonyms", "Substance Holonyms", "Member Holonyms",
                             "Part Meronyms", "Substance Meronyms", "Member Meronyms",
                             "In Region Domains", "In Topic Domains", "In Usage Domains"]
-        str_rep = f"Name: {self.get_word()}\n"
+        str_rep = f"Name: {self.name()}\n"
 
         # Extract lemmas
         lemma_names = [n.replace("_", " ") for n in self.synset.lemma_names()]
@@ -199,11 +198,13 @@ class WordWrapper():
         return cls(word, synsets_pure)
     
     def __str__(self) -> str:
-        str_rep = f"Printing all Synsets for {self.word}..." + '\n'
-        for i, syn in enumerate(self.synsets):
-            str_rep += f"===== Synset #{i} =====\n"
-            str_rep += f"{syn}"
-        return str_rep
+        return self.word
+    
+        # str_rep = f"Printing all Synsets for {self.word}..." + '\n'
+        # for i, syn in enumerate(self.synsets):
+        #     str_rep += f"===== Synset #{i} =====\n"
+        #     str_rep += f"{syn}"
+        # return str_rep
     
     def get_all_meronyms(self, include_hypernyms: bool, meronym_levels: int = 1) -> set[str]:
         meronyms: list[Synset] = []
@@ -255,25 +256,26 @@ class WordListWrapper():
             word_list.append(word.word)
         return word_list
     
-    def get_all_meronyms(self, include_hypernyms: bool, meronym_levels: int = 1) -> set[str]:
-        meronyms: list[Synset] = []
-        for word in self.words:
-            meronyms += word.get_all_meronyms(include_hypernyms, meronym_levels)
-        return SynsetWrapper.all_words_in_synsets(meronyms)
+    # def get_all_meronyms(self, include_hypernyms: bool, meronym_levels: int = 1) -> set[str]:
+    #     meronyms: list[Synset] = []
+    #     for word in self.words:
+    #         meronyms += word.get_all_meronyms(include_hypernyms, meronym_levels)
+    #     return SynsetWrapper.all_words_in_synsets(meronyms)
     
-    def get_all_holonyms(self, include_hypernyms: bool, holonym_levels: int = 1) -> set[str]:
-        holonyms: list[Synset] = []
-        for word in self.words:
-            holonyms += word.get_all_holonyms(include_hypernyms, holonym_levels)
-        return SynsetWrapper.all_words_in_synsets(holonyms)
+    # def get_all_holonyms(self, include_hypernyms: bool, holonym_levels: int = 1) -> set[str]:
+    #     holonyms: list[Synset] = []
+    #     for word in self.words:
+    #         holonyms += word.get_all_holonyms(include_hypernyms, holonym_levels)
+    #     return SynsetWrapper.all_words_in_synsets(holonyms)
     
 class WordNetWrapper():
 
-    def __init__(self, word_list: list[str] | None):
-
+    def __init__(self):
         self.model = None
-        self.wordnet_emb_path = Path(__file__).resolve().parent / "files" / "word_features.npy"
-        logger.info(f"WordNet Embeddings Path: {self.wordnet_emb_path}")
+
+    def set_initial_word_list(self, word_list: list[str] | None):
+        wordnet_emb_path = Path(__file__).resolve().parent / "files" / "word_features.npy"
+        wordnet_word_path = Path(__file__).resolve().parent / "files" / "word_list.npy"
 
         if word_list is None:
             # Get all synsets in wordnet, and then extract all words as the lemmas of the synsets
@@ -307,14 +309,21 @@ class WordNetWrapper():
             self.use_cupy = False
 
         # Calculate embeddings if we haven't already
-        if self.wordnet_emb_path.exists():
-            self.word_features = np.load(str(self.wordnet_emb_path))
-            logger.info(f"CLIP Features loaded successfully for dictionary")
-        else:
-            self.word_features = self._calculate_word_embeddings(self.word_list)
-            os.makedirs(os.path.dirname(self.wordnet_emb_path), exist_ok=True)
-            np.save(str(self.wordnet_emb_path), self.word_features)
+        features_loaded = False
+        if wordnet_emb_path.exists() and wordnet_word_path.exists():
+            # Check if the saved embeddings match our word list
+            saved_words: list[str] = np.load(str(wordnet_word_path), allow_pickle=True).tolist()
+            if saved_words == self.word_list:
+                self.word_features = np.load(str(wordnet_emb_path))
+                features_loaded = True
+                logger.info(f"CLIP Features loaded successfully for dictionary")
 
+        if not features_loaded:
+            self.word_features = self._calculate_word_embeddings(self.word_list)
+            os.makedirs(os.path.dirname(wordnet_emb_path), exist_ok=True)
+            np.save(str(wordnet_emb_path), self.word_features)
+            np.save(str(wordnet_word_path), self.word_list)
+            
         # Save word features into CuPy array
         if self.use_cupy:
             self.word_features_cupy = cp.asarray(self.word_features)
@@ -323,13 +332,13 @@ class WordNetWrapper():
         """ Convert WordNet words into CLIP embeddings """
 
         # Load the CLIP model
+        device = "cuda" if torch.cuda.is_available() else "cpu"
         if self.model is None:
-            device = "cuda" if torch.cuda.is_available() else "cpu"
             self.model, preprocess = clip.load("ViT-L/14", device=device)
             self.model.eval()
-            batch_size = 1000
 
         # Get CLIP features
+        batch_size = 1000
         word_features = np.zeros((len(word_list), 768), dtype=np.float16)
         for i in range(int(np.ceil(len(word_list) / batch_size))):
             # Tokenize the words

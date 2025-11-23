@@ -1,7 +1,7 @@
 from collections import defaultdict
-from scipy.spatial import KDTree
 import numpy as np
 import scipy
+from scipy.spatial import KDTree
 from scipy.spatial import ConvexHull, Delaunay
 from scipy.spatial.distance import pdist
 import trimesh
@@ -215,10 +215,45 @@ def merge_overlapping_holonyms(x: list[tuple[set[int], set[str]]]) -> list[tuple
                 else:
                     j += 1
         i += 1
-
-
-    
     return x
+
+def resolve_overlapping_meronym_to_holonym_assignments(detected_holonym_meronyms: list[tuple[int, int]],
+                                                       node_list_centroids: list[np.ndarray]) -> list[tuple[int, int]]:
+    """ Resolves issues when one meronym is assigned to multiple holonyms by keeping the closest holonym."""
+    
+    overlap = True
+    while overlap:
+        overlap = False
+
+        # Map each child list index of the detected holonyms to the indices of tuples containing it
+        meronym_list_index_to_holonym_list_index = defaultdict(list)
+        for (meronym, holonym) in detected_holonym_meronyms:
+            meronym_list_index_to_holonym_list_index[meronym].append(holonym)
+
+        # Find out if any meronyms have two or more detected holonyms
+        for meronym_index, detected_holonym_indices in meronym_list_index_to_holonym_list_index.items():
+            if len(detected_holonym_indices) > 1:
+
+                # If so, pick whichever one is closest to it geometrically
+                putative_holonyms_cen: np.ndarray = node_list_centroids[detected_holonym_indices]
+                meronym_cen: np.ndarray = node_list_centroids[meronym_index]
+
+                centroid_distances = [np.linalg.norm(meronym_cen - holonym_cen) for holonym_cen in putative_holonyms_cen]
+                holonym_to_keep_idx = centroid_distances.index(min(centroid_distances))
+                
+                # Delete all other holonym_meronym relationships
+                new_detected_holonym_meronyms = []
+                for tup in detected_holonym_meronyms:
+                    if tup[0] == meronym_index and tup[1] != detected_holonym_indices[holonym_to_keep_idx]:
+                        continue
+                    new_detected_holonym_meronyms.append(tup)
+                detected_holonym_meronyms = new_detected_holonym_meronyms
+
+                # Our mapping has changed, so reloop
+                overlap = True
+                break
+
+    return sorted(detected_holonym_meronyms)
 
 T = TypeVar("T")
 def merge_objs_via_function(x: list[T], func: Callable[[T, T], T | None]) -> list[T]:

@@ -4,7 +4,7 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import copy
 from enum import Enum
-from .graph_node import GraphNode, wordnetWrapper
+from .graph_node import GraphNode
 from .scene_graph_utils import *
 from ..logger import logger
 from ..map.observation import Observation
@@ -37,6 +37,9 @@ class MeronomyGraph(SceneGraph3DBase):
         super().__init__(params)
         self.meronomy_params: MeronomyGraphParams = params.meronomy_graph_params
         self.rerun_window: RerunWrapperWindowMeronomy = rerun_window
+
+        # Set words for use in GraphNodes
+        GraphNode.wordnetWrapper.set_initial_word_list(self.meronomy_params.initial_word_dict)
 
         # Add nodes to graph
         for node in nodes:
@@ -119,57 +122,32 @@ class MeronomyGraph(SceneGraph3DBase):
                             node_i_parent = node_i.get_parent()
                             node_j_parent = node_j.get_parent()
                             if not node_i_parent.is_RootGraphNode():
-                                if node_i_parent.get_words() == WordListWrapper.from_words(shared_holonyms):
+                                if WordListWrapper([node_i_parent.get_word()]) == WordListWrapper.from_words(shared_holonyms):
                                     continue
                             if not node_j_parent.is_RootGraphNode():
-                                if node_j_parent.get_words() == WordListWrapper.from_words(shared_holonyms):
+                                if WordListWrapper([node_j_parent.get_word()]) == WordListWrapper.from_words(shared_holonyms):
                                     continue
 
                             # Append to list of potential nodes with shared holonyms
                             putative_relationships.append((i, j, shared_holonyms))
                             
                     case MeronomyGraph.NodeRelationship.HOLONYM_MERONYM:
-                        
-                        # Skip nodes that are ascendent or descendent with each other
-                        if comparing_to_self and not node_i.is_descendent_or_ascendent(node_j): continue
-                        
-                        # Get likeliest wrapped for each node
-                        word_i: WordWrapper = node_i.get_words().words[0]
-                        word_j: WordWrapper = node_j.get_words().words[0]
 
-                        logger.debug(f"Words: {word_i.word} {word_j.word}")
-
-                        # Get all holonyms/meronyms for words
-                        word_i_meronyms: set[str] = node_i.get_all_meronyms(2)
-                        word_j_meronyms: set[str] = node_j.get_all_meronyms(2)
-                        word_i_holonyms: set[str] = node_i.get_all_holonyms(True, 2)
-                        word_j_holonyms: set[str] = word_j.get_all_holonyms(True, 2)
-
-                        logger.debug(f"All Holonyms: {word_i_holonyms} {word_j_holonyms}")
-
-                        # Check if there is a Holonym-Meronym relationship
-                        if word_i.word in word_j_meronyms or word_i.word in word_j_holonyms or \
-                           word_j.word in word_i_meronyms or word_j.word in word_i_holonyms:
-                            
-                            node_list_i_has_meronym: bool = False
-                            if word_i.word in word_j_meronyms or word_j.word in word_i_holonyms:
-                                node_list_i_has_meronym = True
-
-                            # Append to list of potential nodes with holonym-meronym relationships
-                            # with meronym coming first
-                            putative_relationships.append((i, j, node_list_i_has_meronym))
-                    
+                        rel_exists, i_is_meronym = node_i.check_if_meronoym_holonym_relationships(node_j)
+                        if rel_exists:
+                            putative_relationships.append((i, j, i_is_meronym))
+                
                     case MeronomyGraph.NodeRelationship.SYNONYMY:
 
                         # Get words wrapped for each node
-                        words_i = node_i.get_words()
-                        words_j = node_j.get_words()
+                        word_i = node_i.get_word()
+                        word_j = node_j.get_word()
 
                         # Calculate Semantic Similarity
                         sem_con = cosine_similarity(node_i.get_semantic_descriptor(), node_j.get_semantic_descriptor())
 
                         # Check for synonymy (if any of shared lemmas are same & cosine similarity is high)
-                        if words_i == words_j or sem_con > min_cos_sim_for_synonym:
+                        if word_i == word_j or sem_con > min_cos_sim_for_synonym:
                             putative_relationships.append((i, j, None))
 
         # Return all found putative relationships
@@ -220,13 +198,13 @@ class MeronomyGraph(SceneGraph3DBase):
                 if node_i.is_parent_or_child(node_j):
                     node_i_org_id = node_i.get_id()
                     node_j_org_id = node_j.get_id()
-                    node_i_org_words = node_i.get_words()
-                    node_j_org_words = node_j.get_words()
+                    node_i_org_word = node_i.get_word()
+                    node_j_org_word = node_j.get_word()
 
                     merged_node = node_i.merge_parent_and_child(node_j, new_id=self.next_node_ID)
                     self.next_node_ID += 1
                     self.rerun_window.update_graph(self.root_node)
-                    logger.info(f"[green1]Parent-Child Synonymy[/green1]: Merging Node {node_i_org_id} ({node_i_org_words}) and Node {node_j_org_id} ({node_j_org_words}) into Node {merged_node.get_id()} ({merged_node.get_words()})")
+                    logger.info(f"[dark_green]Parent-Child Synonymy[/dark_green]: Merging Node {node_i_org_id} ({node_i_org_word}) and Node {node_j_org_id} ({node_j_org_word}) into Node {merged_node.get_id()} ({merged_node.get_word()})")
                     return merged_node
                 return None
 
@@ -252,7 +230,7 @@ class MeronomyGraph(SceneGraph3DBase):
                 synonyms.pop(0)
 
                 self.rerun_window.update_graph(self.root_node)
-                logger.info(f"[dark_green]Nearby Nodes Synonymy[/dark_green]: Merging Node {node_i.get_id()} ({node_i.get_words()}) and Node {node_j.get_id()} ({node_j.get_words()}) into Node {merged_node.get_id()} ({merged_node.get_words()})")
+                logger.info(f"[green1]Overlapping Nodes Synonymy[/green1]: Merging Node {node_i.get_id()} ({node_i.get_word()}) and Node {node_j.get_id()} ({node_j.get_word()}) into Node {merged_node.get_id()} ({merged_node.get_word()})")
         
         return any_merges_occurred
 
@@ -265,7 +243,7 @@ class MeronomyGraph(SceneGraph3DBase):
         putative_holonym_meronyms: list[tuple[int, int, bool]] = MeronomyGraph.find_putative_relationships(
                     all_nodes, relationship_type=MeronomyGraph.NodeRelationship.HOLONYM_MERONYM, 
                     min_cos_sim_for_synonym=self.meronomy_params.min_cos_sim_for_synonym)
-
+        
         # Get the list of nodes in the graph
         node_list_initial = all_nodes.copy()
 
@@ -274,70 +252,59 @@ class MeronomyGraph(SceneGraph3DBase):
         for putative_rel in putative_holonym_meronyms:
 
             # Extract the corresponding nodes
-            node_meronym: GraphNode = node_list_initial[putative_rel[0]]
-            node_holonym: GraphNode = node_list_initial[putative_rel[1]]
+            first_val_is_meronym = putative_rel[2]
+            if first_val_is_meronym:
+                node_meronym: GraphNode = node_list_initial[putative_rel[0]]
+                node_holonym: GraphNode = node_list_initial[putative_rel[1]]
+            else:
+                node_meronym: GraphNode = node_list_initial[putative_rel[1]]
+                node_holonym: GraphNode = node_list_initial[putative_rel[0]]
 
             # If they are close enough and the holonym is larger than the meronym, declare this putative relationship as detected
-            if self.shortest_dist_to_node_size_ratio(node_meronym, node_holonym) < self.meronomy_params.ratio_dist2length_threshold_holonym_meronym and node_holonym.get_volume() > node_meronym.get_volume():
+            if self.shortest_dist_to_node_size_ratio(node_meronym, node_holonym) < \
+               self.meronomy_params.ratio_dist2length_threshold_holonym_meronym \
+               and node_holonym.get_volume() > node_meronym.get_volume():
 
                 # Put into detected list with meronym first
-                if putative_rel[2]:
+                if first_val_is_meronym:
                     detected_holonym_meronyms.append((putative_rel[0], putative_rel[1]))
                 else:
                     detected_holonym_meronyms.append((putative_rel[1], putative_rel[0]))
        
-        # Iterate over all detected holonym-meronym relationships to resolve overlaps and conflicts
-        overlap = True
-        while overlap:
-            overlap = False
+        # Resolve overlapping assignments
+        node_list_centroids = np.stack([node.get_centroid() for node in node_list_initial])
+        detected_holonym_meronyms = resolve_overlapping_meronym_to_holonym_assignments(detected_holonym_meronyms, node_list_centroids)
 
-            # Map each child list index of the detected holonyms to the indices of tuples containing it
-            meronym_list_index_to_holonym_list_index = defaultdict(list)
-            for dhm in detected_holonym_meronyms:
-                meronym_list_index_to_holonym_list_index[dhm[0]].append(dhm[1])
-
-            # Find out if any meronyms have two or more detected holonyms
-            for meronym_index, detected_holonym_indices in meronym_list_index_to_holonym_list_index.items():
-                if len(detected_holonym_indices) > 1:
-
-                    # If so, pick whichever one is closest to it geometrically
-                    putative_holonyms: list[GraphNode] = [node_list_initial[idx] for idx in detected_holonym_indices]
-                    meronym: GraphNode = node_list_initial[meronym_index]
-
-                    meronym_cen: np.ndarray = meronym.get_centroid()
-                    centroid_distances = [np.linalg.norm(meronym_cen - holonym.get_centroid()) for holonym in putative_holonyms]
-                    holonym_to_keep_idx = centroid_distances.index(min(centroid_distances))
-                    
-                    # Delete all other holonym_meronym relationships
-                    for idx in sorted(detected_holonym_indices, reverse=True):
-                        if idx != holonym_to_keep_idx:
-                            detected_holonym_meronyms.pop(idx)
-
-                    # Our mapping has changed, so reloop
-                    overlap = True
-                    break
-
-        # For each detected holonym-meronym relationship (after conflict resolution), alter the graph
+        # For each detected holonym-meronym relationship (after conflict resolution), alter the graph if this relationship doesn't already exist
         for detected_rel in detected_holonym_meronyms:
-            any_inferences_occurred = True
 
             # Extract the corresponding nodes
             node_meronym: GraphNode = node_list_initial[detected_rel[0]]
             node_holonym: GraphNode = node_list_initial[detected_rel[1]]
 
+            # If the meronym is already a child of the holonym, skip
+            if node_meronym.get_parent().get_id() == node_holonym.get_id():
+                continue
+
+            # If the meronym is currently the parent of the holonym, skip
+            if node_holonym.get_parent().get_id() == node_meronym.get_id():
+                continue
+            any_inferences_occurred = True
+
             # Load words and some meronyms/holonyms
-            word_holonym: WordWrapper = node_holonym.get_words().words[0]
+            word_holonym: WordWrapper = node_holonym.get_word()
 
             # Move the meronym to be child of holonym
+            self.rerun_window.update_graph(self.root_node)
             deleted_ids = node_meronym.remove_from_graph_complete()
+            self.rerun_window.update_graph(self.root_node)
             node_holonym.add_child(node_meronym)
-            node_meronym.get_parent().remove_child(node_meronym)
             node_meronym.set_parent(node_holonym)
 
             # Now that we've detected this relationship, we want to strengthen our
             # believed embeddings towards these word for holonym (since adding meronym
             # will skew holonym towards that word).
-            holonym_emb: np.ndarray = wordnetWrapper.get_embedding_for_word(word_holonym.word)
+            holonym_emb: np.ndarray = GraphNode.wordnetWrapper.get_embedding_for_word(word_holonym.word)
             total_weight = node_holonym.get_total_weight_of_semantic_descriptors()
             node_holonym.add_semantic_descriptors([(holonym_emb, total_weight * self.meronomy_params.ratio_relationship_weight_2_total_weight)])
             if GraphNode.params.calculate_descriptor_incrementally:
@@ -348,7 +315,7 @@ class MeronomyGraph(SceneGraph3DBase):
                 logger.info(f"[bright_red] Discard: [/bright_red] Node(s) {deleted_ids} removed as not enough remaining points with children removal.")
 
             self.rerun_window.update_graph(self.root_node)
-            logger.info(f"[dark_goldenrod]Holonym-Meronym Relationship Detected[/dark_goldenrod]: Node {node_meronym.get_id()} {node_meronym.get_words()} as meronym of {node_holonym.get_id()} {node_holonym.get_words()}")
+            logger.info(f"[dark_goldenrod]Holonym-Meronym Relationship Detected[/dark_goldenrod]: Node {node_meronym.get_id()} {node_meronym.get_word()} as meronym of {node_holonym.get_id()} {node_holonym.get_word()}")
         
         return any_inferences_occurred
 
@@ -414,19 +381,19 @@ class MeronomyGraph(SceneGraph3DBase):
                 # Update embedding so that it matches the word most of all!
                 # TODO: If there are multiple shared holonyms, maybe update with combination of all?
                 shared_holonyms: list[str] = sorted(detected_holonym[1])
-                holonym_emb: np.ndarray = wordnetWrapper.get_embedding_for_word(shared_holonyms[0])
+                holonym_emb: np.ndarray = GraphNode.wordnetWrapper.get_embedding_for_word(shared_holonyms[0])
                 total_weight = holonym.get_total_weight_of_semantic_descriptors()
                 holonym.add_semantic_descriptors([(holonym_emb, total_weight * self.meronomy_params.ratio_relationship_weight_2_total_weight)])
                 if GraphNode.params.calculate_descriptor_incrementally:
                     raise NotImplementedError("Holonym Inference not currently supported with incremental semantic descriptor!")
 
                 # Print the detected holonym
+                self.rerun_window.update_graph(self.root_node)
                 output_str = f"[gold1]Shared Holonym Detected[/gold1]: Node {holonym.get_id()} {shared_holonyms} from children "
                 for i in range(len(nodes)):
-                    output_str += f"{nodes[i].get_id()} {nodes[i].get_words()}"
+                    output_str += f"{nodes[i].get_id()} {nodes[i].get_word()}"
                     if i + 1 < len(nodes): output_str += f", "
                 logger.info(output_str)
-                self.rerun_window.update_graph(self.root_node)
 
             else:
                 raise RuntimeError("Detected Holonym is not a valid GraphNode!")

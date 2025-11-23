@@ -199,6 +199,7 @@ def run_slam(param_dir: str, output_dir: str | None, wandb_project: str, max_tim
         window_index = 0
         for i in range(len(system_params.data_params.runs)):
             for j in range(i, len(system_params.data_params.runs)):
+                if i == j: continue
 
                 print(f"Running alignment for {system_params.data_params.runs[i]}_{system_params.data_params.runs[j]}")
                 
@@ -399,7 +400,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-p', '--params', type=str, help='Path to params directory', required=True, default=None)
     parser.add_argument('-o', '--output-dir', type=str, help='Path to output for this demo', required=False, default=None)
-    parser.add_argument('--wandb-project', type=str, default='MeronomyGraph Ablation v1.1', required=False)
+    parser.add_argument('--wandb-project', type=str, default='MeronomyGraph - HERCULES - V1.0', required=False)
     parser.add_argument('--max-time', type=float, default=None, help='If the input data is too large, this allows a maximum time to be set, such that if the mapping will be chunked into max_time increments and fused together')
     parser.add_argument('--skip-map', action='store_true', help='Skip mapping')
     parser.add_argument('--skip-align', action='store_true', help='Skip alignment')

@@ -8,6 +8,8 @@ class MeronomyGraphParams(BaseModel):
     Params for Meronomy Graph generation and processing.
     """
 
+    initial_word_dict: list[str]
+
     # ===== Synonym Merges =====
     enable_synonym_merges: bool
     min_cos_sim_for_synonym: float

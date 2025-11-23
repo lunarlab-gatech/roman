@@ -169,6 +169,26 @@ class TestSceneGraphUtils(unittest.TestCase):
 
         for tup in output_detected_holonyms_exp:
             self.assertIn(tup, output_detected_holonyms)
+    
+    def test_resolve_overlapping_meronym_to_holonym_assignments(self):
+        """ Ensure that we can resolve overlapping meronym to holonym assignments correctly. """
+
+        detected_holonym_meronyms: list[tuple[int, int]] = \
+            [(0, 2), (1, 2), (1, 3), (0, 1), (0, 3), (3, 4), (3, 5)]
+        node_list_centroids: np.ndarray = np.array(
+            [[0, 0, 0],
+             [1, 1, 1],
+             [2, 2, 2],
+             [0.5, 0.5, 0.5],
+             [5, 5, 5],
+             [6, 6, 6]])
+        
+        resolved_detected_holonym_meronyms: list[tuple[int, int]] = \
+            [(0, 3), (1, 3), (3, 4)]
+        
+        result = resolve_overlapping_meronym_to_holonym_assignments(
+            detected_holonym_meronyms, node_list_centroids)
+        np.testing.assert_array_equal(resolved_detected_holonym_meronyms, result)
 
     def test_merge_objs_via_function(self):
         # Generate example list of sets

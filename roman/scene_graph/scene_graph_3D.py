@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from enum import Enum
-from .graph_node import GraphNode, wordnetWrapper
+from .graph_node import GraphNode
 from .scene_graph_utils import find_point_overlap_with_hulls, convex_hull_geometric_overlap, shortest_dist_between_convex_hulls, expand_hull_outward_by_fixed_offset, merge_overlapping_sets, merge_objs_via_function
 from ..logger import logger
 from ..map.observation import Observation
@@ -18,13 +18,10 @@ from robotdatapy.data.img_data import CameraParams
 from robotdatapy.transform import transform
 from roman.map.map import ROMANMap
 from roman.object.segment import Segment
-from roman.params.fastsam_params import FastSAMParams
-from roman.params.system_params import SystemParams
 from .scene_graph_3D_base import SceneGraph3DBase
 from scipy.optimize import linear_sum_assignment
 from typeguard import typechecked
 from typing import Any
-from .word_net_wrapper import WordWrapper, WordListWrapper
 
 multiprocessing.set_start_method("spawn", force=True)
 
