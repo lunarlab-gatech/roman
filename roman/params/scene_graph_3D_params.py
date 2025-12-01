@@ -32,45 +32,9 @@ class SceneGraph3DParams(BaseModel):
 
 class GraphNodeParams(BaseModel):
 
-    # ===== Initialization ===== 
-    dbscan_and_remove_outliers_on_node_creation: bool
-    downsample_on_node_creation: bool
-    check_minimum_node_size_on_node_creation: bool
-
     # ===== Convex Hull ===== 
     require_valid_convex_hull: bool
     use_convex_hull_for_volume: bool
-    convex_hull_outward_offset: float
-
-    # ===== Voxel Downsampling ===== 
-    enable_variable_voxel_size: bool
-    voxel_size_not_variable: float
-    voxel_size_variable_ratio_to_length: float
-
-    # ===== DBSCAN Parameters ===== 
-    dbscan_min_points: int
-    enable_roman_dbscan: bool
-    enable_variable_epsilon: bool
-    epsilon_not_variable: float
-    epsilon_variable_ratio_to_length: float
-    min_cluster_percentage: float
-
-    # ===== Statistical Outlier Removal Parameters =====
-    enable_remove_statistical_outliers: bool
-    stat_out_num_neighbors: int
-    stat_out_std_ratio: float
-
-    # ===== Semantic Descriptor =====
-    calculate_descriptor_incrementally: bool
-    use_weighted_average_for_descriptor: bool
-    ignore_descriptors_from_observation: bool
-
-    # ===== Data inheritance from child nodes =====
-    parent_node_inherits_data_from_children: bool
-    parent_node_inherits_descriptors_from_children: bool
-
-    # ===== Parameters to mimic ROMAN functionality =====
-    merge_with_node_use_first_seen_time_from_self: bool
 
     @classmethod
     def from_yaml(cls, path: str) -> GraphNodeParams:
@@ -78,13 +42,13 @@ class GraphNodeParams(BaseModel):
             raw_cfg = yaml.safe_load(f)
 
         new_params = cls(**raw_cfg)
-        if new_params.calculate_descriptor_incrementally and new_params.use_weighted_average_for_descriptor:
-            raise ValueError("Only one of 'calculate_descriptor_incrementally' or "
-                "'use_weighted_average_for_descriptor' can be True.")
-        if new_params.calculate_descriptor_incrementally and new_params.parent_node_inherits_data_from_children:
-            raise ValueError("Only one of 'calculate_descriptor_incrementally' or "
-                "'parent_node_includes_child_node_for_data' can be True.")
         if new_params.use_convex_hull_for_volume and not new_params.require_valid_convex_hull:
             raise ValueError("'use_convex_hull_for_volume' is True but `require_valid_convex_hull` is False.")
 
         return new_params
+
+    @classmethod
+    def get_default_for_test_cases(cls) -> GraphNodeParams:
+        return cls(
+            require_valid_convex_hull=False,
+            use_convex_hull_for_volume=False)

@@ -1,45 +1,31 @@
 from __future__ import annotations
 
-from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import copy
 from enum import Enum
 from .graph_node import GraphNode
 from .scene_graph_utils import *
 from ..logger import logger
-from ..map.observation import Observation
-import multiprocessing
 import numpy as np
-import os
-from ..params.data_params import ImgDataParams
-from ..params.scene_graph_3D_params import SceneGraph3DParams, GraphNodeParams
 from ..params.meronomy_graph_params import MeronomyGraphParams
-import pickle
 from ..rerun_wrapper.rerun_wrapper_window_meronomy import RerunWrapperWindowMeronomy
-from robotdatapy.data.img_data import CameraParams
-from robotdatapy.transform import transform
-from roman.map.map import ROMANMap
 from roman.object.segment import Segment
-from roman.params.fastsam_params import FastSAMParams
 from roman.params.system_params import SystemParams
 from .scene_graph_3D_base import SceneGraph3DBase
-from scipy.optimize import linear_sum_assignment
 from typeguard import typechecked
 from typing import Any
-from .word_net_wrapper import WordWrapper, WordListWrapper
+from .word_net_wrapper import WordWrapper, WordListWrapper, WordNetWrapper
 
 @typechecked
 class MeronomyGraph(SceneGraph3DBase):
 
-    def __init__(self, params: SystemParams, nodes: list[GraphNode], rerun_window: RerunWrapperWindowMeronomy):
+    def __init__(self, params: SystemParams, nodes: list[GraphNode], rerun_window: RerunWrapperWindowMeronomy, wordnet_wrapper: WordNetWrapper):
 
         # Save Parameters
         super().__init__(params)
         self.meronomy_params: MeronomyGraphParams = params.meronomy_graph_params
         self.rerun_window: RerunWrapperWindowMeronomy = rerun_window
 
-        # Set words for use in GraphNodes
-        GraphNode.wordnetWrapper.set_initial_word_list(self.meronomy_params.initial_word_dict)
+        # WordNetWrapper for semantic queries
+        self.wordnet_wrapper = wordnet_wrapper
 
         # Add nodes to graph
         for node in nodes:
@@ -202,6 +188,7 @@ class MeronomyGraph(SceneGraph3DBase):
                     node_j_org_word = node_j.get_word()
 
                     merged_node = node_i.merge_parent_and_child(node_j, new_id=self.next_node_ID)
+                    merged_node.set_is_meronomy_created_or_altered(True)
                     self.next_node_ID += 1
                     self.rerun_window.update_graph(self.root_node)
                     logger.info(f"[dark_green]Parent-Child Synonymy[/dark_green]: Merging Node {node_i_org_id} ({node_i_org_word}) and Node {node_j_org_id} ({node_j_org_word}) into Node {merged_node.get_id()} ({merged_node.get_word()})")
@@ -217,6 +204,7 @@ class MeronomyGraph(SceneGraph3DBase):
 
                 # Merge the two nodes
                 merged_node = node_i.merge_with_node_meronomy(node_j, keep_children=True, new_id=self.next_node_ID)
+                merged_node.set_is_meronomy_created_or_altered(True)
                 if merged_node is None:
                     logger.info(f"[bright_red]Merge Fail[/bright_red]: Resulting Node was invalid.")
                 else:
@@ -240,6 +228,7 @@ class MeronomyGraph(SceneGraph3DBase):
 
         # Get all putative holonym-meronym relationships based on WordNet
         all_nodes = self.root_node.get_all_descendents()
+        if len(all_nodes) == 0: return any_inferences_occurred
         putative_holonym_meronyms: list[tuple[int, int, bool]] = MeronomyGraph.find_putative_relationships(
                     all_nodes, relationship_type=MeronomyGraph.NodeRelationship.HOLONYM_MERONYM, 
                     min_cos_sim_for_synonym=self.meronomy_params.min_cos_sim_for_synonym)
@@ -299,16 +288,8 @@ class MeronomyGraph(SceneGraph3DBase):
             deleted_ids = node_meronym.remove_from_graph_complete()
             self.rerun_window.update_graph(self.root_node)
             node_holonym.add_child(node_meronym)
+            node_holonym.set_is_meronomy_created_or_altered(True)
             node_meronym.set_parent(node_holonym)
-
-            # Now that we've detected this relationship, we want to strengthen our
-            # believed embeddings towards these word for holonym (since adding meronym
-            # will skew holonym towards that word).
-            holonym_emb: np.ndarray = GraphNode.wordnetWrapper.get_embedding_for_word(word_holonym.word)
-            total_weight = node_holonym.get_total_weight_of_semantic_descriptors()
-            node_holonym.add_semantic_descriptors([(holonym_emb, total_weight * self.meronomy_params.ratio_relationship_weight_2_total_weight)])
-            if GraphNode.params.calculate_descriptor_incrementally:
-                raise NotImplementedError("Holonym_Meronym Inference not currently supported with incremental semantic descriptor!")
 
             # Print any deleted nodes
             if len(deleted_ids) > 0:
@@ -344,7 +325,6 @@ class MeronomyGraph(SceneGraph3DBase):
             if self.shortest_dist_to_node_size_ratio(node_i, node_j) < self.meronomy_params.ratio_dist2length_threshold_shared_holonym:
                 detected_holonyms.append(({putative_holonym[0], putative_holonym[1]}, set(putative_holonym[2])))
 
-
         # Iterate over all detected shared holonyms to resolve overlaps and conflicts
         detected_holonyms = merge_overlapping_holonyms(detected_holonyms)
                     
@@ -354,16 +334,15 @@ class MeronomyGraph(SceneGraph3DBase):
             # Extract the corresponding nodes
             nodes: list[GraphNode] = [node_list_initial[i] for i in detected_holonym[0]]
 
-            # Calculate the first seen time  and first pose as earliest from all nodes (and children)
-            earliest_node = min(nodes, key=lambda n: n.get_time_first_seen())
-            first_seen = earliest_node.get_time_first_seen()
-            first_pose = earliest_node.get_first_pose()
+            # Update embedding so that it matches the word most of all!
+            # TODO: If there are multiple shared holonyms, maybe update with combination of all?
+            shared_holonyms: list[str] = sorted(detected_holonym[1])
+            holonym_emb: np.ndarray = self.wordnet_wrapper.get_embedding_for_word(shared_holonyms[0])
 
             # Create the holonym node
-            holonym: GraphNode | None = GraphNode.create_node_if_possible(self.next_node_ID, 
-                                            self.root_node, [], None, 0, np.zeros((0, 3), dtype=np.float64), 
-                                            nodes, first_seen, 0.0, 0.0, 
-                                            first_pose, np.eye(4), np.eye(4), is_RootGraphNode=False, run_dbscan=False)
+            holonym: GraphNode | None = GraphNode.create_node_if_possible(self.next_node_ID, self.root_node, holonym_emb, 
+                                                                          np.zeros((0, 3), dtype=np.float64), nodes)
+            holonym.set_is_meronomy_created_or_altered(True)
 
             # If the node was successfully created, add to the graph
             if holonym is not None:
@@ -373,19 +352,7 @@ class MeronomyGraph(SceneGraph3DBase):
                 # TODO: Maybe search to see if other nodes are in the overlap space between
                 # the two children which should also be part of the set?
 
-                for node in nodes:
-                    holonym.num_sightings += node.num_sightings
-
                 self.place_node_in_graph(holonym, self.root_node, nodes)
-
-                # Update embedding so that it matches the word most of all!
-                # TODO: If there are multiple shared holonyms, maybe update with combination of all?
-                shared_holonyms: list[str] = sorted(detected_holonym[1])
-                holonym_emb: np.ndarray = GraphNode.wordnetWrapper.get_embedding_for_word(shared_holonyms[0])
-                total_weight = holonym.get_total_weight_of_semantic_descriptors()
-                holonym.add_semantic_descriptors([(holonym_emb, total_weight * self.meronomy_params.ratio_relationship_weight_2_total_weight)])
-                if GraphNode.params.calculate_descriptor_incrementally:
-                    raise NotImplementedError("Holonym Inference not currently supported with incremental semantic descriptor!")
 
                 # Print the detected holonym
                 self.rerun_window.update_graph(self.root_node)

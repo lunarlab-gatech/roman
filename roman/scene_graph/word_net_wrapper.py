@@ -45,40 +45,52 @@ class SynsetWrapper():
         synset_str: str = self.synset.name()
         return synset_str.split('.')[0].replace("_", " ")
     
-    def get_all_meronyms(self, include_meronyms: bool, meronym_levels: int = 1) -> list[Synset]:
-        meronyms = []
+    def get_all_meronyms(self, include_hypernyms: bool, meronym_levels: int = 1) -> set[Synset]:
+        """
+        Parameters:
+            include_hypernyms: Whether to include meronyms from direct hypernyms as well.
+            meronym_levels: The number of levels of meronyms to retrieve.
+        """
+        meronyms: set[Synset] = set()
 
-        if meronym_levels > 0:
-            meronyms = self.synset.part_meronyms()
-            meronyms += self.synset.substance_meronyms()
-            meronyms += self.synset.member_meronyms()
+        if meronym_levels <= 0: return meronyms
 
-        lower_level_meronyms = []
+        meronyms = set(self.synset.part_meronyms())
+        meronyms.update(self.synset.substance_meronyms())
+        meronyms.update(self.synset.member_meronyms())
+
+        lower_level_meronyms = set()
         for meronym in meronyms:
-            lower_level_meronyms += SynsetWrapper(meronym).get_all_meronyms(include_meronyms, meronym_levels-1)
-        meronyms += lower_level_meronyms
-
-        if include_meronyms:
-            for hypernym in self.synset.hypernyms():
-                meronyms += SynsetWrapper(hypernym).get_all_meronyms(False, meronym_levels)
-        return meronyms
-    
-    def get_all_holonyms(self, include_hypernyms: bool, holonym_levels: int = 1) -> list[Synset]:
-        holonyms = []
-
-        if holonym_levels > 0:
-            holonyms = self.synset.part_holonyms()
-            holonyms += self.synset.substance_holonyms()
-            holonyms += self.synset.member_holonyms()
-
-        higher_level_holonyms = []
-        for holonym in holonyms:
-            higher_level_holonyms += SynsetWrapper(holonym).get_all_holonyms(include_hypernyms, holonym_levels-1)
-        holonyms += higher_level_holonyms
+            lower_level_meronyms.update(SynsetWrapper(meronym).get_all_meronyms(include_hypernyms, meronym_levels-1))
+        meronyms.update(lower_level_meronyms)
 
         if include_hypernyms:
             for hypernym in self.synset.hypernyms():
-                holonyms += SynsetWrapper(hypernym).get_all_holonyms(False, holonym_levels)
+                meronyms.update(SynsetWrapper(hypernym).get_all_meronyms(False, meronym_levels))
+        return meronyms
+    
+    def get_all_holonyms(self, include_hypernyms: bool, holonym_levels: int = 1) -> set[Synset]:
+        """
+        Parameters:
+            include_hypernyms: Whether to include holonyms from direct hypernyms as well.
+            holonym_levels: The number of levels of holonyms to retrieve.
+        """
+        holonyms: set[Synset] = set()
+
+        if holonym_levels <= 0: return holonyms
+
+        holonyms = set(self.synset.part_holonyms())
+        holonyms.update(self.synset.substance_holonyms())
+        holonyms.update(self.synset.member_holonyms())
+
+        higher_level_holonyms = set()
+        for holonym in holonyms:
+            higher_level_holonyms.update(SynsetWrapper(holonym).get_all_holonyms(include_hypernyms, holonym_levels-1))
+        holonyms.update(higher_level_holonyms)
+
+        if include_hypernyms:
+            for hypernym in self.synset.hypernyms():
+                holonyms.update(SynsetWrapper(hypernym).get_all_holonyms(False, holonym_levels))
         return holonyms
 
     @staticmethod
@@ -121,7 +133,7 @@ class SynsetWrapper():
                             "Part Holonyms", "Substance Holonyms", "Member Holonyms",
                             "Part Meronyms", "Substance Meronyms", "Member Meronyms",
                             "In Region Domains", "In Topic Domains", "In Usage Domains"]
-        str_rep = f"Name: {self.name()}\n"
+        str_rep = f"Name: {self.synset.name()}\n"
 
         # Extract lemmas
         lemma_names = [n.replace("_", " ") for n in self.synset.lemma_names()]
@@ -141,8 +153,8 @@ class SynsetWrapper():
                 str_rep += f"{method_str}: {SynsetWrapper.synsets_as_strings(synsets)}\n"
 
         # Print Upwards Meronyms & Holonyms
-        meronyms_upwards = self.get_all_meronyms(True)
-        holonyms_upwards = self.get_all_holonyms(True)
+        meronyms_upwards = sorted(self.get_all_meronyms(True))
+        holonyms_upwards = sorted(self.get_all_holonyms(True))
         if len(meronyms_upwards) > 0:
             str_rep += f"Upwards Meronyms: {SynsetWrapper.synsets_as_strings(meronyms_upwards, 20)}\n"
         if len(holonyms_upwards) > 0:
@@ -255,19 +267,7 @@ class WordListWrapper():
         for word in self.words:
             word_list.append(word.word)
         return word_list
-    
-    # def get_all_meronyms(self, include_hypernyms: bool, meronym_levels: int = 1) -> set[str]:
-    #     meronyms: list[Synset] = []
-    #     for word in self.words:
-    #         meronyms += word.get_all_meronyms(include_hypernyms, meronym_levels)
-    #     return SynsetWrapper.all_words_in_synsets(meronyms)
-    
-    # def get_all_holonyms(self, include_hypernyms: bool, holonym_levels: int = 1) -> set[str]:
-    #     holonyms: list[Synset] = []
-    #     for word in self.words:
-    #         holonyms += word.get_all_holonyms(include_hypernyms, holonym_levels)
-    #     return SynsetWrapper.all_words_in_synsets(holonyms)
-    
+
 class WordNetWrapper():
 
     def __init__(self):
@@ -299,7 +299,7 @@ class WordNetWrapper():
         self.word_list.sort()
         self.num_of_words: int = len(self.word_list)
         logger.debug(f"Final Word List: {self.word_list}")
-        logger.info(f"Number of Words in dictionary: {len(self.word_list)}")
+        logger.debug(f"Number of Words in dictionary: {len(self.word_list)}")
 
         # Check if we have access to cupy
         try:

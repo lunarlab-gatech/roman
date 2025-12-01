@@ -19,7 +19,7 @@ class TestPoseDataGTParams(unittest.TestCase):
 
         with open(files_path / "system_params.yaml") as f:
             data = yaml.safe_load(f)
-        path_params = PathParams.from_dict(data['path_params'], check_background_img_path=False)
+        path_params = PathParams.from_dict(data['path_params'])
         data_params = DataParams.from_yaml(files_path / "data.yaml", path_params)
         pose_data_gt_params = PoseDataGTParams.from_yaml(files_path / "gt_pose.yaml", path_params)
 
@@ -46,7 +46,7 @@ class TestPoseDataParams(unittest.TestCase):
             pose_data = yaml.safe_load(f)
         with open(files_path / 'system_params.yaml') as f:
             path_data = yaml.safe_load(f)
-        path_params = PathParams.from_dict(path_data['path_params'], check_background_img_path=False)
+        path_params = PathParams.from_dict(path_data['path_params'])
         path_params.path_to_dataset_folder = files_path
         poseDataParams = PoseDataParams.from_dict(pose_data, path_params)
 

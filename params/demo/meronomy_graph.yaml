@@ -14,6 +14,5 @@ overlapping_nodes_throw_away_overlap: True
 # ===== Meronomy Relationship Inference =====
 enable_shared_holonym_inference: True
 enable_holonym_meronym_inference: True
-ratio_dist2length_threshold_shared_holonym: 0.05
-ratio_dist2length_threshold_holonym_meronym: 0.05
-ratio_relationship_weight_2_total_weight: 2
+ratio_dist2length_threshold_shared_holonym: 0.1
+ratio_dist2length_threshold_holonym_meronym: 0.1

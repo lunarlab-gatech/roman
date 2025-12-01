@@ -11,8 +11,7 @@ from typeguard import typechecked
 class SceneGraph3DBase:
     
     def __init__(self, params: SystemParams):
-        self.root_node: GraphNode = GraphNode.create_node_if_possible(-1, None, [], None, 0, np.zeros((0, 3), dtype=np.float64), 
-                        [], 0, 0, 0, np.empty(0), np.empty(0), np.empty(0), is_RootGraphNode=True)
+        self.root_node: GraphNode = GraphNode.create_node_if_possible(-1, None, np.zeros(0), np.zeros((0, 3), dtype=np.float64), [], is_RootGraphNode=True)
         
         # Save parameters
         self.system_params: SystemParams = params
@@ -90,10 +89,11 @@ class SceneGraph3DBase:
         new_children: list[GraphNode] = []
         if not only_leaf:
             for child in new_parent.get_children():
-                if child.is_segment_or_inactive():
-                    _, child_enc, _ = self.geometric_overlap_cached(child, node)
-                    if child_enc >= 0.5:
-                        new_children.append(child)
+                # If SceneGraph3D is using this, uncomment "if child.is_segment_or_inactive():"
+
+                _, child_enc, _ = self.geometric_overlap_cached(child, node)
+                if child_enc >= 0.5:
+                    new_children.append(child)
 
         # Place our already fully formed node into its spot
         self.place_node_in_graph(node, new_parent, new_children)

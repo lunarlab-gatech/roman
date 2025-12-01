@@ -22,10 +22,6 @@ class RerunWrapperWindowMeronomy(RerunWrapperWindow):
         super().__init__(enable)
         self.robot_name: str = robot_name
         self.id_to_color_mapping: dict = dict()
-        self.node_statuses_to_show: list = [GraphNode.SegmentStatus.NURSERY,
-                                            GraphNode.SegmentStatus.SEGMENT,
-                                            GraphNode.SegmentStatus.INACTIVE, 
-                                            GraphNode.SegmentStatus.GRAVEYARD]
 
     # ===================== Methods to Override =====================
     def _get_blueprint_part(self) -> rrb.BlueprintPart:
@@ -44,5 +40,21 @@ class RerunWrapperWindowMeronomy(RerunWrapperWindow):
     
     # ===================== Data Loggers =====================
     def update_graph(self, root_node: GraphNode):
-        self.id_to_color_mapping = self._assign_colors_graph(self.id_to_color_mapping, root_node, HSVSpace((0.0, 1.0), (0.2, 1.0), (0.2, 1.0)))
-        self._update_graph_general(root_node, self.id_to_color_mapping, self.node_statuses_to_show)
+        self.id_to_color_mapping = self._assign_colors_meronomy(self.id_to_color_mapping, root_node)
+        self._update_graph_general(root_node, self.id_to_color_mapping)
+
+    # ===================== Color Assignment =====================
+    def _assign_colors_meronomy(self, id_to_color_mapping: dict[int, np.ndarray], root_node: GraphNode) -> dict[int, np.ndarray]:
+        """ Nodes identical to their segment counterparts stay yellow, while meronym altered nodes are purple """
+
+        for node in root_node:
+            if node.is_meronomy_created_or_altered:
+                # Purple for meronomy created/altered nodes
+                id_to_color_mapping[node.id] = np.array([128, 0, 128], dtype=np.uint8)
+            elif node.is_descendent_of_meronomy_created_or_altered_node():
+                # Cyan for descendents of meronomy created/altered nodes
+                id_to_color_mapping[node.id] = np.array([0, 255, 255], dtype=np.uint8)
+            else:
+                # Yellow for original segments
+                id_to_color_mapping[node.id] = np.array([255, 255, 0], dtype=np.uint8)
+        return id_to_color_mapping

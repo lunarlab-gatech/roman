@@ -26,7 +26,6 @@ class MeronomyGraphParams(BaseModel):
     enable_holonym_meronym_inference: bool
     ratio_dist2length_threshold_shared_holonym: float
     ratio_dist2length_threshold_holonym_meronym: float
-    ratio_relationship_weight_2_total_weight: float
 
     @classmethod
     def from_yaml(cls, path: str) -> MeronomyGraphParams:

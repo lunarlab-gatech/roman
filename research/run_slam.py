@@ -199,7 +199,6 @@ def run_slam(param_dir: str, output_dir: str | None, wandb_project: str, max_tim
         window_index = 0
         for i in range(len(system_params.data_params.runs)):
             for j in range(i, len(system_params.data_params.runs)):
-                if i == j: continue
 
                 print(f"Running alignment for {system_params.data_params.runs[i]}_{system_params.data_params.runs[j]}")
                 

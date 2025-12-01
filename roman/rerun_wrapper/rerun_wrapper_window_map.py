@@ -26,8 +26,6 @@ class RerunWrapperWindowMap(RerunWrapperWindow):
         self.robot_name: str = robot_name
         self.fastsam_params: FastSAMParams = fastsam_params
         self.id_to_color_mapping: dict = dict()
-        self.node_statuses_to_show: list = [GraphNode.SegmentStatus.SEGMENT,
-                                            GraphNode.SegmentStatus.INACTIVE]
 
     # ===================== Methods to Override =====================
     def _get_blueprint_part(self) -> rrb.BlueprintPart:
@@ -51,7 +49,7 @@ class RerunWrapperWindowMap(RerunWrapperWindow):
     # ===================== Data Loggers =====================
     def update_graph(self, root_node: GraphNode):
         self.id_to_color_mapping = self._assign_colors_graph(self.id_to_color_mapping, root_node, HSVSpace((0.0, 1.0), (0.2, 1.0), (0.2, 1.0)))
-        self._update_graph_general(root_node, self.id_to_color_mapping, self.node_statuses_to_show)
+        self._update_graph_general(root_node, self.id_to_color_mapping)
     
     def update_img(self, img: np.ndarray) -> None:
         if not self.enable: return

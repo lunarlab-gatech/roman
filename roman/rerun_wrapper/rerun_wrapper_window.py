@@ -44,8 +44,7 @@ class RerunWrapperWindow():
         box_quats.append(quat.tolist())
 
     # ===================== Data Loggers =====================
-    def _update_graph_general(self, root_node: GraphNode, id_to_color_mapping: dict[int, np.ndarray], 
-                                  node_statuses_to_show: list[GraphNode.SegmentStatus]):
+    def _update_graph_general(self, root_node: GraphNode, id_to_color_mapping: dict[int, np.ndarray]):
         if not self.enable: return
         self._update_frame_tick()
 
@@ -59,18 +58,16 @@ class RerunWrapperWindow():
 
         # Iterate through all nodes reachable from the root that we want to display
         for node in root_node:
-            if not node.get_status() in node_statuses_to_show: continue
-
             node_ids.append(node.get_id())
 
             # Add edges
             if not node.is_RootGraphNode():
                 parent = node.get_parent()
-                if parent.get_status() != GraphNode.SegmentStatus.GRAVEYARD:
-                    edges.append((node.get_id(), parent.get_id()))
+                # if parent.get_status() != GraphNode.SegmentStatus.GRAVEYARD:
+                edges.append((node.get_id(), parent.get_id()))
             for child in node.get_children():
-                if child.get_status() != GraphNode.SegmentStatus.GRAVEYARD:
-                    edges.append((node.get_id(), child.get_id()))
+                # if child.get_status() != GraphNode.SegmentStatus.GRAVEYARD:
+                edges.append((node.get_id(), child.get_id()))
 
             # Colors
             colors_rgb = np.concatenate((colors_rgb, [id_to_color_mapping[node.get_id()]]), dtype=np.uint8)
@@ -91,7 +88,8 @@ class RerunWrapperWindow():
         line_colors = []
 
         for node in root_node:
-            if not node.get_status() in node_statuses_to_show or node.is_RootGraphNode(): continue
+            # if not node.get_status() in node_statuses_to_show or node.is_RootGraphNode(): continue
+            if node.is_RootGraphNode(): continue
 
             # Axis-aligned bounding box
             obb = node.get_oriented_bbox()
@@ -134,7 +132,7 @@ class RerunWrapperWindow():
         rr.log(f"/world/{self._get_curr_robot_name()}/words", rr.Boxes3D(centers=box_centers, half_sizes=box_half_sizes,
                             quaternions=box_quats, colors=box_colors, radii=0, fill_mode="line",
                             labels=box_words))
-        rr.log(f"/world/{self._get_curr_robot_name()}/meshes", rr.LineStrips3D(strips=line_ends, colors=line_colors, radii=0.01))
+        rr.log(f"/world/{self._get_curr_robot_name()}/meshes", rr.LineStrips3D(strips=line_ends, colors=line_colors, radii=0.02))
     
     # ===================== Color Assignment =====================
     def _assign_colors_graph(self, node_colors: dict, node: GraphNode, hsv_space: HSVSpace, depth: int = 0) -> dict:

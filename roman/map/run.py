@@ -20,7 +20,6 @@ from robotdatapy.data.robot_data import NoDataNearTimeException
 
 from roman.object.segment import Segment
 from roman.map.mapper import Mapper
-from roman.scene_graph.scene_graph_3D import SceneGraph3D
 from roman.map.fastsam_wrapper import FastSAMWrapper
 from roman.params.system_params import SystemParams
 from ..rerun_wrapper.rerun_wrapper_window_map import RerunWrapperWindowMap

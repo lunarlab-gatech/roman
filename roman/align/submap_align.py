@@ -32,8 +32,8 @@ from roman.align.results import save_submap_align_results, SubmapAlignResults
 from roman.map.map import load_roman_map, ROMANMap
 from roman.object.segment import Segment
 from roman.scene_graph.graph_node import GraphNode
-from roman.scene_graph.scene_graph_3D import SceneGraph3D
 from roman.scene_graph.meronomy_graph import MeronomyGraph
+from roman.scene_graph.word_net_wrapper import WordNetWrapper
 from .roman_registration import ROMANRegistration
 
 import rerun as rr
@@ -138,8 +138,8 @@ def submap_align(system_params: SystemParams, sm_params: SubmapAlignParams, sm_i
     
     print("Total Number of Submaps-  ROBOT1: ", len(submaps[0]), " ROBOT2: ", len(submaps[1]))
 
-    # If desired, generate higher-level objects via MeronomyGraph
-    if system_params.generate_meronomy:
+    # If desired, generate higher-level objects via MeronomyGraph (only for inter-robot loop closures)
+    if system_params.generate_meronomy and not sm_params.single_robot_lc:
         GraphNode.params = system_params.graph_node_params
 
         # Generate GraphNodes from segments in the map
@@ -154,6 +154,11 @@ def submap_align(system_params: SystemParams, sm_params: SubmapAlignParams, sm_i
 
             list_seg_id_to_node.append(seg_id_to_node)
 
+        # Create WordNetWrapper used by each MeronomyGraph and GraphNode
+        wordnet_wrapper = WordNetWrapper()
+        wordnet_wrapper.set_initial_word_list(system_params.meronomy_graph_params.initial_word_dict)
+        GraphNode.wordnet_wrapper = wordnet_wrapper
+
         for i in range(2):
             for sm in submaps[i]:
                 # Get GraphNodes for relevant segments
@@ -165,7 +170,7 @@ def submap_align(system_params: SystemParams, sm_params: SubmapAlignParams, sm_i
                         nodes.append(copy.deepcopy(node))
 
                 # Create a MeronomyGraph with them and infer relationships
-                meronomyGraph = MeronomyGraph(system_params, nodes, rerun_meronomy_windows[i])
+                meronomyGraph = MeronomyGraph(system_params, nodes, rerun_meronomy_windows[i], wordnet_wrapper)
                 meronomyGraph.infer_all_relationships()
 
                 # Get the new segments from the MeronomyGraph
@@ -223,28 +228,16 @@ def submap_align(system_params: SystemParams, sm_params: SubmapAlignParams, sm_i
             submap_i = deepcopy(submaps[0][i])
             submap_j = deepcopy(submaps[1][j])
 
-            # If single_robot_lc, then delete segments from submaps that are shared between them?
-            # I think single_robot_lc means that it will try to avoid doing loop closures at all for a single robot with itself.
-            # TODO: Ask advisors; why would they do this?
+            # For single-robot loop closures, remove shared objects between the two submaps
+            # Otherwise, they will align with incorportated noise.
             if sm_params.single_robot_lc:
-                raise AssertionError("THIS IS CURRENTLY BROKEN DUE TO CHANGES IN SEGMENT/GRAPHNODE HANDLING.")
-
-                if system_params.use_roman_map_for_alignment:
-                    ids_i = set([seg.id for seg in submap_i.segments])
-                    ids_j = set([seg.id for seg in submap_j.segments])
-                    common_ids = ids_i.intersection(ids_j)
-                    for sm in [submap_i, submap_j]:
-                        to_rm = [seg for seg in sm.segments if seg.id in common_ids]
-                        for seg in to_rm:
-                            sm.segments.remove(seg)
-                else:
-                    ids_i = set([node.get_id() for node in submap_i.inactive_nodes])
-                    ids_j = set([node.get_id() for node in submap_j.inactive_nodes])
-                    common_ids = ids_i.intersection(ids_j)
-                    for submap in [submap_i, submap_j]:
-                        to_rm: list[GraphNode] = [node for node in submap.inactive_nodes if node.get_id() in common_ids]
-                        for node in to_rm:
-                            submap.inactive_nodes.remove(node)
+                ids_i = set([seg.id for seg in submap_i.segments])
+                ids_j = set([seg.id for seg in submap_j.segments])
+                common_ids = ids_i.intersection(ids_j)
+                for sm in [submap_i, submap_j]:
+                    to_rm = [seg for seg in sm.segments if seg.id in common_ids]
+                    for seg in to_rm:
+                        sm.segments.remove(seg)
 
             # Extract poses of robots with respect to the world (removing roll & pitch), using GT if available
             if sm_io.gt_pose_data[0] is not None:

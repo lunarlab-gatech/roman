@@ -25,11 +25,41 @@ class TestSynsetWrapper(unittest.TestCase):
         """ Test get_word method of SynsetWrapper. """
 
         house_synset = wn.synsets("house")[0]
-        print(house_synset.name())
         synset_wrapper = SynsetWrapper(house_synset)
-        print(synset_wrapper)
 
         self.assertEqual("house", synset_wrapper.get_word())
+
+    def test_get_all_meronyms(self):
+        """ Test get_all_meronyms method of SynsetWrapper. """
+
+        # Test that no meronyms are found when meronym_levels is 0
+        synset_wrapper: SynsetWrapper = SynsetWrapper(wn.synsets("coffee")[0])
+
+        meronyms: list[Synset] = synset_wrapper.get_all_meronyms(False, 0)
+        meronym_words: list[str] = [SynsetWrapper(meronym).get_word() for meronym in meronyms]
+        np.testing.assert_array_equal([], meronym_words)
+
+        meronyms: list[Synset] = synset_wrapper.get_all_meronyms(True, 0)
+        meronym_words: list[str] = [SynsetWrapper(meronym).get_word() for meronym in meronyms]
+        np.testing.assert_array_equal([], meronym_words)
+
+        # Test that direct meronyms are found when meronym_levels is 1
+        meronyms = synset_wrapper.get_all_meronyms(False, 1)
+        meronym_words: list[str] = [SynsetWrapper(meronym).get_word() for meronym in meronyms]
+        np.testing.assert_array_equal(sorted(['coffee bean', 'caffeine']), sorted(meronym_words))
+
+        meronyms: list[Synset] = synset_wrapper.get_all_meronyms(True, 1)
+        meronym_words: list[str] = [SynsetWrapper(meronym).get_word() for meronym in meronyms]
+        np.testing.assert_array_equal(sorted(['coffee bean', 'caffeine']), sorted(meronym_words))
+
+        # Test we get even more meronoyms when meronym_levels is 2
+        meronyms = synset_wrapper.get_all_meronyms(False, 2)
+        meronym_words: list[str] = [SynsetWrapper(meronym).get_word() for meronym in meronyms]
+        np.testing.assert_array_equal(sorted(['coffee bean', 'caffeine']), sorted(meronym_words))
+        meronyms = synset_wrapper.get_all_meronyms(True, 2)
+        meronym_words: list[str] = [SynsetWrapper(meronym).get_word() for meronym in meronyms]
+        np.testing.assert_array_equal(sorted(['coffee bean', 'caffeine', 'kernel']), sorted(meronym_words))
+
 
 if __name__ == "__main__":
     unittest.main()
